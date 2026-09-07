@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:996374079a8c49dc8162536b7bb7b59e66223ec391e7bdd5bbb609aee5e8dd24 -->
+<!-- tinybot-module-fingerprint: sha256:18ea8d30478623769cb881e9d9cae2f763974c91a433a470058bec590c39d2da -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -143,3 +143,11 @@ They do not verify formulas, formatting or charts. Text versions show the first
 32 KB, while Word and PowerPoint reuse read-only previews. Restore always uses
 the complete saved bytes. These controls acknowledge or replace the live local
 file; they are not a staged edit, history browser or finalization workflow.
+
+`OfficeContentEditor` captures native text ranges wholly within its owning
+preview. Word uses preview paragraph positions and nearby paragraph text;
+PowerPoint uses slide positions and also supports the active entire slide,
+including slides without text. Ctrl/Cmd+I opens the request editor and Escape
+cancels it locally. Source replacement or rerendering invalidates unfinished
+selections. Comparison previews omit these controls. Each Office render owns
+its DOM target so a late renderer cannot replace newer visible content.

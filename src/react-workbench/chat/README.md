@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2e9a6b273a08f067bc63d7cb2121169097633122f083681ec8b548d120300f66 -->
+<!-- tinybot-module-fingerprint: sha256:e61917d06c3889783c3d1c34f910f6aff046a5a73ae61ff6862922d83b04d7e5 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -328,3 +328,8 @@ Turn dispatch, including queued inputs. Capture failures preserve the draft
 and prevent dispatch. Explicit file references bind to their viewed revision;
 ordinary uploads do not create review snapshots. Sidecar reloads the saved
 review when a request is prepared and refreshes the live preview after restore.
+
+Word and PowerPoint selections enter the existing Artifact reference composer
+with their displayed revision, location and change instruction. Multiple
+selection requests can coexist. Actual dispatch uses the same baseline capture
+and source-revision checks as Excel; adding a request does not send it.

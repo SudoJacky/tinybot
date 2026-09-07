@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OfficeArtifactSource } from "../../app-core/chat/officeArtifact";
 import { OfficeArtifactPreview } from "./OfficeArtifactPreview";
 
@@ -21,6 +21,8 @@ vi.mock("pptx-preview", () => ({ init: parserMocks.initializePresentation }));
 function source(kind: OfficeArtifactSource["kind"]): OfficeArtifactSource {
   return { bytes: new Uint8Array([80, 75, 3, 4]), kind, title: `fixture-${kind}` };
 }
+
+afterEach(cleanup);
 
 describe("Office artifact preview", () => {
   beforeEach(() => {
@@ -145,6 +147,23 @@ describe("Office artifact preview", () => {
     expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(0);
   });
 
+  it("ignores a Word render that finishes after the source has refreshed", async () => {
+    let finishOld: (() => void) | undefined;
+    parserMocks.renderDocument.mockImplementationOnce((_bytes: ArrayBuffer, container: HTMLElement) => new Promise<void>((resolve) => {
+      finishOld = () => { container.innerHTML = "<p>Obsolete version</p>"; resolve(); };
+    })).mockImplementationOnce(async (_bytes: ArrayBuffer, container: HTMLElement) => {
+      container.innerHTML = "<p>Latest version</p>";
+    });
+    const original = source("document");
+    const view = render(<OfficeArtifactPreview source={original} />);
+    await waitFor(() => expect(finishOld).toBeDefined());
+    view.rerender(<OfficeArtifactPreview source={{ ...original, bytes: new Uint8Array([2]) }} />);
+    await within(view.container).findByText("Latest version");
+    finishOld!();
+    await waitFor(() => expect(within(view.container).queryByText("Obsolete version")).toBeNull());
+    expect(within(view.container).getByText("Latest version")).toBeTruthy();
+  });
+
   it("renders Word content locally and removes active or external content", async () => {
     parserMocks.renderDocument.mockImplementation(async (_bytes: ArrayBuffer, container: HTMLElement) => {
       const paragraph = document.createElement("p");
@@ -161,6 +180,29 @@ describe("Office artifact preview", () => {
     expect(await screen.findByText("Project brief")).toBeTruthy();
     await waitFor(() => expect(screen.getByText("External tracker").hasAttribute("href")).toBe(false));
     expect(document.querySelector(".react-office-document script")).toBeNull();
+  });
+
+  it("isolates a late PowerPoint renderer from the current source", async () => {
+    let finishOld: (() => void) | undefined;
+    let renderCount = 0;
+    parserMocks.initializePresentation.mockImplementation((host: HTMLElement) => ({
+      destroy: () => host.replaceChildren(),
+      preview: () => {
+        if (++renderCount === 1) return new Promise<void>((resolve) => {
+          finishOld = () => { host.textContent = "Obsolete slide"; resolve(); };
+        });
+        host.textContent = "Current slide";
+        return Promise.resolve();
+      },
+    }));
+    const original = source("presentation");
+    const view = render(<OfficeArtifactPreview source={original} />);
+    await waitFor(() => expect(finishOld).toBeDefined());
+    view.rerender(<OfficeArtifactPreview source={{ ...original, bytes: new Uint8Array([2]) }} />);
+    await within(view.container).findByText("Current slide");
+    finishOld!();
+    await waitFor(() => expect(within(view.container).queryByText("Obsolete slide")).toBeNull());
+    expect(within(view.container).getByText("Current slide")).toBeTruthy();
   });
 
   it("navigates PowerPoint slides inside the artifact scroller without moving the desktop shell", async () => {

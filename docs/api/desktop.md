@@ -146,6 +146,13 @@ content invalidates a previous comparison. Excel comparisons cover cell
 values only; formula, style and chart preservation is not inferred from them.
 The complete original bytes are retained for restoration.
 
+Word text selections carry preview paragraph positions and surrounding text.
+PowerPoint accepts text selections or the active entire slide, with slide
+positions. Both create version-bound file references in the existing composer;
+adding a request does not dispatch it. Source changes invalidate unfinished
+selections, while already attached requests retain the viewed revision and
+therefore fail preflight if stale.
+
 ## File Dialog Commands
 
 | Command | Args | Response |

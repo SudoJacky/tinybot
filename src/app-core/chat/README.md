@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:e0db572676bbea1d701ae6bc3421cdfd0b275456a86824f4cdf1e8e2a710f751 -->
+<!-- tinybot-module-fingerprint: sha256:054a43dd0a3ff608912c2d281e7924838eeb48c4648c2a7359134cba4b8248c6 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -48,3 +48,9 @@ desktop command boundary.
 The main Chat composer and desktop-pet quick chat share one persisted reasoning
 effort preference. A missing or invalid preference starts at `high`; an
 explicit user selection remains authoritative across both surfaces.
+
+`officeContentReference` formats Word paragraph and PowerPoint slide selections
+as version-bound local file references. It preserves the quote, surrounding
+context, preview positions and requested change, with explicit excerpt limits.
+Preview paragraph positions are not original XML indices; the Agent must locate
+the quoted passage in the source rather than replacing every matching string.

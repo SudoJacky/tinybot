@@ -19,6 +19,9 @@ import type {
 } from "../../app-core/chat/officeArtifact";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
 
+import type { OfficeContentChangeRequest } from "../../app-core/chat/officeContentReference";
+import { OfficeContentEditor } from "./OfficeContentEditor";
+
 const MAX_SPREADSHEET_ROWS = 200;
 const MAX_SPREADSHEET_COLUMNS = 50;
 const DEFAULT_PRESENTATION_WIDTH = 640;
@@ -49,17 +52,19 @@ function clearPresentationNavigationProximity(event: ReactPointerEvent<HTMLEleme
 }
 
 export function OfficeArtifactPreview({
+  onAskForContentChange,
   onAskForChange,
   source,
 }: {
   onAskForChange?: (request: SpreadsheetCellChangeRequest) => void;
   source: OfficeArtifactSource;
+  onAskForContentChange?: (request: OfficeContentChangeRequest) => void;
 }) {
   if (source.kind === "spreadsheet") {
     return <SpreadsheetPreview onAskForChange={onAskForChange} source={source} />;
   }
-  if (source.kind === "document") return <DocumentPreview source={source} />;
-  return <PresentationPreview source={source} />;
+  if (source.kind === "document") return <DocumentPreview source={source} onAskForChange={onAskForContentChange} />;
+  return <PresentationPreview source={source} onAskForChange={onAskForContentChange} />;
 }
 
 function SpreadsheetPreview({
@@ -440,7 +445,7 @@ function spreadsheetRangeAddress(range: SpreadsheetRange): string {
   return start === end ? start : start + ":" + end;
 }
 
-function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
+function DocumentPreview({ source, onAskForChange }: { source: OfficeArtifactSource; onAskForChange?: (request: OfficeContentChangeRequest) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>();
   const [state, setState] = useState<PreviewState>("loading");
@@ -457,8 +462,9 @@ function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
       format: source.kind,
       sizeBytes: source.bytes.byteLength,
     });
+    const renderTarget = document.createElement("div");
     void import("docx-preview")
-      .then(({ renderAsync }) => renderAsync(toArrayBuffer(source.bytes), container, undefined, {
+      .then(({ renderAsync }) => renderAsync(toArrayBuffer(source.bytes), renderTarget, undefined, {
         breakPages: false,
         debug: false,
         experimental: false,
@@ -476,7 +482,8 @@ function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
       }))
       .then(() => {
         if (cancelled) return;
-        sanitizeRenderedOfficeDom(container);
+        sanitizeRenderedOfficeDom(renderTarget);
+        container.replaceChildren(...renderTarget.childNodes);
         setState("ready");
         logOfficeParseComplete(source.kind, source.bytes.byteLength, startedAt);
       })
@@ -492,12 +499,13 @@ function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
 
   return (
     <OfficePreviewFrame error={error} format="Word" loading={!error && state === "loading"} title={source.title}>
+      {onAskForChange ? <OfficeContentEditor containerRef={containerRef} kind="document" sourceBytes={source.bytes} ready={!error && state === "ready"} onChange={onAskForChange} /> : null}
       <div className="react-office-document" onClickCapture={blockRenderedOfficeNavigation} ref={containerRef} />
     </OfficePreviewFrame>
   );
 }
 
-function PresentationPreview({ source }: { source: OfficeArtifactSource }) {
+function PresentationPreview({ source, onAskForChange }: { source: OfficeArtifactSource; onAskForChange?: (request: OfficeContentChangeRequest) => void }) {
   const { t } = useTranslation("chat");
   const containerRef = useRef<HTMLDivElement>(null);
   const thumbnailHostRefs = useRef<Array<HTMLElement | null>>([]);
@@ -524,10 +532,12 @@ function PresentationPreview({ source }: { source: OfficeArtifactSource }) {
       format: source.kind,
       sizeBytes: source.bytes.byteLength,
     });
+    const renderTarget = document.createElement("div");
+    container.append(renderTarget);
     void import("pptx-preview")
       .then(({ init }) => {
         if (cancelled) return;
-        const previewer = init(container, { mode: "list", width });
+        const previewer = init(renderTarget, { mode: "list", width });
         dispose = () => previewer.destroy();
         return previewer.preview(toArrayBuffer(source.bytes));
       })
@@ -627,6 +637,7 @@ function PresentationPreview({ source }: { source: OfficeArtifactSource }) {
 
   return (
     <OfficePreviewFrame error={error} format="PowerPoint" loading={!error && state === "loading"} title={source.title}>
+      {onAskForChange ? <OfficeContentEditor containerRef={containerRef} kind="presentation" sourceBytes={source.bytes} ready={!error && state === "ready"} activeSlide={activeSlideIndex} onChange={onAskForChange} /> : null}
       <div className="react-office-presentation">
         {state === "ready" && slideCount > 0 ? (
           <nav

@@ -87,6 +87,7 @@ import {
   type OfficeArtifactSource,
   type SpreadsheetCellChangeRequest,
 } from "../../app-core/chat/officeArtifact";
+import { officeContentReference } from "../../app-core/chat/officeContentReference";
 import { ArtifactReviewPanel } from "../sidecar/ArtifactReviewPanel";
 import { prepareArtifactReviews } from "./prepareArtifactReviews";
 import { useArtifactFile } from "./useArtifactFile";
@@ -2065,7 +2066,7 @@ export function ChatPage({
         observeFile={sidecar.presentation !== "closed" && tab.threadId === activeSessionId}
         workspaceStore={workspaceStore}
         onReference={(reference) => {
-          const id = "artifact:" + tab.id;
+          const id = "artifact:" + tab.id + ":" + reference.detail;
           setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== id), { ...reference, id }]);
           setComposerFocusRequestId((current) => current + 1);
         }}
@@ -2974,6 +2975,12 @@ function ArtifactDetails({
       {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
       {office ? (
         <OfficeArtifactPreview
+          onAskForContentChange={!error && localThreadId && file.revision && artifact.fetchPath ? (request) => {
+            const position = request.start === request.end ? String(request.start) : `${request.start}–${request.end}`;
+            onReference(officeContentReference({ request, path: artifact.fetchPath!, title: artifact.title, threadId: localThreadId, revision: file.revision!,
+              label: t(request.kind === "document" ? "details.officeParagraphSelection" : "details.officeSlideSelection", { position }),
+            }));
+          } : undefined}
           onAskForChange={error ? undefined : (selection) => onAskForSpreadsheetChange(artifact, selection, file.revision)}
           source={office}
         />
