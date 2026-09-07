@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:bf6d316aa1792e1176631d485450cf3ba300634c82095a7a0456b8235bf66682 -->
+<!-- tinybot-module-fingerprint: sha256:bbe2dcc2948923de9e89203b70f629b48e520c5baee7d75753b6f414dd22eb55 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -68,7 +68,8 @@ decide which durable conversation store a caller uses.
 
 ## Execution flow
 
-1. The bridge normalizes its hydrated wire specification into `AgentTurnInput`
+1. The bridge decodes wire input into `AgentTurnRequest` and `AgentTurnInput`,
+   then hydrates typed input fields
    and provides `NativeAgentRuntimeServices`, the typed input, the
    effective configuration, workspace context, and composed instructions.
 2. `provider_loop.rs` merges project-local MCP definitions for the effective

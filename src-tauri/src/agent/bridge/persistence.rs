@@ -1,9 +1,5 @@
-use crate::agent::bridge::{
-    native_agent_current_user_message, native_agent_max_iterations, native_agent_model,
-    native_agent_provider, native_agent_session_id, native_agent_thread_id, native_agent_turn_id,
-};
+use crate::agent::bridge::{native_agent_model, native_agent_provider};
 use crate::agent::runtime::AgentError;
-use crate::agent::runtime::{agent_trace_context_from_value, manual_context_compaction_requested};
 use crate::agent::runtime::{
     AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult,
 };
@@ -20,17 +16,16 @@ fn now_unix_ms() -> u128 {
 }
 
 pub(crate) fn reject_native_agent_terminal_turn_reentry(
-    spec: &serde_json::Value,
+    input: &crate::agent::runtime::AgentTurnInput,
     thread_store: &WorkspaceThreadStore,
-    _config_snapshot: serde_json::Value,
 ) -> Result<Option<AgentTurnResult>, AgentError> {
-    let Some(session_id) = native_agent_rollout_id(spec) else {
-        return Ok(None);
-    };
-    let Some(turn_id) = native_agent_turn_id(spec) else {
-        return Ok(None);
-    };
-    let trace_context = agent_trace_context_from_value(spec);
+    let session_id = input
+        .trace_context
+        .thread_id
+        .as_deref()
+        .unwrap_or(&input.session_id);
+    let turn_id = &input.trace_context.turn_id;
+    let trace_context = &input.trace_context;
     let existing = traced_persistence(&trace_context, "terminal-check", "read", || {
         thread_store.agent_turn(&session_id, &turn_id)
     })?;
@@ -54,10 +49,6 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
     )))
 }
 
-fn native_agent_rollout_id(value: &serde_json::Value) -> Option<String> {
-    native_agent_thread_id(value).or_else(|| native_agent_session_id(value))
-}
-
 fn terminal_turn_rejection(
     turn_id: &str,
     session_id: &str,
@@ -74,30 +65,36 @@ fn terminal_turn_rejection(
 }
 
 pub(crate) fn persist_native_agent_turn_start(
-    spec: serde_json::Value,
+    request: &super::turn_request::AgentTurnRequest,
+    instructions: &crate::agent::runtime::ComposedInstructions,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
 ) -> Result<(), AgentError> {
-    let session_id =
-        native_agent_rollout_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
-    let turn_id = native_agent_turn_id(&spec).unwrap_or_else(|| "native-rust-turn".to_string());
-    let record = native_agent_turn_start_record(&spec, &config_snapshot, &session_id, &turn_id);
-    let turn_context = native_agent_turn_context(&spec, &config_snapshot, &turn_id);
-    let messages = materialized_turn_messages(&spec, &turn_id);
-    let trace_context = agent_trace_context_from_value(&spec);
-    let record =
-        serde_json::from_value(record).map_err(|error| format!("invalid turn record: {error}"))?;
-    let context = serde_json::from_value(turn_context)
-        .map_err(|error| format!("invalid turn context: {error}"))?;
-    let messages = messages
+    let input = &request.input;
+    let session_id = input
+        .trace_context
+        .thread_id
+        .as_deref()
+        .unwrap_or(&input.session_id);
+    let mut record =
+        native_agent_turn_start_record(input, session_id, &input.trace_context.turn_id);
+    record.instruction_provenance =
+        Some(serde_json::to_value(instructions.provenance()).map_err(|error| error.to_string())?);
+    record.instruction_diagnostics = instructions
+        .diagnostics()
         .into_iter()
-        .map(|message| {
-            serde_json::from_value(message)
-                .map_err(|error| format!("invalid turn message: {error}"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(serde_json::to_value)
+        .collect::<Result<_, _>>()
+        .map_err(|error| error.to_string())?;
+    let mut context = request.context.clone();
+    context.cwd = instructions.working_directory.display().to_string();
+    context.workspace_roots = Some(vec![context.cwd.clone()]);
+    let messages = materialized_turn_messages(
+        request,
+        instructions.rendered_prompt(),
+        &instructions.content_hash,
+    )?;
     traced_persistence(
-        &trace_context,
+        &input.trace_context,
         "native agent turn start persistence",
         "write",
         || thread_store.start_agent_turn(record, Some(context), messages),
@@ -105,141 +102,119 @@ pub(crate) fn persist_native_agent_turn_start(
     Ok(())
 }
 
-fn materialized_turn_messages(spec: &serde_json::Value, turn_id: &str) -> Vec<serde_json::Value> {
-    if manual_context_compaction_requested(spec) {
-        return Vec::new();
-    }
+fn materialized_turn_messages(
+    request: &super::turn_request::AgentTurnRequest,
+    prompt: &str,
+    content_hash: &str,
+) -> Result<Vec<crate::threads::rollout::format::ResponseItem>, AgentError> {
     let mut messages = Vec::new();
-    if let Some(content) = spec
-        .get("materializedSystemPrompt")
-        .and_then(serde_json::Value::as_str)
-        .filter(|content| !content.is_empty())
-    {
-        let content_hash = spec
-            .get("instructionProvenance")
-            .and_then(|provenance| provenance.get("contentHash"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        messages.push(serde_json::json!({
-            "type": "message",
-            "id": format!("system:{content_hash}"),
-            "role": "system",
-            "content": [{ "type": "input_text", "text": content }],
-            "contentHash": content_hash,
-        }));
+    if request.input.controls.manual_compaction {
+        return Ok(messages);
     }
-    if let Some(mut user) = native_agent_current_user_message(spec) {
-        user["type"] = serde_json::Value::String("message".to_string());
-        user["role"] = serde_json::Value::String("user".to_string());
-        let message_id = user
-            .get("id")
-            .or_else(|| user.get("messageId"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::Value::String(format!("user:{turn_id}")));
-        user["id"] = message_id.clone();
-        user["messageId"] = message_id;
-        user["turnId"] = serde_json::Value::String(turn_id.to_string());
-        messages.push(user);
+    if !prompt.is_empty() {
+        messages.push(crate::threads::rollout::format::ResponseItem::from_value(
+            serde_json::json!({
+                "type":"message", "id":format!("system:{content_hash}"), "role":"system",
+                "content":[{"type":"input_text", "text":prompt}], "contentHash":content_hash
+            }),
+        )?);
     }
-    messages
+    messages.extend(request.user_message.clone());
+    Ok(messages)
 }
 
-fn native_agent_turn_context(
+pub(super) fn native_agent_turn_context(
     spec: &serde_json::Value,
-    config_snapshot: &serde_json::Value,
+    config: &serde_json::Value,
     turn_id: &str,
-) -> serde_json::Value {
-    let defaults = config_snapshot
-        .get("agents")
-        .and_then(|agents| agents.get("defaults"))
-        .unwrap_or(&serde_json::Value::Null);
-    let cwd = spec
-        .get("instructionProvenance")
-        .and_then(|provenance| provenance.get("workingDirectory"))
-        .or_else(|| spec.get("workingDirectory"))
-        .or_else(|| spec.get("working_directory"))
-        .or_else(|| spec.get("cwd"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    let trace_context = agent_trace_context_from_value(spec);
-    let reasoning = spec.get("reasoning").and_then(serde_json::Value::as_object);
-    let api_mode = spec
+) -> Result<crate::threads::rollout::format::TurnContextItem, AgentError> {
+    use crate::threads::rollout::format::TurnContextItem;
+    use serde_json::Value;
+    fn decode<T: serde::de::DeserializeOwned>(
+        value: Option<&Value>,
+        name: &str,
+    ) -> Result<Option<T>, AgentError> {
+        value
+            .filter(|v| !v.is_null())
+            .map(|v| {
+                serde_json::from_value(v.clone()).map_err(|e| {
+                    AgentError::invalid_input(format!("invalid turn context field `{name}`: {e}"))
+                })
+            })
+            .transpose()
+    }
+    let defaults = config.pointer("/agents/defaults").unwrap_or(&Value::Null);
+    let reasoning = spec.get("reasoning").unwrap_or(&Value::Null);
+    let provider = native_agent_provider(spec, config);
+    let api = spec
         .get("apiMode")
         .or_else(|| spec.get("api_mode"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
+        .cloned()
         .or_else(|| {
-            crate::agent::provider::resolve_provider_profile(
-                config_snapshot,
-                native_agent_provider(spec, config_snapshot).as_deref(),
-                None,
-            )
-            .map(|profile| profile.api_mode)
-        })
-        .unwrap_or_else(|| "chat_completions".to_string());
-    serde_json::json!({
-        "turn_id": if trace_context.turn_id.trim().is_empty() {
-            turn_id
-        } else {
-            trace_context.turn_id.as_str()
-        },
-        "cwd": cwd,
-        "workspace_roots": if cwd.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::json!([cwd])
-        },
-        "current_date": spec.get("currentDate").cloned().unwrap_or(serde_json::Value::Null),
-        "timezone": spec.get("timezone").cloned().unwrap_or(serde_json::Value::Null),
-        "sandbox_policy": spec
+            crate::agent::provider::resolve_provider_profile(config, provider.as_deref(), None)
+                .map(|p| Value::String(p.api_mode))
+        });
+    let cwd: String = decode(
+        spec.pointer("/instructionProvenance/workingDirectory")
+            .or_else(|| spec.get("workingDirectory"))
+            .or_else(|| spec.get("working_directory"))
+            .or_else(|| spec.get("cwd")),
+        "cwd",
+    )?
+    .unwrap_or_default();
+    Ok(TurnContextItem {
+        turn_id: turn_id.into(),
+        workspace_roots: (!cwd.is_empty()).then(|| vec![cwd.clone()]),
+        cwd,
+        current_date: decode(spec.get("currentDate"), "currentDate")?,
+        timezone: decode(spec.get("timezone"), "timezone")?,
+        sandbox_policy: spec
             .get("sandboxPolicy")
             .or_else(|| defaults.get("sandboxPolicy"))
             .cloned()
-            .unwrap_or_else(|| serde_json::json!("workspace_write")),
-        "permission_profile": spec
-            .get("permissionProfile")
-            .or_else(|| defaults.get("permissionProfile"))
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "network": spec.get("network").cloned().unwrap_or(serde_json::Value::Null),
-        "model": native_agent_model(spec, config_snapshot),
-        "provider": native_agent_provider(spec, config_snapshot),
-        "api_mode": api_mode,
-        "comp_hash": spec
-            .get("compHash")
-            .or_else(|| spec.get("comp_hash"))
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "personality": spec
-            .get("personality")
-            .or_else(|| defaults.get("personality"))
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "collaboration_mode": spec
-            .get("collaborationMode")
-            .or_else(|| defaults.get("collaborationMode"))
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "effort": spec
-            .get("reasoningEffort")
-            .or_else(|| spec.get("reasoning_effort"))
-            .or_else(|| reasoning.and_then(|value| value.get("effort")))
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-        "summary": spec
+            .unwrap_or_else(|| Value::String("workspace_write".into())),
+        permission_profile: decode(
+            spec.get("permissionProfile")
+                .or_else(|| defaults.get("permissionProfile")),
+            "permissionProfile",
+        )?,
+        network: decode(spec.get("network"), "network")?,
+        model: native_agent_model(spec, config),
+        provider,
+        api_mode: Some(decode(api.as_ref(), "apiMode")?.unwrap_or_default()),
+        comp_hash: decode(
+            spec.get("compHash").or_else(|| spec.get("comp_hash")),
+            "compHash",
+        )?,
+        personality: decode(
+            spec.get("personality")
+                .or_else(|| defaults.get("personality")),
+            "personality",
+        )?,
+        collaboration_mode: decode(
+            spec.get("collaborationMode")
+                .or_else(|| defaults.get("collaborationMode")),
+            "collaborationMode",
+        )?,
+        effort: decode(
+            spec.get("reasoningEffort")
+                .or_else(|| spec.get("reasoning_effort"))
+                .or_else(|| reasoning.get("effort")),
+            "effort",
+        )?,
+        summary: spec
             .get("reasoningSummary")
             .or_else(|| spec.get("reasoning_summary"))
-            .or_else(|| reasoning.and_then(|value| value.get("summary")))
+            .or_else(|| reasoning.get("summary"))
             .cloned()
-            .unwrap_or_else(|| serde_json::json!("auto")),
+            .unwrap_or_else(|| Value::String("auto".into())),
     })
 }
 
 pub(crate) fn persist_native_agent_turn_terminal_if_present(
-    spec: serde_json::Value,
+    trace: &AgentTraceContext,
     result: &mut AgentTurnResult,
     thread_store: &WorkspaceThreadStore,
-    _config_snapshot: serde_json::Value,
 ) -> Result<(), AgentError> {
     let session_id = &result.session_id;
     let turn_id = &result.turn_id;
@@ -250,7 +225,7 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
     let trace_context = result
         .trace_context
         .clone()
-        .unwrap_or_else(|| agent_trace_context_from_value(&spec));
+        .unwrap_or_else(|| trace.clone());
     let error_value = result
         .error
         .as_ref()
@@ -304,45 +279,46 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
 }
 
 pub(crate) fn native_agent_turn_start_record(
-    spec: &serde_json::Value,
-    config_snapshot: &serde_json::Value,
+    input: &crate::agent::runtime::AgentTurnInput,
     session_id: &str,
     turn_id: &str,
-) -> serde_json::Value {
+) -> crate::threads::turn::AgentTurnRecord {
+    use crate::threads::turn::{AgentTurnRecord, AgentTurnStatus};
     let timestamp = now_unix_ms().to_string();
-    serde_json::json!({
-        "sessionId": session_id,
-        "turnId": turn_id,
-        "status": "running",
-        "phase": "planning",
-        "startedAt": timestamp,
-        "updatedAt": timestamp,
-        "completedAt": null,
-        "stopReason": null,
-        "model": native_agent_model(spec, config_snapshot),
-        "provider": native_agent_provider(spec, config_snapshot),
-        "maxIterations": native_agent_max_iterations(spec, config_snapshot),
-        "currentIteration": 0,
-        "conversationMessageIds": [],
-        "traceMessages": [],
-        "completedToolResults": [],
-        "pendingToolCalls": [],
-        "checkpoint": null,
-        "artifacts": [],
-        "usage": [],
-        "tokenUsageInfo": null,
-        "instructionProvenance": spec.get("instructionProvenance"),
-        "instructionDiagnostics": spec.get("instructionDiagnostics")
-            .and_then(serde_json::Value::as_array).cloned().unwrap_or_default(),
-        "traceContext": agent_trace_context_from_value(spec),
-        "error": null,
-    })
+    AgentTurnRecord {
+        session_id: session_id.into(),
+        turn_id: turn_id.into(),
+        thread_id: None,
+        parent_thread_id: None,
+        child_thread_ids: Vec::new(),
+        status: AgentTurnStatus::Running,
+        phase: "planning".into(),
+        started_at: timestamp.clone(),
+        updated_at: timestamp,
+        completed_at: None,
+        stop_reason: None,
+        model: input.settings.model.clone(),
+        provider: input.settings.provider.clone(),
+        max_iterations: input.settings.max_iterations,
+        current_iteration: 0,
+        conversation_message_ids: Vec::new(),
+        trace_messages: Vec::new(),
+        completed_tool_results: Vec::new(),
+        pending_tool_calls: Vec::new(),
+        checkpoint: None,
+        artifacts: Vec::new(),
+        usage: Vec::new(),
+        token_usage_info: None,
+        instruction_provenance: None,
+        instruction_diagnostics: Vec::new(),
+        trace_context: Some(input.trace_context.clone()),
+        error: None,
+    }
 }
 
 pub(crate) fn persist_native_agent_checkpoint_if_present(
     result: &AgentTurnResult,
     thread_store: &WorkspaceThreadStore,
-    _config_snapshot: serde_json::Value,
 ) -> Result<(), AgentError> {
     let Some(checkpoint) = result.checkpoint.as_ref() else {
         return Ok(());

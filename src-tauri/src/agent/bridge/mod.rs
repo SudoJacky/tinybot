@@ -6,13 +6,14 @@ mod result_projection;
 mod thread_flow;
 mod tool_dispatcher;
 mod trace_sink;
+pub(crate) mod turn_request;
 mod webui_continuation;
 
-pub(crate) use agent_flow::run_agent_with_services;
+pub(crate) use agent_flow::run_agent_from_wire_with_services;
 pub(crate) use context_checkpoint::native_agent_context_checkpoint_committer;
 pub(crate) use history::{
     hydrate_native_agent_history_for_runtime, hydrate_native_agent_memory_snapshot_for_runtime,
-    native_agent_current_user_message, native_agent_thread_id,
+    native_agent_current_user_message,
 };
 #[cfg(test)]
 pub(crate) use persistence::native_agent_turn_start_record;
@@ -21,8 +22,7 @@ pub(crate) use persistence::{
     persist_native_agent_turn_terminal_if_present, reject_native_agent_terminal_turn_reentry,
 };
 pub(crate) use result_projection::{
-    native_agent_max_iterations, native_agent_model, native_agent_provider,
-    native_agent_session_id, native_agent_string_field, native_agent_turn_id,
+    native_agent_model, native_agent_provider, native_agent_string_field, native_agent_turn_id,
 };
 pub(crate) use thread_flow::{
     compact_thread_with_services, execute_thread_turn_with_services,

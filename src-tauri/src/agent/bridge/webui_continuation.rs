@@ -287,12 +287,10 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     let services = match live_trace_sink {
         Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
             thread_store.clone(),
-            config_snapshot.clone(),
             Some(live_trace_sink),
         )),
-        None => services.with_trace_sink_if_missing(|| {
-            native_agent_trace_sink(thread_store.clone(), config_snapshot.clone(), None)
-        }),
+        None => services
+            .with_trace_sink_if_missing(|| native_agent_trace_sink(thread_store.clone(), None)),
     };
     let turn_result = run_native_agent_turn_with_workspace_async(
         &services,
@@ -307,16 +305,11 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         "native Agent UI form continuation",
     )?;
     persist_native_agent_turn_terminal_if_present(
-        continuation_spec.clone(),
+        &crate::agent::runtime::agent_trace_context_from_value(&continuation_spec),
         &mut continuation,
         &thread_store,
-        config_snapshot.clone(),
     )?;
-    persist_native_agent_checkpoint_if_present(
-        &continuation,
-        &thread_store,
-        config_snapshot.clone(),
-    )?;
+    persist_native_agent_checkpoint_if_present(&continuation, &thread_store)?;
     if body.get("threadCheckpoint").is_none() {
         clear_native_session_checkpoint(
             session_key,

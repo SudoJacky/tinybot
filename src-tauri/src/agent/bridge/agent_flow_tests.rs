@@ -121,7 +121,7 @@ impl Drop for TestWorkspace {
 }
 
 #[test]
-fn invalid_continuation_persists_failure_without_starting_a_task() {
+fn invalid_continuation_is_rejected_before_durability_and_task_ownership() {
     tauri::async_runtime::block_on(async {
         let workspace = TestWorkspace::new();
         let store = WorkspaceThreadStore::new_with_data_root(
@@ -140,7 +140,7 @@ fn invalid_continuation_persists_failure_without_starting_a_task() {
         )
         .with_thread_store(store.clone());
         let runtime = services.task_runtime().clone();
-        let error = run_agent_with_services(
+        let error = run_agent_from_wire_with_services(
             services,
             serde_json::json!({
                 "sessionId": "thread-invalid-input", "threadId": "thread-invalid-input",
@@ -161,16 +161,10 @@ fn invalid_continuation_persists_failure_without_starting_a_task() {
         );
         assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
         assert!(runtime.status("turn-invalid-input").is_none());
-        let correlation = next_worker_request_correlation();
-        let persisted = call_rust_state_service(&store, serde_json::json!({}), WorkerRequest::new(
-            correlation.id("invalid-input-turn-get"), correlation.trace_id("invalid-input-turn-get"),
-            "thread.turn.get", serde_json::json!({"threadId":"thread-invalid-input", "turnId":"turn-invalid-input"}),
-        ), "invalid input turn get").expect("failed turn should load");
-        assert_eq!(persisted["status"], "failed");
-        assert!(persisted["error"]["message"]
-            .as_str()
+        assert!(store
+            .agent_turn("thread-invalid-input", "turn-invalid-input")
             .unwrap()
-            .contains("agentContinuation"));
+            .is_none());
     });
 }
 
@@ -192,7 +186,7 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
         .with_thread_store(store.clone());
-        let result = run_agent_with_services(
+        let result = run_agent_from_wire_with_services(
             services,
             serde_json::json!({
                 "runtime": "rust",

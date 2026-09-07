@@ -62,7 +62,9 @@ pub(crate) use self::hooks::AgentHookEvaluation;
 #[cfg(test)]
 pub use self::hooks::AgentHookDecision;
 pub use self::hooks::{AgentHook, AgentHookInvocation, AgentHookStage};
-pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
+pub(crate) use self::instructions::{
+    ComposedInstructions, InstructionComposer, TurnInstructionInput,
+};
 #[cfg(test)]
 pub use self::items::AgentPlanStepStatus;
 pub use self::items::{
@@ -93,7 +95,6 @@ pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointS
 #[cfg(test)]
 pub use tool_dispatcher::FakeNativeAgentToolDispatcher;
 pub use tool_dispatcher::SubagentNativeAgentToolDispatcher;
-pub(crate) use usage::manual_context_compaction_requested;
 
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {

@@ -1,4 +1,3 @@
-use crate::agent::bridge::{native_agent_session_id, native_agent_string_field};
 use crate::threads::workspace_store::WorkspaceThreadStore;
 
 pub(crate) fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -40,138 +39,97 @@ pub(crate) fn native_agent_current_user_message(
     native_agent_user_messages(spec).into_iter().last()
 }
 
-pub(crate) fn native_agent_thread_id(spec: &serde_json::Value) -> Option<String> {
-    native_agent_string_field(spec, "threadId")
-        .or_else(|| native_agent_string_field(spec, "thread_id"))
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| native_agent_string_field(metadata, "threadId"))
-        })
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| native_agent_string_field(metadata, "thread_id"))
-        })
-}
-
 pub(crate) fn hydrate_native_agent_memory_snapshot_for_runtime(
-    mut spec: serde_json::Value,
+    request: &mut super::turn_request::AgentTurnRequest,
     thread_store: &WorkspaceThreadStore,
-) -> Result<serde_json::Value, crate::agent::runtime::AgentError> {
-    let Some(thread_id) = native_agent_thread_id(&spec).or_else(|| native_agent_session_id(&spec))
-    else {
-        return Ok(spec);
-    };
-    let operation = thread_store.begin_operation().map_err(|error| {
-        format!(
-            "failed to open Thread memory snapshot `{thread_id}`: {}",
-            error.message
-        )
-    })?;
-    let snapshot = operation
+) -> Result<(), crate::agent::runtime::AgentError> {
+    use crate::agent::runtime::AgentError;
+    let thread_id = request
+        .input
+        .trace_context
+        .thread_id
+        .as_deref()
+        .unwrap_or(&request.input.session_id);
+    let operation = thread_store
+        .begin_operation()
+        .map_err(|error| AgentError::persistence("open Thread memory snapshot", error))?;
+    if let Some(snapshot) = operation
         .thread_log()
-        .get_thread_memory_snapshot(&thread_id)
-        .map_err(|error| {
-            crate::agent::runtime::AgentError::persistence(
-                &format!("Thread memory snapshot `{thread_id}`"),
-                error,
-            )
-        })?;
-    let Some(snapshot) = snapshot else {
-        return Ok(spec);
-    };
-    let object = spec
-        .as_object_mut()
-        .ok_or_else(|| "agent turn spec must be an object for memory hydration".to_string())?;
-    object.insert(
-        "longTermMemorySnapshot".to_string(),
-        serde_json::Value::String(snapshot),
-    );
-    Ok(spec)
+        .get_thread_memory_snapshot(thread_id)
+        .map_err(|error| AgentError::persistence("read Thread memory snapshot", error))?
+    {
+        request.instructions.memory_snapshot = Some(snapshot);
+    }
+    Ok(())
 }
 
 pub(crate) fn hydrate_native_agent_history_for_runtime(
-    mut spec: serde_json::Value,
+    input: &mut crate::agent::runtime::AgentTurnInput,
     thread_store: &WorkspaceThreadStore,
-    _config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, crate::agent::runtime::AgentError> {
-    let Some(session_id) = native_agent_session_id(&spec) else {
-        return Ok(spec);
-    };
-    let requested_messages = native_agent_runtime_messages(&spec);
+) -> Result<(), crate::agent::runtime::AgentError> {
+    use crate::threads::rollout::format::SessionApiMode;
     let history = thread_store
-        .agent_history(&session_id, 500)
+        .agent_history(&input.session_id, 500)
         .map_err(|error| {
             crate::agent::runtime::AgentError::persistence("native agent context hydration", error)
         })?;
-    let (api_mode, history_messages, response_items, source_checkpoint) = match history {
+    let (api_mode, messages, mut response_items, checkpoint) = match history {
         Some(history) => (
-            match history.api_mode {
-                crate::threads::rollout::format::SessionApiMode::ChatCompletions => {
-                    "chat_completions"
-                }
-                crate::threads::rollout::format::SessionApiMode::Responses => "responses",
-            }
-            .to_string(),
+            history.api_mode,
             history.messages,
             history.response_items,
-            history
-                .context_checkpoint
-                .as_ref()
-                .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata),
+            history.context_checkpoint,
         ),
-        None => ("chat_completions".to_string(), Vec::new(), Vec::new(), None),
+        None => (
+            SessionApiMode::ChatCompletions,
+            Vec::new(),
+            Vec::new(),
+            None,
+        ),
     };
-    let manual_compaction = crate::agent::runtime::manual_context_compaction_requested(&spec);
-
-    if let Some(object) = spec.as_object_mut() {
-        object.insert(
-            "apiMode".to_string(),
-            serde_json::Value::String(api_mode.clone()),
-        );
-        if api_mode == "responses" {
-            object.insert(
-                "responseItems".to_string(),
-                serde_json::Value::Array(response_items),
-            );
+    if input.controls.manual_compaction && !messages.is_empty() {
+        input.messages = messages;
+    } else if !input.messages.is_empty() && !messages.is_empty() {
+        input.messages = native_agent_merge_history_messages(&messages, &input.messages);
+    }
+    input.api_mode = Some(
+        match api_mode {
+            SessionApiMode::ChatCompletions => "chat_completions",
+            SessionApiMode::Responses => "responses",
         }
-        if manual_compaction && !history_messages.is_empty() {
-            object.insert(
-                "messages".to_string(),
-                serde_json::Value::Array(history_messages),
-            );
-        } else if !requested_messages.is_empty() && !history_messages.is_empty() {
-            object.insert(
-                "messages".to_string(),
-                serde_json::Value::Array(native_agent_merge_history_messages(
-                    &history_messages,
-                    &requested_messages,
-                )),
-            );
-        }
-        if let Some(source_checkpoint) = source_checkpoint {
-            let metadata = object
-                .entry("metadata".to_string())
-                .or_insert_with(|| serde_json::json!({}));
-            if !metadata.is_object() {
-                *metadata = serde_json::json!({});
+        .into(),
+    );
+    input.responses_input_items = match api_mode {
+        SessionApiMode::ChatCompletions => None,
+        SessionApiMode::Responses => {
+            let has_current_user = response_items.iter().any(|item| {
+                item.get("role").and_then(serde_json::Value::as_str) == Some("user")
+                    && item
+                        .get("turnId")
+                        .or_else(|| item.get("turn_id"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(&input.trace_context.turn_id)
+            });
+            if !has_current_user {
+                if let Some(user) = input.messages.iter().rev().find(|message| {
+                    message.get("role").and_then(serde_json::Value::as_str) == Some("user")
+                }) {
+                    let mut user = user.clone();
+                    user["turnId"] = input.trace_context.turn_id.clone().into();
+                    response_items.push(user);
+                }
             }
-            metadata["contextSourceCheckpointId"] = source_checkpoint
-                .get("contextId")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            metadata["contextSourceCheckpoint"] = source_checkpoint;
+            Some(response_items)
         }
+    };
+    if let Some(source) = checkpoint
+        .as_ref()
+        .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata)
+    {
+        input.metadata["contextSourceCheckpointId"] = source["contextId"].clone();
+        input.metadata["contextSourceCheckpoint"] = source;
     }
-    Ok(spec)
-}
-
-fn native_agent_runtime_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
-    if let Some(messages) = spec.get("messages").and_then(serde_json::Value::as_array) {
-        if !messages.is_empty() {
-            return messages.clone();
-        }
-    }
-    native_agent_user_messages(spec)
+    Ok(())
 }
 
 fn native_agent_merge_history_messages(

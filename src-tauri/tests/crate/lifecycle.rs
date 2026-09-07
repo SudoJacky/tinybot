@@ -170,33 +170,35 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .append_thread_items("thread-recovery", &started.appended_items)
         .expect("orphaned thread turn should persist to Rollout");
 
-    let mut running_record: crate::threads::turn::AgentTurnRecord =
-        serde_json::from_value(native_agent_turn_start_record(
+    let mut running_record: crate::threads::turn::AgentTurnRecord = native_agent_turn_start_record(
+        &crate::agent::runtime::AgentTurnInput::from_wire(
             &serde_json::json!({
                 "turnId": "turn-orphaned",
                 "sessionId": "session-recovery",
                 "threadId": "thread-recovery"
             }),
             &serde_json::json!({}),
-            "session-recovery",
-            "turn-orphaned",
-        ))
-        .expect("running recovery record should deserialize");
+        )
+        .unwrap(),
+        "session-recovery",
+        "turn-orphaned",
+    );
     running_record.thread_id = Some("thread-recovery".to_string());
     thread_log
         .start_turn(running_record, None, Vec::new())
         .expect("running recovery record should persist");
-    let mut waiting_record: crate::threads::turn::AgentTurnRecord =
-        serde_json::from_value(native_agent_turn_start_record(
+    let mut waiting_record: crate::threads::turn::AgentTurnRecord = native_agent_turn_start_record(
+        &crate::agent::runtime::AgentTurnInput::from_wire(
             &serde_json::json!({
                 "turnId": "turn-waiting",
                 "sessionId": "session-recovery"
             }),
             &serde_json::json!({}),
-            "session-recovery",
-            "turn-waiting",
-        ))
-        .expect("waiting recovery record should deserialize");
+        )
+        .unwrap(),
+        "session-recovery",
+        "turn-waiting",
+    );
     waiting_record.status = crate::threads::turn::AgentTurnStatus::Waiting;
     waiting_record.phase = "awaiting_form".to_string();
     waiting_record.stop_reason = Some("awaiting_form".to_string());

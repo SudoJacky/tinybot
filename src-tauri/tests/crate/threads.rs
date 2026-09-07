@@ -1,5 +1,18 @@
+fn persist_native_agent_turn_start(
+    spec: serde_json::Value,
+    store: &crate::threads::workspace_store::WorkspaceThreadStore,
+    config: serde_json::Value,
+) -> Result<(), crate::agent::runtime::AgentError> {
+    let workspace = WorkspaceFixture::new();
+    let root = workspace.root.clone();
+    let request =
+        crate::agent::bridge::turn_request::AgentTurnRequest::from_wire(spec, &config, &root)?;
+    let instructions = crate::agent::runtime::InstructionComposer::default()
+        .compose_input(&root, &request.instructions)?;
+    crate::agent::bridge::persist_native_agent_turn_start(&request, &instructions, store)
+}
 use super::support::*;
-use crate::agent::bridge::persist_native_agent_turn_start;
+
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::agent::runtime::{AgentStopReason, AgentTurnResult};

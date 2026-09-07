@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::agent_flow::run_agent_with_services;
+use super::agent_flow::run_agent_from_wire_with_services;
 use super::webui_continuation::{
     native_session_checkpoint, resolve_agent_ui_form_body_with_services,
 };
@@ -107,7 +107,7 @@ pub(crate) async fn compact_thread_with_services(
     {
         spec["provider"] = serde_json::Value::String(provider);
     }
-    let result = run_agent_with_services(
+    let result = run_agent_from_wire_with_services(
         base_services,
         spec,
         workspace_root,
@@ -295,7 +295,7 @@ pub(crate) async fn execute_thread_turn_with_services(
             live_trace_sink.clone(),
         );
     }
-    let result = run_agent_with_services(
+    let result = run_agent_from_wire_with_services(
         base_services,
         spec,
         workspace_root,

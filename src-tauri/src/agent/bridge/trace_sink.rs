@@ -725,7 +725,6 @@ pub(crate) fn desktop_agent_event_sink<R: Runtime + 'static>(
 
 pub(crate) fn native_agent_trace_sink(
     thread_store: WorkspaceThreadStore,
-    _config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Arc<dyn NativeAgentTraceSink> {
     let persisted_sink: Arc<dyn NativeAgentTraceSink> =

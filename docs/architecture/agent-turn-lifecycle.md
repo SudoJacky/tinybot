@@ -14,7 +14,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:6fdb42be9b5be17c27f245044182b9675ae5be2200c389afe4733886d7b2e194 -->
+<!-- tinybot-doc-fingerprint: sha256:ab7fa176b7d912534d7fdc7ba2713469a153f4f2d47a7bfa120d5a46739cae66 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -36,10 +36,11 @@ interruption, failure, and resumable waiting; tool and subagent waits retain
 their waiting phase instead of falling through to failure. Lifecycle hooks
 append typed runtime events directly. Complete-result JSON serialization occurs
 at the desktop, Thread-response, or WebUI boundary and preserves the wire schema.
-The bridge normalizes hydrated input into `AgentTurnInput` before task ownership.
+The bridge decodes wire input into `AgentTurnRequest` and `AgentTurnInput` before
+instruction composition, history hydration, persistence, or task ownership.
 Identity, settings, continuation, and execution controls are resolved once;
 the execution context retains no raw spec. Invalid field types and malformed
-continuations fail explicitly, and the bridge persists validation failures.
+continuations fail explicitly before a durable Turn is started.
 Configuration, legacy history, extension metadata, provider-native items, and
 checkpoint payloads still have dynamic fields. `AgentError` carries error categories
 and original service errors across execution, buffering, and persistence, including
@@ -88,7 +89,7 @@ The bridge persists the Turn start before provider work. This ordering makes a
 visible Turn recoverable after interruption. Trace output is flushed before a
 successful terminal result is persisted. If runtime execution or trace flush
 fails, the bridge persists a failed terminal state with `runtime_error` (or
-`invalid_request` for malformed input) and the structured error before
+`invalid_request` for runtime validation) and the structured error before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
 

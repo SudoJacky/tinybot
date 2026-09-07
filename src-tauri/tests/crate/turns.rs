@@ -365,7 +365,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
     )
     .expect_err("turn-start persistence failure should fail the command");
 
-    assert!(error.contains("turn start persistence failed"), "{error}");
+    assert!(error.contains("terminal-check failed"), "{error}");
     assert_eq!(
         *calls
             .lock()
@@ -1109,27 +1109,31 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
         .expect("first context checkpoint should have an id")
         .to_string();
     assert_eq!(context["contextCheckpoint"]["contextId"], first_context_id);
-    let hydrated = crate::agent::bridge::hydrate_native_agent_history_for_runtime(
-        serde_json::json!({
+    let mut hydrated = crate::agent::runtime::AgentTurnInput::from_wire(
+        &serde_json::json!({
             "runtime": "rust",
             "turnId": "turn-session-context-commit-next",
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "next current question" }]
         }),
-        &fixture.thread_store,
-        config,
+        &config,
     )
-    .expect("next session run should hydrate canonical checkpoint lineage");
+    .unwrap();
+    crate::agent::bridge::hydrate_native_agent_history_for_runtime(
+        &mut hydrated,
+        &fixture.thread_store,
+    )
+    .unwrap();
     assert_eq!(
-        hydrated["metadata"]["contextSourceCheckpointId"],
+        hydrated.metadata["contextSourceCheckpointId"],
         first_context_id
     );
     assert_eq!(
-        hydrated["metadata"]["contextSourceCheckpoint"]["windowNumber"],
+        hydrated.metadata["contextSourceCheckpoint"]["windowNumber"],
         1
     );
     assert_eq!(
-        hydrated["metadata"]["contextSourceCheckpoint"]["windowId"],
+        hydrated.metadata["contextSourceCheckpoint"]["windowId"],
         first_context_id
     );
 

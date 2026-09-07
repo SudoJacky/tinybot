@@ -240,14 +240,6 @@ pub(super) fn context_window_action_payload(
     })
 }
 
-pub(crate) fn manual_context_compaction_requested(spec: &Value) -> bool {
-    spec.get("contextCompaction")
-        .or_else(|| spec.get("context_compaction"))
-        .and_then(|request| request.get("trigger"))
-        .and_then(Value::as_str)
-        == Some("manual")
-}
-
 pub(super) fn context_with_projected_messages(
     context: &AgentTurnContext,
     messages: Vec<Value>,

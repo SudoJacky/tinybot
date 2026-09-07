@@ -7,27 +7,27 @@ use serde_json::Value;
 /// Normalized execution input. JSON aliases and defaults are resolved before a task is owned.
 #[derive(Clone, Debug)]
 pub struct AgentTurnInput {
-    pub(super) session_id: String,
-    pub(super) trace_context: AgentTraceContext,
-    pub(super) settings: AgentTurnSettings,
+    pub(crate) session_id: String,
+    pub(crate) trace_context: AgentTraceContext,
+    pub(crate) settings: AgentTurnSettings,
     // Legacy history and provider-native Responses items retain their protocol extensions.
-    pub(super) messages: Vec<Value>,
-    pub(super) responses_input_items: Option<Vec<Value>>,
-    pub(super) api_mode: Option<String>,
-    pub(super) metadata: Value,
-    pub(super) continuation: Option<AgentContinuationInput>,
-    pub(super) controls: AgentTurnControls,
+    pub(crate) messages: Vec<Value>,
+    pub(crate) responses_input_items: Option<Vec<Value>>,
+    pub(crate) api_mode: Option<String>,
+    pub(crate) metadata: Value,
+    pub(crate) continuation: Option<AgentContinuationInput>,
+    pub(crate) controls: AgentTurnControls,
 }
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct AgentTurnControls {
-    pub(super) manual_compaction: bool,
-    pub(super) declares_working_directory: bool,
-    pub(super) context_window_tokens: Option<i64>,
-    pub(super) compact_trigger_percent: Option<i64>,
-    pub(super) compact_summary_max_tokens: Option<i64>,
-    pub(super) max_tool_result_chars: Option<usize>,
-    pub(super) shell_parallel_policy: Option<String>,
+pub(crate) struct AgentTurnControls {
+    pub(crate) manual_compaction: bool,
+    pub(crate) declares_working_directory: bool,
+    pub(crate) context_window_tokens: Option<i64>,
+    pub(crate) compact_trigger_percent: Option<i64>,
+    pub(crate) compact_summary_max_tokens: Option<i64>,
+    pub(crate) max_tool_result_chars: Option<usize>,
+    pub(crate) shell_parallel_policy: Option<String>,
 }
 
 #[derive(Deserialize)]

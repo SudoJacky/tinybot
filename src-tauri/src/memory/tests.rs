@@ -715,16 +715,22 @@ fn thread_creation_persists_snapshot_and_fork_inherits_it() {
     );
     drop(operation);
 
-    let hydrated = crate::agent::bridge::hydrate_native_agent_memory_snapshot_for_runtime(
+    let mut hydrated = crate::agent::bridge::turn_request::AgentTurnRequest::from_wire(
         json!({
             "threadId": "thread-fork",
             "messages": [{ "role": "user", "content": "Continue." }]
         }),
+        &json!({}),
+        &fixture.root,
+    )
+    .unwrap();
+    crate::agent::bridge::hydrate_native_agent_memory_snapshot_for_runtime(
+        &mut hydrated,
         &thread_store,
     )
     .unwrap();
     assert_eq!(
-        hydrated["longTermMemorySnapshot"],
+        hydrated.instructions.memory_snapshot.as_deref().unwrap(),
         "## Workspace memory\n\n- This workspace uses Rust.\n\n"
     );
 }

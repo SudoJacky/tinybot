@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:d1a2b4bc125ab2c79c3cd816ce1b60f6eb01f87cbb2be429804da044d5cf8a03 -->
+<!-- tinybot-module-fingerprint: sha256:105c6521f90646edfd5bf03819708058ce2ddb8fc37fb7a96a6a6f66bd3b95c1 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -25,7 +25,12 @@ loop.
 The bridge does **not** implement provider iteration or define the canonical
 Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 
-`run_agent_with_services` returns the runtime's typed `AgentTurnResult`.
+`run_agent_from_wire_with_services` decodes protocol input into `AgentTurnRequest`.
+`run_agent_with_services` consumes the typed request and returns `AgentTurnResult`.
+Instruction composition receives `TurnInstructionInput`; history hydration updates
+typed execution fields. Start records and Turn Context are constructed as Rust
+types, and terminal persistence receives a typed trace context. Invalid wire input
+is rejected before creating a durable Turn or owning a task.
 After instruction composition and history hydration, it normalizes the wire
 specification into `AgentTurnInput` for the execution core. Input validation
 errors follow the same failed-turn persistence path as execution errors.

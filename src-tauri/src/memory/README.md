@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:778a5358fbc4208b18ef772b37fe894019b9ac5426f98396c4a44cfebb4a8d0e -->
+<!-- tinybot-module-fingerprint: sha256:435fdd7f4598a5ddf2ae5c47ec3e3149dc6ef140e616a242e6ab3c02d56a83e7 -->
 
 `memory` provides Tinybot's local long-term memory. The V1 implementation is
 intentionally limited to two model-backed phases:

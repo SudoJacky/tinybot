@@ -1,5 +1,5 @@
 use crate::agent::bridge::{
-    compact_thread_with_services, desktop_agent_event_sink, run_agent_with_services,
+    compact_thread_with_services, desktop_agent_event_sink, run_agent_from_wire_with_services,
     submit_thread_form_with_services, submit_thread_turn_with_services, CompactThreadInput,
     SubmitThreadFormInput, SubmitThreadTurnInput,
 };
@@ -452,7 +452,7 @@ pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
         let runtime = lock_runtime(shared);
         runtime.native_agent_services()
     };
-    run_agent_with_services(
+    run_agent_from_wire_with_services(
         base_services,
         spec,
         workspace_root,
