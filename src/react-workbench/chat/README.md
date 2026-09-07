@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:fd010a5202c9a4ebe3a7c2642eead83fb41763f7ad1eba3ca171c59780eede53 -->
+<!-- tinybot-module-fingerprint: sha256:2e9a6b273a08f067bc63d7cb2121169097633122f083681ec8b548d120300f66 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -322,3 +322,9 @@ renderer ownership, native lifecycle boundaries, and verification entry points.
 messages, Sidecar, and styles. Shared route setup, native fakes, and stable
 timeline builders live in `test/ChatPageTestHarness.tsx`; assertions and
 behavior-specific fixtures remain in the owning test file.
+
+`prepareArtifactReviews` saves original local Artifact bytes before actual
+Turn dispatch, including queued inputs. Capture failures preserve the draft
+and prevent dispatch. Explicit file references bind to their viewed revision;
+ordinary uploads do not create review snapshots. Sidecar reloads the saved
+review when a request is prepared and refreshes the live preview after restore.

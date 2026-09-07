@@ -16,7 +16,8 @@ export type ArtifactFileState = {
 
 // Only the visible local file is observed. Each effect owns its request lifetime;
 // closing or switching files prevents late reads from publishing into the next view.
-export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, unavailableMessage, binaryMessage }: {
+export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, unavailableMessage, binaryMessage, refreshKey }: {
+  refreshKey?: number;
   artifact: ArtifactRef;
   enabled: boolean;
   threadId?: string;
@@ -89,6 +90,6 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [enabled, threadId, path, id, mimeType, title, readFile, readBytes, unavailableMessage, binaryMessage]);
+  }, [refreshKey, enabled, threadId, path, id, mimeType, title, readFile, readBytes, unavailableMessage, binaryMessage]);
   return state;
 }

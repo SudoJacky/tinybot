@@ -25,6 +25,7 @@ pub struct WorkerWorkspaceRpc {
 }
 
 mod patch;
+pub(crate) mod artifact_review;
 mod path_guard;
 mod read;
 mod skills;

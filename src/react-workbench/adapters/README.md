@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:1562c587f7d725a4205b4fc68a8b0d2c9e5ea6492bf53a08f8ea1f72ce0361ae -->
+<!-- tinybot-module-fingerprint: sha256:58cc71677518931135f864372f5bc29a1e888a51266a11ce9592eb13b77580d7 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -63,3 +63,7 @@ The bridge listens for native browser snapshots and diagnostics and projects
 them into the owning Chat session. A generated Thread-title event first reloads
 the native session controller, then notifies all Chat subscribers so a title
 completed after navigation still reaches the sidebar.
+
+`desktopArtifactReviewStore` validates native review responses, decodes binary
+snapshots and forwards expected revisions and content hashes. Workspace store
+initialization precedes review calls, and failures propagate to Chat/Sidecar.

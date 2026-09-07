@@ -148,6 +148,7 @@ export type ChatStore = {
 };
 
 export type WorkspaceStore = {
+  artifactReviews?: import("../app-core/workspace/artifactReview").ArtifactReviewStore;
   listDirectory(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryPage>;
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
   readThreadFile(request: { cursor?: string; knownRevision?: string; path: string; threadId: string }): Promise<WorkspaceFileChunk>;

@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:a0f18f03dc53e4d3e8673cbcf989526403dec114d4e3bc026e6fee35d6c573de -->
+<!-- tinybot-module-fingerprint: sha256:151c6833dd2fc353721afcd10fc54b17a309ade988c3da6d7d608de5871ff23f -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -99,3 +99,7 @@ logs, accepts at most 300 memory samples and 4 MiB of sample JSON, omits
 malformed lines, allowlists system metadata, writes a manifest, and atomically
 activates the ZIP. The renderer receives only the export result; it does not
 own log paths, ZIP layout, or upload behavior.
+
+Bootstrap also registers `worker_thread_artifact_review` for the main
+workbench. The command resolves Thread context and delegates snapshot
+operations; bootstrap does not own review state.

@@ -122,6 +122,15 @@ pub fn write_text_atomic(
     contents: &str,
     options: AtomicWriteOptions,
 ) -> Result<(), WorkerStorageError> {
+    write_bytes_atomic_checked(path, contents.as_bytes(), options, || Ok(()))
+}
+
+pub(crate) fn write_bytes_atomic_checked(
+    path: &Path,
+    contents: &[u8],
+    options: AtomicWriteOptions,
+    verify_target: impl FnOnce() -> Result<(), WorkerStorageError>,
+) -> Result<(), WorkerStorageError> {
     let parent = storage_parent(path);
     fs::create_dir_all(parent)
         .map_err(|error| io_error("create parent directory", parent, error))?;
@@ -141,7 +150,7 @@ pub fn write_text_atomic(
             .create_new(true)
             .open(&temp_path)
             .map_err(|error| io_error("create temporary file", &temp_path, error))?;
-        file.write_all(contents.as_bytes())
+        file.write_all(contents)
             .map_err(|error| io_error("write temporary file", &temp_path, error))?;
         if let Some(permissions) = target_permissions {
             file.set_permissions(permissions)
@@ -157,6 +166,7 @@ pub fn write_text_atomic(
                     .map_err(|error| io_error("backup target file", &backup_path, error))?;
             }
         }
+        verify_target()?;
         replace_file(&temp_path, path).map_err(|error| io_error("replace target file", path, error))
     })();
     if result.is_err() {
@@ -226,8 +236,8 @@ pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<(
         ) -> i32;
     }
 
-    let source = wide_path(temp_path);
-    let target = wide_path(target_path);
+    let source = wide_path(temp_path)?;
+    let target = wide_path(target_path)?;
     let result = unsafe {
         MoveFileExW(
             source.as_ptr(),
@@ -243,10 +253,21 @@ pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<(
 }
 
 #[cfg(windows)]
-fn wide_path(path: &Path) -> Vec<u16> {
+fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
     use std::os::windows::ffi::OsStrExt;
 
-    path.as_os_str().encode_wide().chain(Some(0)).collect()
+    // std filesystem calls support long paths; the raw Win32 rename must use
+    // the same verbatim absolute paths, including when the target is new.
+    let parent = fs::canonicalize(storage_parent(path))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing file name"))?;
+    Ok(parent
+        .join(name)
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect())
 }
 
 fn io_error(operation: &'static str, path: &Path, source: io::Error) -> WorkerStorageError {

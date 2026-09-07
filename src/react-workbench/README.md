@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:dbd2ec29f9ba126d36074378a53d0d307fabd71e06af5c8317659a81371fa1c5 -->
+<!-- tinybot-module-fingerprint: sha256:061d9c17966a33e7c092a59d21f9601e174d19e1460cd83543c21c4cfe2d6110 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -109,3 +109,8 @@ instead of leaving the optimistic active state visible until restart.
 Form commands retain their command, source, and target correlation through the
 native boundary. Their lifecycle consumes the live canonical acknowledgement
 without waiting for the resumed Agent response to finish.
+
+The optional Workspace `artifactReviews` service connects explicit local file
+references to native baseline capture and Sidecar comparison/keep/restore.
+Desktop supports it; attempting a referenced edit without the service fails
+visibly before dispatch.

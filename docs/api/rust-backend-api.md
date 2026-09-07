@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:ff200abd6bfc3232102acb01fc12ffaf785e355978c4cadc3680727d602c0a4f -->
+<!-- tinybot-doc-fingerprint: sha256:b915046902a3e4ce8f6c2e81906afff5e7e88345c549e6a782278b07a227aad5 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -134,7 +134,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread and Turn timeline, effective-capability queries, correlated form resolution, and typed operation retry |
 | `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |
-| `createDesktopNativeWorkspaceApi` | `src/app-core/native/desktopNativeWorkspace.ts` | Default-workspace browsing plus Thread-scoped file chunks for contextual Artifact previews |
+| `createDesktopNativeWorkspaceApi` | `src/app-core/native/desktopNativeWorkspace.ts` | Default-workspace browsing, Thread-scoped Artifact previews, and baseline comparison/keep/restore |
 | `createDesktopNativeWorkspaceRegistryApi` | `src/app-core/native/desktopNativeWorkspaceRegistry.ts` | Imported-workspace list, register, display-name rename, and non-destructive forget |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 

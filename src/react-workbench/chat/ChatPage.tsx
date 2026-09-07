@@ -87,6 +87,8 @@ import {
   type OfficeArtifactSource,
   type SpreadsheetCellChangeRequest,
 } from "../../app-core/chat/officeArtifact";
+import { ArtifactReviewPanel } from "../sidecar/ArtifactReviewPanel";
+import { prepareArtifactReviews } from "./prepareArtifactReviews";
 import { useArtifactFile } from "./useArtifactFile";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
@@ -168,7 +170,7 @@ export type ChatPageProps = {
   workspaceRegistryStore?: WorkspaceRegistryStore;
   settingsStore?: SettingsStore;
   toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
-  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes">;
+  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
   createSessionSignal?: number;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
@@ -392,6 +394,7 @@ export function ChatPage({
   const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
+  const [artifactReviewEpoch, setArtifactReviewEpoch] = useState(0);
   const [composerArtifactReferences, setComposerArtifactReferences] = useState<(AgentInputReference & { id: string })[]>([]);
   const [composerSpreadsheetAnnotations, setComposerSpreadsheetAnnotations] = useState<SpreadsheetComposerAnnotation[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
@@ -1379,6 +1382,9 @@ export function ChatPage({
       sessionId,
       source: { control, surface: "chat" },
     });
+    if (await prepareArtifactReviews(input.references, workspaceStore?.artifactReviews, sessionId, command.commandId)) {
+      setArtifactReviewEpoch((value) => value + 1);
+    }
     if (optimisticText) {
       setOptimisticMessagesBySession((current) => updateSessionMessages(
         current,
@@ -2053,6 +2059,8 @@ export function ChatPage({
     return (
       <ArtifactDetails
         key={tab.id}
+        reviewEpoch={artifactReviewEpoch}
+        responding={sessionResponding}
         localThreadId={content.localFile ? tab.threadId : undefined}
         observeFile={sidecar.presentation !== "closed" && tab.threadId === activeSessionId}
         workspaceStore={workspaceStore}
@@ -2893,6 +2901,8 @@ function ArtifactDetails({
   notice: storedNotice,
   office: storedOffice,
   localThreadId,
+  reviewEpoch,
+  responding,
   observeFile,
   workspaceStore,
   onReference,
@@ -2906,14 +2916,18 @@ function ArtifactDetails({
   notice?: string;
   office?: OfficeArtifactSource;
   localThreadId?: string;
+  reviewEpoch: number;
+  responding: boolean;
   observeFile: boolean;
-  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes">;
+  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
   onReference: (reference: AgentInputReference) => void;
   onAskForSpreadsheetChange: (artifact: ArtifactRef, request: SpreadsheetCellChangeRequest, revision?: string) => void;
   onOpenFileLink: (link: AssistantFileLink) => void;
 }) {
   const { t } = useTranslation("chat");
+  const [refreshKey, setRefreshKey] = useState(0);
   const file = useArtifactFile({
+    refreshKey,
     artifact, enabled: Boolean(localThreadId) && observeFile, threadId: localThreadId, workspaceStore,
     unavailableMessage: t("details.filePreviewUnavailable"), binaryMessage: t("details.binaryFilePreviewUnsupported"),
   });
@@ -2942,6 +2956,11 @@ function ArtifactDetails({
         <button disabled={loading || Boolean(error)} onClick={referenceArtifact} type="button">{t("details.referenceInChat")}</button>
         {localThreadId ? <span role="status">{t("details.fileAutoUpdates")}</span> : null}
       </div>
+      {localThreadId && artifact.fetchPath && workspaceStore?.artifactReviews ? (
+        <ArtifactReviewPanel store={workspaceStore.artifactReviews} path={artifact.fetchPath} threadId={localThreadId}
+          revision={error ? undefined : file.revision} epoch={reviewEpoch} responding={responding}
+          kind={office?.kind} title={artifact.title} onRestored={() => setRefreshKey((value) => value + 1)} />
+      ) : null}
       {!markdown && !office ? (
         <dl>
           <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>

@@ -1,5 +1,5 @@
 # Workspace Service
-<!-- tinybot-module-fingerprint: sha256:1f563538121e2febb39b234de79bb528e2780bc42c86f898d2c7b2f84e37a877 -->
+<!-- tinybot-module-fingerprint: sha256:98bdadd50f94b216b30d5ff2455a6ca37e4dedbd8341212d66752048dc13f6d2 -->
 
 `workspace` provides capability-checked operations within the active workspace.
 It handles safe path resolution, file reads and writes, directory inspection,
@@ -17,3 +17,11 @@ Bootstrap reads report missing allowlisted files separately, while inspection
 or read failures remain explicit errors rather than being treated as absence.
 Agent and Worker callers use the shared capability-checked write, delete, and
 patch operations.
+
+`artifact_review` owns a persisted baseline per canonical workspace, Thread and
+file. Explicit references save up to 25 MiB before dispatch; pending requests
+reuse the baseline until accepted or restored. Snapshots live below the native
+application data root, outside the workspace, and are verified by SHA-256.
+Accept checks the compared content hash; restore checks it again immediately
+before atomic replacement and preserves the original file bytes. A malformed
+manifest, corrupt snapshot or changed source is an explicit error.

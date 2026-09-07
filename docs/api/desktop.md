@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:4f395f3ea5d020e22fb8bffda48e91e03532ea7d63a65656485d06270fa0d4f2 -->
+<!-- tinybot-doc-fingerprint: sha256:9e3edc47a4090e6f8949f0cfe1d6de40f3539aa13d10a35145632cf65216031d -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -137,6 +137,14 @@ previews first read binary metadata, then request at most 25 MiB from
 `worker_thread_workspace_file_bytes` with the expected source revision. The
 Artifact surface shows loading, truncation, unsupported-binary, source-change,
 and read-failure states instead of an empty successful preview.
+
+Explicit local Artifact references save a baseline through
+`worker_thread_artifact_review` immediately before Turn dispatch. Sidecar can
+compare that baseline with the live file, keep the current version, or restore
+the saved bytes. Writes are disabled during Agent generation, and changed
+content invalidates a previous comparison. Excel comparisons cover cell
+values only; formula, style and chart preservation is not inferred from them.
+The complete original bytes are retained for restoration.
 
 ## File Dialog Commands
 

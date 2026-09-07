@@ -14,8 +14,9 @@ function setup() {
   let revision = "v1";
   let content = "# Original report";
   const readThreadFile = vi.fn(async () => ({ path: "report.md", revision, content, contentType: "text" as const, sizeBytes: content.length }));
-  const view = render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} workspaceStore={{ readThreadFile }} />);
-  return { ...stores, ...view, readThreadFile, change: () => { revision = "v2"; content = "# Updated report"; } };
+  const artifactReviews = { prepare: vi.fn().mockResolvedValue({}), load: vi.fn().mockResolvedValue(null), compare: vi.fn(), resolve: vi.fn() };
+  const view = render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} workspaceStore={{ readThreadFile, artifactReviews }} />);
+  return { ...stores, ...view, readThreadFile, artifactReviews, change: () => { revision = "v2"; content = "# Updated report"; } };
 }
 
 describe("Artifact collaboration", () => {
@@ -35,6 +36,22 @@ describe("Artifact collaboration", () => {
     await waitFor(() => expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ references: [expect.objectContaining({ sourcePath: "report.md", revision: "v1", referenceKind: "file", sourceText: expect.stringContaining("Original report") })] }),
     })));
+    expect(stores.artifactReviews.prepare).toHaveBeenCalledWith(expect.objectContaining({ path: "report.md", threadId: "s1", expectedRevision: "v1" }));
+    expect(stores.artifactReviews.prepare.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(stores.chatStore.dispatch).mock.invocationCallOrder[0]);
+  });
+
+  it("retains the request and blocks dispatch when saving the original fails", async () => {
+    const user = userEvent.setup();
+    const stores = setup();
+    stores.artifactReviews.prepare.mockRejectedValue(new Error("File changed since viewing; reference it again"));
+    await user.click(await screen.findByRole("link", { name: "report" }));
+    await screen.findByRole("heading", { name: "Original report" });
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Update report");
+    await user.click(screen.getByRole("button", { name: "Reference in chat" }));
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByText(/File changed since viewing/);
+    expect(stores.chatStore.dispatch).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value).toBe("Update report");
   });
 
   it("refreshes changed local files on focus and leaves closed tabs closed", async () => {

@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:c538181d30bfe10f50e3e4498401d76ce9e7303475a4548ab824619f9221a655 -->
+<!-- tinybot-module-fingerprint: sha256:281c8e8bf4732e44245b687f4785fb8058f20cc68e3ceb378fb3d30ca721eb8d -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -64,3 +64,9 @@ Thread commands. Form resolution forwards command correlation and the live
 desktop trace sink so acceptance is visible before the resumed provider call
 finishes. Retry validates the failed source Turn and canonical Item before
 starting a new correlated Agent turn.
+
+`worker_thread_artifact_review` resolves the canonical Thread workspace and
+application data root, then runs snapshot operations on a blocking worker so
+filesystem sync does not block the UI thread. `workspace::artifact_review`
+owns storage, content checks and restoration. The command records mutations
+and failures without logging file contents.

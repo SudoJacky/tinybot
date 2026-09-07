@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:6f34099aea5ec61eeb70aec67adb74acae304203f702bdba22e040e44b8e45f0 -->
+<!-- tinybot-module-fingerprint: sha256:996374079a8c49dc8162536b7bb7b59e66223ec391e7bdd5bbb609aee5e8dd24 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -133,3 +133,13 @@ Sidecar does not own or submit the Chat composer state.
 - [Native renderer adapters](../../app-core/native/README.md)
 - [Native Browser runtime](../../../src-tauri/src/native_browser/README.md)
 - [Desktop command reference](../../../docs/api/desktop.md)
+
+`ArtifactReviewPanel` loads the native review state and offers comparison,
+keeping the current version, and restoring the baseline. File revisions
+invalidate displayed comparisons; keep and restore are disabled during Agent
+generation. Excel comparisons list cell value changes and added/removed sheets,
+showing at most 200 changes with a full count (up to one million visited cells).
+They do not verify formulas, formatting or charts. Text versions show the first
+32 KB, while Word and PowerPoint reuse read-only previews. Restore always uses
+the complete saved bytes. These controls acknowledge or replace the live local
+file; they are not a staged edit, history browser or finalization workflow.

@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:c273c99c7c3acfd64b8fe680d676004dc7f9a5579ac34126f6864c6f647548c5 -->
+<!-- tinybot-module-fingerprint: sha256:5460b323d3eb8c85553fe4687f05e2ff85b9425be0809fcb8a1ad96e71402d49 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -132,3 +132,8 @@ restart has cleared the process-local native update snapshot.
 independent of route subscribers. It samples serially, two seconds after each
 completed collection, and stops at 300 samples or on failure. Stopping or
 restarting discards late results; page navigation preserves the baseline.
+
+`desktopNativeWorkspace.artifactReview` invokes the Thread-scoped native
+review command with a discriminated action. It forwards expected revisions
+for capture/compare and exact content hashes for keep/restore; it does not
+select snapshot paths or an alternative workspace root.

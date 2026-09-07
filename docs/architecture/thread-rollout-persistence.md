@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:c62d68e2c0abc8959a6f5bcac3d90e1cce7d9dfeb6de928d4c7cfaacb654c003 -->
+<!-- tinybot-doc-fingerprint: sha256:50bf07a7e275d8485f822ece5c8d80708cf58439db3f42082a6ae33fdc607699 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -72,6 +72,11 @@ of the content workspace:
 ~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]
 ~/.tinybot/chat-attachments/images/<sha256>.<ext>
 ```
+
+Artifact review manifests and original byte snapshots live separately under
+`~/.tinybot/artifact-reviews/`, keyed by canonical workspace, Thread and file.
+They link to the initiating request ID but do not replace Rollout conversation
+authority or inject file snapshots into model context.
 
 The imported-workspace catalog is persisted separately at
 `~/.tinybot/workspaces.json`. It is not conversation authority: the Registry

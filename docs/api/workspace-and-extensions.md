@@ -17,9 +17,10 @@ src-tauri/src/plugins/manifest.rs
 src-tauri/src/plugins/manifest_tests.rs
 src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
+src-tauri/src/workspace/artifact_review.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:30245105b2b2217898bc8489d780001be7b6406a5bea69881afd48a671a645eb -->
+<!-- tinybot-doc-fingerprint: sha256:2218ed73948b88cb64dc77aea51fe5b5f3c3e64f81cdb2c87dbe8bbae6c19f2c -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -263,6 +264,38 @@ metadata revision as `expectedRevision`; a changed source fails with
 `source_changed` rather than parsing bytes from a different file version.
 Relative traversal, symlink escape, binary content in the text reader, stale
 cursors, oversize byte reads, and I/O errors fail explicitly.
+
+### Artifact Review
+
+`worker_thread_artifact_review` accepts `{ input: { threadId, path, action, ... } }`.
+It resolves the same canonical Thread workspace as preview reads. File and
+snapshot reads are capped at 25 MiB. Operations run off the UI thread.
+
+| Action | Additional fields | Result |
+| --- | --- | --- |
+| `prepare` | `expectedRevision, requestId` | Saved review; reuse a pending baseline |
+| `status` | none | Review or `null` |
+| `compare` | `expectedRevision` | `{ review, beforeBase64, afterBase64, currentHash, changed }` |
+| `accept` | `reviewId, expectedHash` | Review with `state: "accepted"` |
+| `restore` | `reviewId, expectedHash` | Review with `state: "restored"` |
+
+A review contains `id, path, threadId, requestId, baseHash, createdAtMs, state`.
+State begins as `pending`. The renderer prepares only explicit local file
+references carrying a viewed revision, just before actual dispatch; a stale
+revision or failed snapshot blocks dispatch. Pending requests reuse the saved
+baseline until it is accepted or restored. A subsequent preparation then saves
+a new baseline. The application data root stores the review manifest and
+content-addressed original byte blobs in `artifact-reviews/`; this is separate
+from the workspace and survives closing the preview or restarting the app.
+Old blobs are retained; this API does not offer history browsing or finalization.
+
+Accept acknowledges already-written live content. Both resolution actions
+require the exact SHA-256 content hash returned by comparison; a later edit
+fails with `artifact_review_conflict`. Restore validates the saved checksum,
+requires workspace write capability, rechecks the current file just before
+atomic replacement, and preserves target permissions. This is optimistic
+conflict detection, not an OS lock against external editors. If restoration
+succeeds but recording the state fails, the error explicitly reports both.
 
 `workspace.apply_patch` accepts:
 

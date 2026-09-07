@@ -1,8 +1,10 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import type { ArtifactReviewRequest } from "../workspace/artifactReview";
 
 type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 export type NativeWorkspaceApi = {
+  artifactReview: (request: ArtifactReviewRequest) => Promise<unknown>;
   file: (path: string) => Promise<unknown>;
   bootstrapFiles: (files: string[]) => Promise<unknown>;
   putFile: (path: string, body: unknown) => Promise<unknown>;
@@ -15,6 +17,7 @@ export type NativeWorkspaceApi = {
 export function createDesktopNativeWorkspaceApi(options: { invoke?: TauriInvoke } = {}): NativeWorkspaceApi {
   const invoke = options.invoke ?? tauriInvoke;
   return {
+    artifactReview: (request) => invoke("worker_thread_artifact_review", { input: request }),
     file: (path: string) => invoke("worker_workspace_file", { input: { path } }),
     bootstrapFiles: (files: string[]) => invoke("worker_workspace_bootstrap_files", { input: { files } }),
     putFile: (path: string, body: unknown) => invoke("worker_workspace_put_file", { input: { path, body } }),

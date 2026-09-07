@@ -1,4 +1,5 @@
 import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWorkspace";
+import { createDesktopArtifactReviewStore } from "./desktopArtifactReviewStore";
 import type {
   WorkspaceDirectoryPage,
   WorkspaceFileChunk,
@@ -7,7 +8,7 @@ import type {
   WorkspaceStore,
 } from "../services";
 
-type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "threadFileBytes" | "threadFileChunk">;
+type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "threadFileBytes" | "threadFileChunk"> & Partial<Pick<NativeWorkspaceApi, "artifactReview">>;
 
 export function createDesktopWorkspaceStore({
   initialize,
@@ -17,6 +18,10 @@ export function createDesktopWorkspaceStore({
   nativeWorkspace?: NativeWorkspaceQueryApi;
 }): WorkspaceStore {
   return {
+    artifactReviews: nativeWorkspace?.artifactReview ? createDesktopArtifactReviewStore(async (request) => {
+      await initialize();
+      return nativeWorkspace.artifactReview!(request);
+    }) : undefined,
     async listDirectory(request) {
       await initialize();
       return normalizeWorkspaceDirectoryPage(await requireNativeWorkspace(nativeWorkspace).directory(request));
