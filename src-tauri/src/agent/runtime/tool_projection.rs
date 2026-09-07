@@ -48,19 +48,25 @@ fn tool_observation_message_with_error(
 }
 
 pub(super) fn prepare_continuation_tool_observation(
-    messages: &mut Vec<Value>,
+    messages: &mut super::AgentItemHistory,
     tool_call: &NativeAgentToolCall,
     synthesize_missing_call: bool,
 ) -> Result<(), AgentError> {
     let matching_call_count = messages
+        .items
         .iter()
-        .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
+        .filter_map(|item| match item {
+            super::AgentItem::AssistantMessage(message) => Some(&message.tool_calls),
+            _ => None,
+        })
         .flatten()
-        .filter(|call| call.get("id").and_then(Value::as_str) == Some(tool_call.id.as_str()))
+        .filter(|call| call.id == tool_call.id)
         .count();
     match matching_call_count {
         0 if synthesize_missing_call => {
-            messages.push(assistant_tool_calls_message("", &[tool_call.clone()]));
+            messages.items.push(super::AgentItem::from_legacy_message(
+                &assistant_tool_calls_message("", &[tool_call.clone()]),
+            )?);
         }
         0 => {
             return Err(format!(
@@ -79,17 +85,7 @@ pub(super) fn prepare_continuation_tool_observation(
         }
     }
 
-    let matching_result_count = messages
-        .iter()
-        .filter(|message| {
-            message.get("role").and_then(Value::as_str) == Some("tool")
-                && message
-                    .get("tool_call_id")
-                    .or_else(|| message.get("toolCallId"))
-                    .and_then(Value::as_str)
-                    == Some(tool_call.id.as_str())
-        })
-        .count();
+    let matching_result_count = messages.items.iter().filter(|item| matches!(item, super::AgentItem::ToolResult(result) if result.tool_call_id == tool_call.id)).count();
     if matching_result_count != 0 {
         return Err(format!(
             "continuation checkpoint already contains {matching_result_count} tool results for `{}`",

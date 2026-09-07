@@ -67,7 +67,7 @@ mod tests {
             PhaseCheckpointInput {
                 iteration: Some(2), pending_tool_calls: vec![json!({"toolCallId":"call-1"})],
                 completed_tool_results: vec![json!({"toolCallId":"call-0"})], resume_token: Some("resume-1".into()),
-                stop_reason: Some(super::super::AgentStopReason::AwaitingForm), messages: Some(vec![json!({"role":"user","content":"run"})]),
+                stop_reason: Some(super::super::AgentStopReason::AwaitingForm), messages: Some(super::super::AgentItemHistory::from_legacy_messages(&[json!({"role":"user","content":"run"})]).unwrap()),
                 payload: super::super::checkpoint_types::AgentCheckpointPayload::UserInput(super::super::checkpoint_types::UserInputCheckpoint {
                     kind: super::super::checkpoint_types::UserInputCheckpointKind::UserInput, form_id: "form-1".into(), pending_hook_context: Vec::new(),
                     form: serde_json::from_value(json!({"title":"Question", "fields":[], "form_id":"form-1", "correlation":{"form_id":"form-1","turn_id":"turn-1","session_id":"session-1","tool_call_id":"call-1"}})).unwrap(),
@@ -153,11 +153,14 @@ mod tests {
                         }
                     }
                 })],
-                messages: Some(vec![json!({
-                    "role": "tool",
-                    "tool_call_id": "call-shell",
-                    "content": model_content
-                })]),
+                messages: Some(
+                    super::super::AgentItemHistory::from_legacy_messages(&[json!({
+                        "role": "tool",
+                        "tool_call_id": "call-shell",
+                        "content": model_content
+                    })])
+                    .unwrap(),
+                ),
                 ..Default::default()
             },
         );

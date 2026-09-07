@@ -88,9 +88,12 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
         ),
     };
     if input.controls.manual_compaction && !messages.is_empty() {
-        input.messages = messages;
+        input.messages = crate::agent::runtime::AgentItemHistory::from_legacy_messages(&messages)?;
     } else if !input.messages.is_empty() && !messages.is_empty() {
-        input.messages = native_agent_merge_history_messages(&messages, &input.messages);
+        input.messages = native_agent_merge_history_messages(
+            &crate::agent::runtime::AgentItemHistory::from_legacy_messages(&messages)?,
+            &input.messages,
+        );
     }
     input.api_mode = Some(
         match api_mode {
@@ -99,29 +102,30 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
         }
         .into(),
     );
-    input.responses_input_items = match api_mode {
-        SessionApiMode::ChatCompletions => None,
-        SessionApiMode::Responses => {
-            let has_current_user = response_items.iter().any(|item| {
-                item.get("role").and_then(serde_json::Value::as_str) == Some("user")
-                    && item
-                        .get("turnId")
-                        .or_else(|| item.get("turn_id"))
-                        .and_then(serde_json::Value::as_str)
-                        == Some(&input.trace_context.turn_id)
-            });
-            if !has_current_user {
-                if let Some(user) = input.messages.iter().rev().find(|message| {
-                    message.get("role").and_then(serde_json::Value::as_str) == Some("user")
-                }) {
-                    let mut user = user.clone();
-                    user["turnId"] = input.trace_context.turn_id.clone().into();
-                    response_items.push(user);
+    input.responses_input_items =
+        match api_mode {
+            SessionApiMode::ChatCompletions => None,
+            SessionApiMode::Responses => {
+                let has_current_user = response_items.iter().any(|item| {
+                    item.get("role").and_then(serde_json::Value::as_str) == Some("user")
+                        && item
+                            .get("turnId")
+                            .or_else(|| item.get("turn_id"))
+                            .and_then(serde_json::Value::as_str)
+                            == Some(&input.trace_context.turn_id)
+                });
+                if !has_current_user {
+                    if let Some(item) = input.messages.items.iter().rev().find(|item| {
+                        matches!(item, crate::agent::runtime::AgentItem::UserMessage(_))
+                    }) {
+                        let mut user = item.to_legacy_message()?;
+                        user["turnId"] = input.trace_context.turn_id.clone().into();
+                        response_items.push(user);
+                    }
                 }
+                Some(response_items)
             }
-            Some(response_items)
-        }
-    };
+        };
     if let Some(source) = checkpoint
         .as_ref()
         .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata)
@@ -133,86 +137,63 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
 }
 
 fn native_agent_merge_history_messages(
-    history_messages: &[serde_json::Value],
-    requested_messages: &[serde_json::Value],
-) -> Vec<serde_json::Value> {
-    let mut combined = Vec::new();
-    for message in requested_messages
+    history: &crate::agent::runtime::AgentItemHistory,
+    requested: &crate::agent::runtime::AgentItemHistory,
+) -> crate::agent::runtime::AgentItemHistory {
+    use crate::agent::runtime::{AgentItem, AgentItemHistory};
+    let is_instruction = |item: &&AgentItem| matches!(item, AgentItem::Instruction(_));
+    let mut items: Vec<_> = requested
+        .items
         .iter()
-        .filter(|message| native_agent_instruction_message(message))
+        .filter(is_instruction)
+        .cloned()
+        .collect();
+    let requested: Vec<_> = requested
+        .items
+        .iter()
+        .filter(|item| !is_instruction(item))
+        .cloned()
+        .collect();
+    let history: Vec<_> = history
+        .items
+        .iter()
+        .filter(|item| !is_instruction(item))
+        .cloned()
+        .collect();
+    if !history.is_empty() && requested.starts_with(&history) {
+        items.extend(requested);
+    } else if !requested.is_empty()
+        && history.len() >= requested.len()
+        && history[history.len() - requested.len()..]
+            .iter()
+            .zip(&requested)
+            .all(|(left, right)| logical_message_equal(left, right))
     {
-        combined.push(message.clone());
-    }
-
-    let requested_body: Vec<_> = requested_messages
-        .iter()
-        .filter(|message| !native_agent_instruction_message(message))
-        .cloned()
-        .collect();
-    let history_body: Vec<_> = history_messages
-        .iter()
-        .filter(|message| !native_agent_instruction_message(message))
-        .cloned()
-        .collect();
-
-    if native_agent_messages_start_with(&requested_body, &history_body) {
-        combined.extend(requested_body);
-    } else if native_agent_messages_end_with(&history_body, &requested_body) {
-        combined.extend(history_body);
+        items.extend(history);
     } else {
-        combined.extend(history_body);
-        combined.extend(requested_body);
+        items.extend(history);
+        items.extend(requested);
     }
-    combined
+    AgentItemHistory { items }
 }
 
-fn native_agent_messages_end_with(
-    messages: &[serde_json::Value],
-    suffix: &[serde_json::Value],
+fn logical_message_equal(
+    left: &crate::agent::runtime::AgentItem,
+    right: &crate::agent::runtime::AgentItem,
 ) -> bool {
-    !suffix.is_empty()
-        && messages.len() >= suffix.len()
-        && messages[messages.len() - suffix.len()..]
-            .iter()
-            .zip(suffix.iter())
-            .all(|(message, suffix)| native_agent_logical_message_equal(message, suffix))
-}
-
-fn native_agent_logical_message_equal(left: &serde_json::Value, right: &serde_json::Value) -> bool {
-    left.get("role") == right.get("role")
-        && native_agent_message_text(left) == native_agent_message_text(right)
-}
-
-fn native_agent_message_text(message: &serde_json::Value) -> String {
-    match message.get("content") {
-        Some(serde_json::Value::String(content)) => content.clone(),
-        Some(serde_json::Value::Array(parts)) => parts
-            .iter()
-            .filter_map(|part| {
-                part.as_str()
-                    .or_else(|| part.get("text").and_then(serde_json::Value::as_str))
-            })
-            .collect(),
-        Some(serde_json::Value::Null) | None => String::new(),
-        Some(content) => content.to_string(),
+    use crate::agent::runtime::{AgentItem, AgentMessageContent};
+    let text = AgentMessageContent::plain_text;
+    match (left, right) {
+        (AgentItem::UserMessage(a), AgentItem::UserMessage(b)) => {
+            text(&a.content) == text(&b.content)
+        }
+        (AgentItem::AssistantMessage(a), AgentItem::AssistantMessage(b)) => {
+            a.content.as_ref().map(text).unwrap_or_default()
+                == b.content.as_ref().map(text).unwrap_or_default()
+        }
+        (AgentItem::ToolResult(a), AgentItem::ToolResult(b)) => {
+            text(&a.content) == text(&b.content)
+        }
+        _ => left == right,
     }
-}
-
-fn native_agent_instruction_message(message: &serde_json::Value) -> bool {
-    matches!(
-        message.get("role").and_then(serde_json::Value::as_str),
-        Some("system" | "developer")
-    )
-}
-
-fn native_agent_messages_start_with(
-    messages: &[serde_json::Value],
-    prefix: &[serde_json::Value],
-) -> bool {
-    !prefix.is_empty()
-        && messages.len() >= prefix.len()
-        && messages
-            .iter()
-            .zip(prefix.iter())
-            .all(|(message, prefix)| message == prefix)
 }

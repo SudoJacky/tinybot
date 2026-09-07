@@ -204,7 +204,8 @@ pub struct AgentTurnResult {
     pub session_id: String,
     pub final_content: String,
     pub stop_reason: AgentStopReason,
-    pub messages: Vec<Value>,
+    #[serde(with = "super::items::legacy_history")]
+    pub messages: super::AgentItemHistory,
     pub tools_used: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_tool_results: Option<Vec<Value>>,
@@ -248,7 +249,7 @@ impl AgentTurnResult {
             session_id: session_id.to_string(),
             stop_reason,
             final_content: String::new(),
-            messages: Vec::new(),
+            messages: super::AgentItemHistory::default(),
             tools_used: Vec::new(),
             completed_tool_results: None,
             error: None,

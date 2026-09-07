@@ -902,8 +902,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         reason,
                     )?));
                 }
-                projection.messages = self.state.history.for_prompt()?;
-                self.context.messages = projection.messages.clone();
+                projection.messages = self.state.history.for_prompt()?.to_legacy_messages()?;
+                self.context.messages =
+                    super::AgentItemHistory::from_legacy_messages(&projection.messages)?;
             }
         }
 
@@ -936,7 +937,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         }
 
         let mut provider_context =
-            context_with_projected_messages(&self.context, projection.messages);
+            context_with_projected_messages(&self.context, projection.messages)?;
         let (provider_request, estimated_context_tokens) =
             match prepare_provider_request(&provider_context) {
                 Ok(prepared) => prepared,
@@ -1351,7 +1352,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .finalized_context_checkpoint(Some(final_message.clone()));
         let mut result = AgentTurnResult {
             final_content,
-            messages: vec![final_message],
+            messages: super::AgentItemHistory::from_legacy_messages(&[final_message])?,
             tools_used: self.state.tools_used.clone(),
             completed_tool_results: Some(self.state.completed_tool_results.clone()),
             runtime_events: Some(runtime_events),

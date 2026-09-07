@@ -444,11 +444,16 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
                     }],
                 }),
                 1 => {
-                    assert!(context.messages.iter().any(|message| {
-                        message["role"] == "tool"
-                            && message["tool_call_id"] == "acceptance-plan-start"
-                            && message["content"] == "Plan updated"
-                    }));
+                    assert!(context
+                        .messages
+                        .to_legacy_messages()
+                        .unwrap()
+                        .iter()
+                        .any(|message| {
+                            message["role"] == "tool"
+                                && message["tool_call_id"] == "acceptance-plan-start"
+                                && message["content"] == "Plan updated"
+                        }));
                     Ok(NativeAgentProviderResponse {
                         final_content: "The plan is ready; now I will inspect the file."
                             .to_string(),
@@ -685,13 +690,18 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
                     }],
                 }),
                 1 => {
-                    assert!(context.messages.iter().any(|message| {
-                        message["role"] == "tool"
-                            && message["tool_call_id"] == "plan-invalid"
-                            && message["content"]
-                                .as_str()
-                                .is_some_and(|content| content.contains("exactly one in_progress"))
-                    }));
+                    assert!(context
+                        .messages
+                        .to_legacy_messages()
+                        .unwrap()
+                        .iter()
+                        .any(|message| {
+                            message["role"] == "tool"
+                                && message["tool_call_id"] == "plan-invalid"
+                                && message["content"].as_str().is_some_and(|content| {
+                                    content.contains("exactly one in_progress")
+                                })
+                        }));
                     Ok(NativeAgentProviderResponse {
                         final_content: String::new(),
                         reasoning_delta: None,
@@ -788,7 +798,7 @@ fn queued_user_message_continuation_becomes_next_turn_input() {
             self.seen_messages
                 .lock()
                 .expect("seen messages lock should not be poisoned")
-                .push(context.messages.clone());
+                .push(context.messages.to_legacy_messages().unwrap());
             Ok(NativeAgentProviderResponse {
                 final_content: "queued response".to_string(),
                 reasoning_delta: None,
@@ -852,7 +862,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
                     .seen_messages
                     .lock()
                     .expect("seen messages lock should not be poisoned");
-                seen_messages.push(context.messages.clone());
+                seen_messages.push(context.messages.to_legacy_messages().unwrap());
                 seen_messages.len()
             };
             if call_count == 1 {

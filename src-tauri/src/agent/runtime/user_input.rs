@@ -129,7 +129,7 @@ pub(super) fn awaiting_user_input_result(
             iteration: Some(iteration),
             pending_tool_calls: state.pending_tool_calls.clone(),
             completed_tool_results: state.completed_tool_results.clone(),
-            messages: Some(state.history.messages()),
+            messages: Some(state.history.history()),
             resume_token: Some(format!("form:{form_id}")),
             payload: super::checkpoint_types::AgentCheckpointPayload::UserInput(
                 super::checkpoint_types::UserInputCheckpoint {

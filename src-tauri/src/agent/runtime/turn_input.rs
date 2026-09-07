@@ -11,7 +11,7 @@ pub struct AgentTurnInput {
     pub(crate) trace_context: AgentTraceContext,
     pub(crate) settings: AgentTurnSettings,
     // Legacy history and provider-native Responses items retain their protocol extensions.
-    pub(crate) messages: Vec<Value>,
+    pub(crate) messages: super::AgentItemHistory,
     pub(crate) responses_input_items: Option<Vec<Value>>,
     pub(crate) api_mode: Option<String>,
     pub(crate) metadata: Value,
@@ -171,7 +171,7 @@ impl AgentTurnInput {
             session_id,
             trace_context,
             settings,
-            messages,
+            messages: super::AgentItemHistory::from_legacy_messages(&messages)?,
             responses_input_items,
             api_mode,
             metadata: if metadata.is_null() {

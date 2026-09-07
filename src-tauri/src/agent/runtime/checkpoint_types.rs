@@ -72,7 +72,8 @@ pub struct AgentCheckpoint {
     #[serde(default)]
     pub payload: AgentCheckpointPayload,
     #[serde(default)]
-    pub messages: Vec<Value>,
+    #[serde(with = "super::items::legacy_history")]
+    pub messages: super::AgentItemHistory,
 }
 
 fn schema_version() -> u32 {
@@ -160,7 +161,7 @@ pub(super) struct PhaseCheckpointInput {
     pub completed_tool_results: Vec<Value>,
     pub resume_token: Option<String>,
     pub stop_reason: Option<AgentStopReason>,
-    pub messages: Option<Vec<Value>>,
+    pub messages: Option<super::AgentItemHistory>,
     pub payload: AgentCheckpointPayload,
 }
 
@@ -186,7 +187,7 @@ impl AgentCheckpoint {
             completed_tool_results: Vec::new(),
             resume_token: None,
             stop_reason: None,
-            messages: Vec::new(),
+            messages: super::AgentItemHistory::default(),
             payload: AgentCheckpointPayload::Execution(ExecutionCheckpoint {
                 cancelled: Some(true),
                 reason: Some(reason.into()),

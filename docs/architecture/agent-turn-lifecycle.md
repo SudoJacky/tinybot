@@ -14,7 +14,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:faaacf09337e4ecec7fe84fd86e0954d1976c8f646faef3bb72e93f0c7bce8f8 -->
+<!-- tinybot-doc-fingerprint: sha256:746c2c3b574b5502db70ef3060720174822a2bc6bd2187936fee3ad5c11e7139 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -41,7 +41,8 @@ instruction composition, history hydration, persistence, or task ownership.
 Identity, settings, continuation, and execution controls are resolved once;
 the execution context retains no raw spec. Invalid field types and malformed
 continuations fail explicitly before a durable Turn is started.
-Configuration, legacy history, extension metadata, provider-native items, and
+Input and runtime history share typed `AgentItemHistory` through checkpoint storage
+and result publication. Configuration, extension metadata, provider-native items, and
 context checkpoint payloads still have dynamic fields. Runtime checkpoints use
 `AgentCheckpoint` with typed phases and execution/form payloads; the in-memory
 checkpoint store no longer decodes or extracts JSON fields. `AgentError` carries error categories

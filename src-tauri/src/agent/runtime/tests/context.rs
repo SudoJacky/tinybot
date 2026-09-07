@@ -1132,7 +1132,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
             self.contexts
                 .lock()
                 .expect("provider context lock should not be poisoned")
-                .push(context.messages.clone());
+                .push(context.messages.to_legacy_messages().unwrap());
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 Ok(NativeAgentProviderResponse {
                     final_content: String::new(),

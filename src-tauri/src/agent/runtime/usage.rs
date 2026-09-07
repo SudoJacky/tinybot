@@ -75,7 +75,7 @@ struct CompactionSummary {
 #[cfg(test)]
 pub(super) fn context_window_messages(context: &AgentTurnContext) -> Result<Vec<Value>, String> {
     if context.context_window_projected {
-        return Ok(context.messages.clone());
+        return context.messages.to_legacy_messages();
     }
     context_window_projection(context).map(|projection| projection.messages)
 }
@@ -84,7 +84,10 @@ pub(super) async fn context_window_messages_async(
     context: &AgentTurnContext,
 ) -> Result<Vec<Value>, NativeAgentProviderFailure> {
     if context.context_window_projected {
-        return Ok(context.messages.clone());
+        return context
+            .messages
+            .to_legacy_messages()
+            .map_err(NativeAgentProviderFailure::provider);
     }
     context_window_projection_async(context)
         .await
@@ -155,7 +158,10 @@ pub(super) async fn context_window_projection_async(
         }
         if manual_compaction {
             return Ok(ContextWindowProjection {
-                messages: context.messages.clone(),
+                messages: context
+                    .messages
+                    .to_legacy_messages()
+                    .map_err(NativeAgentProviderFailure::provider)?,
                 action: None,
             });
         }
@@ -163,13 +169,19 @@ pub(super) async fn context_window_projection_async(
 
     if full_estimate <= context_window_tokens {
         return Ok(ContextWindowProjection {
-            messages: context.messages.clone(),
+            messages: context
+                .messages
+                .to_legacy_messages()
+                .map_err(NativeAgentProviderFailure::provider)?,
             action: None,
         });
     }
 
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
-        &context.messages,
+        &context
+            .messages
+            .to_legacy_messages()
+            .map_err(NativeAgentProviderFailure::provider)?,
         compact_tool_output_char_limit(message_budget),
     );
     let messages = trim_messages_to_context_window(&bounded_messages, message_budget);
@@ -243,12 +255,12 @@ pub(super) fn context_window_action_payload(
 pub(super) fn context_with_projected_messages(
     context: &AgentTurnContext,
     messages: Vec<Value>,
-) -> AgentTurnContext {
+) -> Result<AgentTurnContext, String> {
     let mut projected = context.clone();
-    projected.messages = messages;
+    projected.messages = super::AgentItemHistory::from_legacy_messages(&messages)?;
     projected.context_window_projected = true;
     projected.prepared_provider_request = None;
-    projected
+    Ok(projected)
 }
 
 pub(super) fn estimate_context_tokens_for_request(
@@ -259,7 +271,8 @@ pub(super) fn estimate_context_tokens_for_request(
 
 pub(super) fn prepare_provider_request(context: &AgentTurnContext) -> Result<(Value, i64), String> {
     let adapter = ProviderProtocolAdapter::for_runtime_request(context)?;
-    let request = adapter.build_request_from_window(context, context.messages.clone())?;
+    let request =
+        adapter.build_request_from_window(context, context.messages.to_legacy_messages()?)?;
     let estimated_tokens = estimate_message_tokens(&request);
     Ok((request, estimated_tokens))
 }
@@ -268,7 +281,7 @@ fn estimate_context_tokens_for_messages(
     context: &AgentTurnContext,
     messages: Vec<Value>,
 ) -> Result<i64, String> {
-    estimate_context_tokens_for_request(&context_with_projected_messages(context, messages))
+    estimate_context_tokens_for_request(&context_with_projected_messages(context, messages)?)
 }
 
 pub(super) fn enrich_usage_with_context_window(
@@ -503,7 +516,10 @@ async fn compact_messages_to_context_window_async(
     context_window_tokens: i64,
 ) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
-        &context.messages,
+        &context
+            .messages
+            .to_legacy_messages()
+            .map_err(NativeAgentProviderFailure::provider)?,
         compact_tool_output_char_limit(context_window_tokens),
     );
     if bounded_messages.is_empty() {

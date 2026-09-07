@@ -295,7 +295,9 @@ mod image_attachment_tests {
             .expect("runtime history should accept managed image metadata");
         let prompt = history
             .for_prompt()
-            .expect("runtime history should produce provider prompt messages");
+            .expect("runtime history should produce provider prompt messages")
+            .to_legacy_messages()
+            .unwrap();
 
         assert!(prompt[0]["references"][0].get("referenceKind").is_none());
         let encoded = provider_message_with_image_loader(&prompt[0], |_| {

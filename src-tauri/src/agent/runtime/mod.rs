@@ -171,7 +171,7 @@ pub struct AgentTurnContext {
     continuation: Option<crate::agent::runtime_protocol::AgentContinuationInput>,
     controls: turn_input::AgentTurnControls,
     context_window_projected: bool,
-    pub messages: Vec<Value>,
+    pub messages: AgentItemHistory,
     pub config_snapshot: Value,
     pub metadata: Value,
     pub model: String,

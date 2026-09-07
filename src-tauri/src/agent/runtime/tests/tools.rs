@@ -440,8 +440,8 @@ fn exclusive_runtime_control_runs_as_a_barrier_in_a_mixed_batch() {
                     ],
                 });
             }
-            let tool_messages = context
-                .messages
+            let projected_messages = context.messages.to_legacy_messages().unwrap();
+            let tool_messages = projected_messages
                 .iter()
                 .filter(|message| message["role"] == "tool")
                 .collect::<Vec<_>>();
@@ -684,13 +684,18 @@ fn repeated_no_progress_call_is_returned_to_model_without_redispatch() {
             let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
             if call_index < 2 {
                 if call_index == 1 {
-                    assert!(context.messages.iter().any(|message| {
-                        message["role"] == "tool"
-                            && message["tool_call_id"] == "call-no-progress-1"
-                            && message["content"].as_str().is_some_and(|content| {
-                                content.contains("equivalent call against unchanged state")
-                            })
-                    }));
+                    assert!(context
+                        .messages
+                        .to_legacy_messages()
+                        .unwrap()
+                        .iter()
+                        .any(|message| {
+                            message["role"] == "tool"
+                                && message["tool_call_id"] == "call-no-progress-1"
+                                && message["content"].as_str().is_some_and(|content| {
+                                    content.contains("equivalent call against unchanged state")
+                                })
+                        }));
                 }
                 return Ok(NativeAgentProviderResponse {
                     final_content: String::new(),
@@ -709,13 +714,18 @@ fn repeated_no_progress_call_is_returned_to_model_without_redispatch() {
                     }],
                 });
             }
-            assert!(context.messages.iter().any(|message| {
-                message["role"] == "tool"
-                    && message["tool_call_id"] == "call-no-progress-2"
-                    && message["content"]
-                        .as_str()
-                        .is_some_and(|content| content.contains("repeated_no_progress"))
-            }));
+            assert!(context
+                .messages
+                .to_legacy_messages()
+                .unwrap()
+                .iter()
+                .any(|message| {
+                    message["role"] == "tool"
+                        && message["tool_call_id"] == "call-no-progress-2"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|content| content.contains("repeated_no_progress"))
+                }));
             Ok(NativeAgentProviderResponse {
                 final_content: "used another approach".to_string(),
                 reasoning_delta: None,
@@ -909,7 +919,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
                     .seen_messages
                     .lock()
                     .expect("seen messages lock should not be poisoned");
-                seen_messages.push(context.messages.clone());
+                seen_messages.push(context.messages.to_legacy_messages().unwrap());
                 seen_messages.len()
             };
             if call_count == 1 {
@@ -1276,8 +1286,8 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                let tool_messages = context
-                    .messages
+                let projected_messages = context.messages.to_legacy_messages().unwrap();
+                let tool_messages = projected_messages
                     .iter()
                     .filter(|message| message["role"] == "tool")
                     .collect::<Vec<_>>();
@@ -1406,7 +1416,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
                     .seen_messages
                     .lock()
                     .expect("seen messages lock should not be poisoned");
-                seen_messages.push(context.messages.clone());
+                seen_messages.push(context.messages.to_legacy_messages().unwrap());
                 seen_messages.len()
             };
             if call_count == 1 {
@@ -1762,8 +1772,8 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                let tool_messages = context
-                    .messages
+                let projected_messages = context.messages.to_legacy_messages().unwrap();
+                let tool_messages = projected_messages
                     .iter()
                     .filter(|message| message["role"] == "tool")
                     .collect::<Vec<_>>();
@@ -2622,7 +2632,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
                     .seen_messages
                     .lock()
                     .expect("seen messages lock should not be poisoned");
-                seen_messages.push(context.messages.clone());
+                seen_messages.push(context.messages.to_legacy_messages().unwrap());
                 seen_messages.len()
             };
             if call_count == 1 {
@@ -2878,8 +2888,8 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                let tool_messages = context
-                    .messages
+                let projected_messages = context.messages.to_legacy_messages().unwrap();
+                let tool_messages = projected_messages
                     .iter()
                     .filter(|message| message["role"] == "tool")
                     .collect::<Vec<_>>();
@@ -2996,13 +3006,18 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                assert!(context.messages.iter().any(|message| {
-                    message["role"] == "tool"
-                        && message["tool_call_id"] == "call-single-fails"
-                        && message["content"]
-                            .as_str()
-                            .is_some_and(|content| content.contains("single tool failed"))
-                }));
+                assert!(context
+                    .messages
+                    .to_legacy_messages()
+                    .unwrap()
+                    .iter()
+                    .any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "call-single-fails"
+                            && message["content"]
+                                .as_str()
+                                .is_some_and(|content| content.contains("single tool failed"))
+                    }));
                 return Ok(NativeAgentProviderResponse {
                     final_content: "single tool error handled".to_string(),
                     reasoning_delta: None,
@@ -3659,14 +3674,19 @@ fn malformed_tool_arguments_are_returned_to_the_model() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                assert!(context.messages.iter().any(|message| {
-                    message["role"] == "tool"
-                        && message["tool_call_id"] == "call-invalid-json"
-                        && message["content"].as_str().is_some_and(|content| {
-                            content.contains("workspace.read_file")
-                                && content.contains("arguments are invalid JSON")
-                        })
-                }));
+                assert!(context
+                    .messages
+                    .to_legacy_messages()
+                    .unwrap()
+                    .iter()
+                    .any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "call-invalid-json"
+                            && message["content"].as_str().is_some_and(|content| {
+                                content.contains("workspace.read_file")
+                                    && content.contains("arguments are invalid JSON")
+                            })
+                    }));
                 return Ok(NativeAgentProviderResponse {
                     final_content: "invalid tool arguments handled".to_string(),
                     reasoning_delta: None,
@@ -3758,8 +3778,8 @@ fn malformed_tool_batch_returns_a_result_for_every_call() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                let tool_messages = context
-                    .messages
+                let projected_messages = context.messages.to_legacy_messages().unwrap();
+                let tool_messages = projected_messages
                     .iter()
                     .filter(|message| message["role"] == "tool")
                     .collect::<Vec<_>>();

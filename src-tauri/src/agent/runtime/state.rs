@@ -52,7 +52,7 @@ impl AgentTurnState {
             iteration: 0,
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
-            history: ContextManager::from_legacy_messages(&context.messages)?,
+            history: ContextManager::from_history(&context.messages),
             emitter: AgentTurnEmitter::new_with_trace_context(
                 &context.session_id,
                 context.trace_context.clone(),
@@ -193,7 +193,7 @@ impl AgentTurnState {
             pending_tool_calls: self.pending_tool_calls.clone(),
             completed_tool_results: self.completed_tool_results.clone(),
             stop_reason: self.stop_reason,
-            messages: Some(self.history.messages()),
+            messages: Some(self.history.history()),
             payload: AgentCheckpointPayload::Execution(ExecutionCheckpoint {
                 status: Some(status.into()),
                 context_checkpoint: self.context_checkpoint.clone(),
@@ -640,16 +640,18 @@ fn user_reference_payloads(
         .collect()
 }
 
-pub(super) fn current_user_message(messages: &[Value]) -> Option<Value> {
-    messages
-        .iter()
-        .rev()
-        .find(|message| {
-            message
-                .get("role")
-                .and_then(Value::as_str)
-                .map(|role| role == "user")
-                .unwrap_or(false)
-        })
-        .cloned()
+pub(super) fn current_user_message(history: &super::AgentItemHistory) -> Option<Value> {
+    history.items.iter().rev().find_map(|item| {
+        let super::AgentItem::UserMessage(message) = item else {
+            return None;
+        };
+        let mut value = item.to_legacy_message().expect("user item must serialize");
+        if let Some(id) = &message.id {
+            value["messageId"] = id.clone().into();
+        }
+        if let Some(id) = &message.client_event_id {
+            value["clientEventId"] = id.clone().into();
+        }
+        Some(value)
+    })
 }

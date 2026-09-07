@@ -505,7 +505,7 @@ impl crate::agent::runtime::NativeAgentProvider for RecordingNativeAgentProvider
         self.calls
             .lock()
             .expect("recording provider calls lock should not be poisoned")
-            .push(context.messages.clone());
+            .push(context.messages.to_legacy_messages().unwrap());
         Ok(crate::agent::runtime::NativeAgentProviderResponse {
             final_content: "remembered answer".to_string(),
             reasoning_delta: None,
@@ -531,7 +531,7 @@ impl crate::agent::runtime::NativeAgentProvider for ToolLoopRecordingNativeAgent
                 .calls
                 .lock()
                 .expect("recording provider calls lock should not be poisoned");
-            calls.push(context.messages.clone());
+            calls.push(context.messages.to_legacy_messages().unwrap());
             calls.len()
         };
         if call_count == 1 {
@@ -576,7 +576,7 @@ impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider 
                 .calls
                 .lock()
                 .expect("recall provider calls lock should not be poisoned");
-            calls.push(context.messages.clone());
+            calls.push(context.messages.to_legacy_messages().unwrap());
             calls.len()
         };
         let final_content = match call_count {
