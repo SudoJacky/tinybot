@@ -111,18 +111,16 @@ impl ResponsesAdapter {
             .collect()
     }
 
-    pub fn encode_tool_outputs(results: &[Value]) -> Result<Vec<Value>, String> {
+    pub fn encode_tool_outputs(
+        results: &[super::CompletedAgentToolResult],
+    ) -> Result<Vec<Value>, String> {
         results
             .iter()
             .map(|result| {
-                let call_id = result
-                    .get("toolCallId")
-                    .or_else(|| result.get("tool_call_id"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "completed tool result is missing toolCallId".to_string())?;
+                let call_id = &result.tool_call_id;
                 let output = result
-                    .get("envelope")
-                    .and_then(|envelope| envelope.get("modelContent"))
+                    .envelope
+                    .get("modelContent")
                     .and_then(Value::as_str)
                     .ok_or_else(|| {
                         format!("completed tool result `{call_id}` is missing modelContent")
@@ -675,10 +673,11 @@ mod tests {
 
     #[test]
     fn encodes_runtime_tool_results_as_responses_function_outputs() {
-        let outputs = ResponsesAdapter::encode_tool_outputs(&[json!({
-            "toolCallId": "call-1",
+        let outputs = ResponsesAdapter::encode_tool_outputs(&[serde_json::from_value(json!({
+            "toolCallId": "call-1", "toolName":"read_file", "status":"ok",
             "envelope": { "modelContent": "contents" }
-        })])
+        }))
+        .unwrap()])
         .expect("tool result should encode");
 
         assert_eq!(

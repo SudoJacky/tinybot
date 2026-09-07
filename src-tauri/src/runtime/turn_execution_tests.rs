@@ -407,7 +407,7 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
         assert!(!outcome.active_task_removed);
         assert_eq!(result.stop_reason.as_str(), "interrupted");
         assert_eq!(
-            result.cancellation_cleanup.as_ref().unwrap()["outcome"],
+            serde_json::to_value(result.cancellation_cleanup.as_ref().unwrap()).unwrap()["outcome"],
             "timeout"
         );
         assert!(result

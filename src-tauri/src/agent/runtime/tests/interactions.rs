@@ -236,7 +236,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         "toolCallId": "call-before-form",
         "toolName": "workspace.read_file",
         "status": "ok",
-        "summary": "completed before form"
+        "envelope": { "status": "ok", "modelContent": "completed before form" }
     }]);
     services.save_turn_checkpoint(
         "session-user-input",

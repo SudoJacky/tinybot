@@ -2,7 +2,9 @@ use crate::tools::registry::{
     ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
 };
 use crate::tools::registry::{MCP_CALL_TOOL_METHOD, UPDATE_PLAN_METHOD};
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq)]

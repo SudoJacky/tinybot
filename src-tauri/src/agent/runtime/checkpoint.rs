@@ -24,13 +24,15 @@ pub(super) fn save_phase_checkpoint(
     checkpoint
 }
 
-fn checkpoint_completed_tool_results(mut results: Vec<Value>) -> Vec<Value> {
+fn checkpoint_completed_tool_results(
+    mut results: Vec<super::CompletedAgentToolResult>,
+) -> Vec<super::CompletedAgentToolResult> {
     for result in &mut results {
-        let tool_name = result.get("toolName").and_then(Value::as_str);
-        if !matches!(tool_name, Some("exec_command" | "write_stdin")) {
+        let tool_name = result.tool_name.as_str();
+        if !matches!(tool_name, "exec_command" | "write_stdin") {
             continue;
         }
-        let Some(envelope) = result.get_mut("envelope").and_then(Value::as_object_mut) else {
+        let Some(envelope) = result.envelope.as_object_mut() else {
             continue;
         };
         let is_shell_process = envelope
@@ -65,8 +67,8 @@ mod tests {
         );
         let checkpoint = checkpoint_value(&context, crate::agent::runtime_protocol::AgentRuntimePhase::AwaitingForm,
             PhaseCheckpointInput {
-                iteration: Some(2), pending_tool_calls: vec![json!({"toolCallId":"call-1"})],
-                completed_tool_results: vec![json!({"toolCallId":"call-0"})], resume_token: Some("resume-1".into()),
+                iteration: Some(2), pending_tool_calls: vec![serde_json::from_value(json!({"toolCallId":"call-1","toolName":"request_user_input","argumentsJson":"{}"})).unwrap()],
+                completed_tool_results: vec![serde_json::from_value(json!({"toolCallId":"call-0","toolName":"read_file","status":"ok","envelope":{}})).unwrap()], resume_token: Some("resume-1".into()),
                 stop_reason: Some(super::super::AgentStopReason::AwaitingForm), messages: Some(super::super::AgentItemHistory::from_legacy_messages(&[json!({"role":"user","content":"run"})]).unwrap()),
                 payload: super::super::checkpoint_types::AgentCheckpointPayload::UserInput(super::super::checkpoint_types::UserInputCheckpoint {
                     kind: super::super::checkpoint_types::UserInputCheckpointKind::UserInput, form_id: "form-1".into(), pending_hook_context: Vec::new(),
@@ -129,7 +131,7 @@ mod tests {
             super::super::AgentStopReason::Interrupted,
             PhaseCheckpointInput {
                 iteration: Some(1),
-                completed_tool_results: vec![json!({
+                completed_tool_results: vec![serde_json::from_value(json!({
                     "toolCallId": "call-shell",
                     "toolName": "exec_command",
                     "status": "ok",
@@ -152,7 +154,8 @@ mod tests {
                             "workingDir": "D:/workspace"
                         }
                     }
-                })],
+                }))
+                .unwrap()],
                 messages: Some(
                     super::super::AgentItemHistory::from_legacy_messages(&[json!({
                         "role": "tool",

@@ -26,8 +26,8 @@ pub(super) struct AgentTurnState {
     pub(super) session_id: String,
     pub(super) phase: AgentRuntimePhase,
     pub(super) iteration: i64,
-    pub(super) pending_tool_calls: Vec<Value>,
-    pub(super) completed_tool_results: Vec<Value>,
+    pub(super) pending_tool_calls: Vec<super::PendingAgentToolCall>,
+    pub(super) completed_tool_results: Vec<super::CompletedAgentToolResult>,
     pub(super) history: ContextManager,
     emitter: AgentTurnEmitter,
     trace_committer: TraceCommitter,
@@ -284,36 +284,28 @@ impl AgentTurnState {
 
     pub(super) fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
         self.phase = AgentRuntimePhase::ToolRunning;
-        self.pending_tool_calls = vec![serde_json::json!({
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "argumentsJson": tool_call.arguments_json,
-        })];
+        self.pending_tool_calls = vec![super::PendingAgentToolCall::new(tool_call)];
     }
 
     pub(super) fn set_queued_tool_calls(&mut self, tool_calls: &[(NativeAgentToolCall, &str)]) {
         self.phase = AgentRuntimePhase::ToolRunning;
         self.pending_tool_calls = tool_calls
             .iter()
-            .map(|(tool_call, parallel_mode)| {
-                serde_json::json!({
-                    "toolCallId": tool_call.id,
-                    "toolName": tool_call.name,
-                    "argumentsJson": tool_call.arguments_json,
-                    "parallelMode": parallel_mode,
-                    "status": "queued",
-                })
+            .map(|(call, mode)| super::PendingAgentToolCall {
+                parallel_mode: Some((*mode).into()),
+                status: Some(super::execution_payloads::PendingToolStatus::Queued),
+                ..super::PendingAgentToolCall::new(call)
             })
             .collect();
     }
 
     pub(super) fn mark_pending_tool_running(&mut self, tool_call_id: &str) {
-        for pending_tool_call in &mut self.pending_tool_calls {
-            if pending_tool_call.get("toolCallId").and_then(Value::as_str) == Some(tool_call_id) {
-                pending_tool_call["status"] = Value::String("running".to_string());
-                break;
-            }
-        }
+        let pending = self
+            .pending_tool_calls
+            .iter_mut()
+            .find(|pending| pending.tool_call_id == tool_call_id)
+            .expect("a running tool must already belong to the pending batch");
+        pending.status = Some(super::execution_payloads::PendingToolStatus::Running);
     }
 
     pub(super) fn clear_pending_tool_calls(&mut self) {

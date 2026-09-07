@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:c07a78c5db711acabed0555dce4ccdb2a03cf759f35799291e3e2d358c8c83f5 -->
+<!-- tinybot-module-fingerprint: sha256:12311be4ccb214ec55903bad4d4ae966bacc68a676fea7756ee38951f44f6616 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -20,6 +20,8 @@ Context projection is runtime state rather than a mutable JSON input flag.
 `AgentCheckpoint` carries typed phases, resume tokens, iteration state, and a
 discriminated execution/form payload through task ownership and in-memory storage.
 Form definitions and correlation are decoded once at the storage boundary.
+Pending calls, completed tool results, continuation, terminal records, and cancellation
+cleanup use typed contracts. Tool envelopes retain dynamic extension payloads.
 Input, execution context, in-memory checkpoints, and result messages share
 `AgentItemHistory`. History merges operate on `AgentItem`; protocol messages are
 encoded at provider, event, and storage adapters. User message IDs, client event IDs,

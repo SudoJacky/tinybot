@@ -25,7 +25,11 @@ mod continuations;
 mod data_view;
 mod error;
 mod events;
+mod execution_payloads;
 pub use error::{AgentError, AgentErrorCode};
+pub use execution_payloads::{
+    AgentCancellationCleanup, CompletedAgentToolResult, PendingAgentToolCall, TerminalAgentTurn,
+};
 mod hooks;
 mod instructions;
 mod item_event_projection;

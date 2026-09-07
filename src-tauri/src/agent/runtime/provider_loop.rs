@@ -135,12 +135,7 @@ async fn run_owned_native_agent_turn_async(
 ) -> Result<AgentTurnResult, AgentError> {
     let mut identity = AgentTurnContext::from_input(input, config_snapshot.clone());
     identity.attach_observability(services);
-    let continuation_metadata = identity
-        .continuation
-        .as_ref()
-        .map(serde_json::to_value)
-        .transpose()
-        .map_err(|error| format!("failed to serialize turn continuation: {error}"))?;
+    let continuation_metadata = identity.continuation.clone();
     let restored_continuation_checkpoint = continuation_metadata.as_ref().and_then(|_| {
         services
             .checkpoints
@@ -1466,7 +1461,7 @@ async fn run_native_agent_turn_with_instructions_async(
 
 fn append_response_tool_outputs(
     context: &mut AgentTurnContext,
-    results: &[Value],
+    results: &[super::CompletedAgentToolResult],
 ) -> Result<(), AgentError> {
     provider_protocol(context)?
         .record_tool_outputs(context, results)

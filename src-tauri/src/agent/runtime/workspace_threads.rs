@@ -725,8 +725,8 @@ mod tests {
             .as_ref()
             .expect("completed tool results should be an array");
         assert_eq!(completed.len(), 2);
-        assert_eq!(completed[0]["toolCallId"], "call-spawn-0");
-        assert_eq!(completed[1]["toolCallId"], "call-spawn-1");
+        assert_eq!(completed[0].tool_call_id, "call-spawn-0");
+        assert_eq!(completed[1].tool_call_id, "call-spawn-1");
         let child_patch_session_ids = trace_sink
             .timeline_patch_session_ids
             .lock()

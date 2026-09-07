@@ -30,7 +30,7 @@ pub(super) struct UserInputResume {
     iteration: i64,
     tool_call: NativeAgentToolCall,
     result: NativeAgentToolResult,
-    restored_completed_results: Vec<Value>,
+    restored_completed_results: Vec<super::CompletedAgentToolResult>,
     form_id: String,
     values: Value,
     pending_hook_context: Vec<String>,
@@ -292,11 +292,11 @@ fn cancelled_user_input_result(
         tools_used: state.tools_used.clone(),
         error: Some(AgentResultError::Message(message.to_string())),
         restored_checkpoint: Some(checkpoint),
-        continuation: Some(serde_json::json!({
-            "kind": "form",
-            "formId": form_id,
-            "action": "cancel",
-        })),
+        continuation: Some(AgentContinuationInput::Form {
+            form_id,
+            action: AgentFormAction::Cancel,
+            values: None,
+        }),
         runtime_events: Some(runtime_events),
         ..AgentTurnResult::new(
             &context.turn_id,
@@ -331,8 +331,8 @@ fn user_input_pending_tool_call(
         .into());
     }
     let pending = &pending[0];
-    let id = required_string(pending, "toolCallId", "pending toolCallId")?;
-    let name = required_string(pending, "toolName", "pending toolName")?;
+    let id = pending.tool_call_id.clone();
+    let name = pending.tool_name.clone();
     if name != REQUEST_USER_INPUT_METHOD {
         return Err(format!(
             "invalid user input checkpoint: pending tool must be `{REQUEST_USER_INPUT_METHOD}`, found `{name}`"
@@ -341,7 +341,7 @@ fn user_input_pending_tool_call(
     Ok(NativeAgentToolCall {
         id,
         name,
-        arguments_json: required_string(pending, "argumentsJson", "pending argumentsJson")?,
+        arguments_json: pending.arguments_json.clone(),
         result: Value::Null,
     })
 }
@@ -643,15 +643,6 @@ fn choice_values(field: &UserInputField) -> HashSet<&str> {
         .flatten()
         .map(|option| option.value.as_str())
         .collect()
-}
-
-fn required_string(value: &Value, key: &str, label: &str) -> Result<String, String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| format!("invalid user input checkpoint: {label} is missing"))
 }
 
 fn normalize_required_string(

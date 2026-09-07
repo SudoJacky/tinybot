@@ -491,7 +491,8 @@ fn publish_data_view_result(
         .iter()
         .filter(|result| {
             result
-                .pointer("/envelope/structured/kind")
+                .envelope
+                .pointer("/structured/kind")
                 .and_then(Value::as_str)
                 == Some("data_view_published")
         })

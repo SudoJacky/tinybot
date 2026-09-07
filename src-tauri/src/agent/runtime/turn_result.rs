@@ -172,17 +172,13 @@ impl AgentStopReason {
 pub enum AgentResultError {
     Structured(super::AgentError),
     Message(String),
-    Coded {
-        code: AgentStopReason,
-        message: String,
-    },
 }
 
 impl AgentResultError {
     pub fn message(&self) -> &str {
         match self {
             Self::Structured(error) => &error.message,
-            Self::Message(message) | Self::Coded { message, .. } => message,
+            Self::Message(message) => message,
         }
     }
 }
@@ -208,7 +204,7 @@ pub struct AgentTurnResult {
     pub messages: super::AgentItemHistory,
     pub tools_used: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_tool_results: Option<Vec<Value>>,
+    pub completed_tool_results: Option<Vec<super::CompletedAgentToolResult>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AgentResultError>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,11 +214,11 @@ pub struct AgentTurnResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restored_checkpoint: Option<super::AgentCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub continuation: Option<Value>,
+    pub continuation: Option<crate::agent::runtime_protocol::AgentContinuationInput>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub form: Option<super::user_input::AgentUserInputForm>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub terminal_turn: Option<Value>,
+    pub terminal_turn: Option<super::TerminalAgentTurn>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_events: Option<Vec<AgentRuntimeEventEnvelope>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -234,11 +230,11 @@ pub struct AgentTurnResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction_diagnostics: Option<Vec<InstructionDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_persistence: Option<Value>,
+    pub turn_persistence: Option<crate::threads::turn::AgentTurnRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancellation_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cancellation_cleanup: Option<Value>,
+    pub cancellation_cleanup: Option<super::AgentCancellationCleanup>,
 }
 
 impl AgentTurnResult {
@@ -330,10 +326,9 @@ mod tests {
             })
         );
         result.stop_reason = AgentStopReason::RuntimeError;
-        result.error = Some(AgentResultError::Coded {
-            code: AgentStopReason::RuntimeError,
-            message: "trace flush failed".to_string(),
-        });
+        result.error = Some(AgentResultError::Structured(
+            super::super::AgentError::from("trace flush failed"),
+        ));
         let value = result.into_value().unwrap();
         assert_eq!(
             value["error"],

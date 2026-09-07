@@ -157,7 +157,7 @@ pub(super) fn commit_tool_observation(
     }
     state
         .completed_tool_results
-        .push(completed_tool_result_entry(&tool_call, &result, &status));
+        .push(completed_tool_result_entry(&tool_call, &result, &status)?);
     let state_changed = status == "ok"
         && (native_tool_mutates_workspace(context, &tool_call.name)
             || native_tool_mutates_session(context, &tool_call.name));
@@ -409,12 +409,12 @@ fn completed_tool_result_entry(
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
     status: &str,
-) -> Value {
-    serde_json::json!({
-        "toolCallId": tool_call.id,
-        "toolName": tool_call.name,
-        "status": status,
-        "envelope": result.envelope,
+) -> Result<super::CompletedAgentToolResult, String> {
+    Ok(super::CompletedAgentToolResult {
+        tool_call_id: tool_call.id.clone(),
+        tool_name: tool_call.name.clone(),
+        status: status.parse()?,
+        envelope: result.envelope.clone(),
     })
 }
 
@@ -492,7 +492,7 @@ mod tests {
         commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect("valid tool result should be committed");
 
-        let completed = &state.completed_tool_results[0];
+        let completed = serde_json::to_value(&state.completed_tool_results[0]).unwrap();
         assert!(completed.get("summary").is_none());
         assert_eq!(completed["envelope"]["summary"], "README");
     }
@@ -581,7 +581,7 @@ mod tests {
         commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect("valid outcome should be committed");
 
-        let envelope = &state.completed_tool_results[0]["envelope"];
+        let envelope = &state.completed_tool_results[0].envelope;
         assert!(!envelope.to_string().contains("secret-token"));
         assert!(envelope["ui"]["summary"]
             .as_str()

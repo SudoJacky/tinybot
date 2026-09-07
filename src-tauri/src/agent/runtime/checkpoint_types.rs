@@ -60,11 +60,11 @@ pub struct AgentCheckpoint {
     #[serde(default)]
     pub max_iterations: i64,
     #[serde(default)]
-    pub pending_tool_calls: Vec<Value>,
+    pub pending_tool_calls: Vec<super::PendingAgentToolCall>,
     #[serde(default)]
     pub activated_tool_ids: Vec<String>,
     #[serde(default)]
-    pub completed_tool_results: Vec<Value>,
+    pub completed_tool_results: Vec<super::CompletedAgentToolResult>,
     #[serde(default)]
     pub resume_token: Option<String>,
     #[serde(default)]
@@ -157,8 +157,8 @@ pub struct ExecutionCheckpoint {
 #[derive(Default)]
 pub(super) struct PhaseCheckpointInput {
     pub iteration: Option<i64>,
-    pub pending_tool_calls: Vec<Value>,
-    pub completed_tool_results: Vec<Value>,
+    pub pending_tool_calls: Vec<super::PendingAgentToolCall>,
+    pub completed_tool_results: Vec<super::CompletedAgentToolResult>,
     pub resume_token: Option<String>,
     pub stop_reason: Option<AgentStopReason>,
     pub messages: Option<super::AgentItemHistory>,

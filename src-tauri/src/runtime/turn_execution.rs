@@ -968,10 +968,9 @@ fn cancellation_cleanup_timeout_result(
         }),
     );
     AgentTurnResult {
-        cancellation_cleanup: Some(serde_json::json!({
-            "outcome": "timeout",
-            "timeoutMs": grace.as_millis(),
-        })),
+        cancellation_cleanup: Some(crate::agent::runtime::AgentCancellationCleanup::Timeout {
+            timeout_ms: grace.as_millis(),
+        }),
         error: Some(AgentResultError::Message(format!(
             "agent cancellation cleanup exceeded {} ms",
             grace.as_millis()

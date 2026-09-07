@@ -33,18 +33,18 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
         return Ok(None);
     };
     use crate::threads::turn::AgentTurnStatus;
-    let status = match existing.status {
-        AgentTurnStatus::Completed => "completed",
-        AgentTurnStatus::Failed => "failed",
-        AgentTurnStatus::Cancelled => "cancelled",
-        AgentTurnStatus::Interrupted => "interrupted",
+    match existing.status {
+        AgentTurnStatus::Completed => {}
+        AgentTurnStatus::Failed => {}
+        AgentTurnStatus::Cancelled => {}
+        AgentTurnStatus::Interrupted => {}
         AgentTurnStatus::Running | AgentTurnStatus::Waiting => return Ok(None),
     };
     let phase = existing.phase.as_str();
     Ok(Some(terminal_turn_rejection(
         &turn_id,
         &session_id,
-        status,
+        existing.status,
         phase,
     )))
 }
@@ -52,14 +52,17 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
 fn terminal_turn_rejection(
     turn_id: &str,
     session_id: &str,
-    status: &str,
+    status: crate::threads::turn::AgentTurnStatus,
     phase: &str,
 ) -> AgentTurnResult {
-    let message = format!("agent turn `{turn_id}` is terminal ({status}) and cannot continue");
+    let message = format!("agent turn `{turn_id}` is terminal ({status:?}) and cannot continue");
     AgentTurnResult {
         completed_tool_results: Some(Vec::new()),
         error: Some(AgentResultError::Message(message)),
-        terminal_turn: Some(serde_json::json!({ "status": status, "phase": phase })),
+        terminal_turn: Some(crate::agent::runtime::TerminalAgentTurn {
+            status,
+            phase: phase.into(),
+        }),
         ..AgentTurnResult::new(turn_id, session_id, AgentStopReason::TerminalTurn)
     }
 }
@@ -273,8 +276,7 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
             }
         },
     )?;
-    result.turn_persistence =
-        Some(serde_json::to_value(persisted).map_err(|error| error.to_string())?);
+    result.turn_persistence = Some(persisted);
     Ok(())
 }
 
