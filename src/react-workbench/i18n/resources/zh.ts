@@ -624,6 +624,8 @@ export const zh = {
       officePreviewLoading: "正在渲染 {{format}} 预览…", officePreviewFailed: "{{format}} 预览失败：{{message}}",
       officeSheets: "工作表", officeSpreadsheetTruncated: "仅显示前 {{rows}} 行、{{columns}} 列。",
       officePresentationNavigation: "PowerPoint 幻灯片", officePresentationSlide: "前往第 {{slide}} 页幻灯片",
+      referenceInChat: "引用到聊天", artifactReference: "整个产物", fileAutoUpdates: "自动更新",
+      officeRangeEditorLabel: "对区域 {{cell}} 的要求",
       officeAskForChange: "要求修改", officeAskForChangeShortcut: "Ctrl I",
       officeCellEmpty: "空白", officeCellLabel: "单元格 {{cell}}，{{value}}", officeCellSelected: "已选中 {{sheet}}!{{cell}}",
       officeChangeEditorLabel: "单元格 {{cell}} 的修改要求", officeChangeEditorPlaceholder: "描述需要修改的内容", officeChangeEditorConfirm: "确认修改要求",

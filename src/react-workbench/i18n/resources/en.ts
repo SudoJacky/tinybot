@@ -1176,6 +1176,8 @@ export const en = {
       officePreviewLoading: "Rendering {{format}} preview…", officePreviewFailed: "{{format}} preview failed: {{message}}",
       officeSheets: "Workbook sheets", officeSpreadsheetTruncated: "Showing the first {{rows}} rows and {{columns}} columns.",
       officePresentationNavigation: "PowerPoint slides", officePresentationSlide: "Go to slide {{slide}}",
+      referenceInChat: "Reference in chat", artifactReference: "Entire artifact", fileAutoUpdates: "Updates automatically",
+      officeRangeEditorLabel: "Request for range {{cell}}",
       officeAskForChange: "Ask for change", officeAskForChangeShortcut: "Ctrl I",
       officeCellEmpty: "empty", officeCellLabel: "Cell {{cell}}, {{value}}", officeCellSelected: "Selected {{sheet}}!{{cell}}",
       officeChangeEditorLabel: "Change request for cell {{cell}}", officeChangeEditorPlaceholder: "Describe a change or ask a question", officeChangeEditorConfirm: "Add change request",

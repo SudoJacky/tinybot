@@ -19,7 +19,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:142f15b9d77ceffe87e6bfa0235c9f40af8d36dd0736d36ec81ca1f4075e707f -->
+<!-- tinybot-doc-fingerprint: sha256:30245105b2b2217898bc8489d780001be7b6406a5bea69881afd48a671a645eb -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -165,7 +165,7 @@ show the latest selected route/edge, raw response, and provider usage.
 | `worker_workspace_put_file` | `{ input: { path, body } }` | `WorkspaceWriteResult` |
 | `worker_workspace_directory` | `{ input: { path, cursor?, nameQuery? } }` | Worker response containing `WorkspaceDirectoryPage` |
 | `worker_workspace_file_chunk` | `{ input: { path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
-| `worker_thread_workspace_file_chunk` | `{ input: { threadId, path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
+| `worker_thread_workspace_file_chunk` | `{ input: { threadId, path, cursor?, knownRevision? } }` | Worker response containing `WorkspaceFileChunk` |
 | `worker_thread_workspace_file_bytes` | `{ input: { threadId, path, expectedRevision? } }` | Raw file bytes, capped at 25 MiB |
 
 Lower-level workspace RPC also supports:
@@ -243,6 +243,13 @@ Binary files return `content_type: "binary"` without invented text content or li
 continuation cursors are bound to `revision`; using one after the file changes fails visibly with
 query code `source_changed`. Other workspace query failures retain their protocol error, path, and
 retryable metadata rather than returning an empty successful page.
+
+For conditional preview reads, the desktop command accepts `knownRevision`
+(`known_revision` on `workspace.read_file_chunk`). Without a continuation cursor,
+a matching metadata revision returns `content_type: "unchanged"` and no content,
+without opening file contents. Changed files return the normal chunk response;
+text reads verify the revision again before returning. This lets the visible
+Sidecar preview check for local edits without repeatedly loading unchanged files.
 
 The `worker_thread_workspace_file_chunk` and
 `worker_thread_workspace_file_bytes` commands form the Sidecar Artifact preview

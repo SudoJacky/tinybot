@@ -22,7 +22,7 @@ export type WorkspaceDirectoryPage = {
 
 export type WorkspaceFileChunk = {
   content?: string;
-  contentType: "text" | "binary" | "unsupported";
+  contentType: "text" | "binary" | "unsupported" | "unchanged";
   lineEnd?: number;
   lineStart?: number;
   nextCursor?: string;

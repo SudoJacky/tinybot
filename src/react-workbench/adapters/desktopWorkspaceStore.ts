@@ -76,7 +76,7 @@ function normalizeWorkspaceFileChunk(payload: unknown): WorkspaceFileChunk {
   const value = workspaceQueryResult(payload);
   if (!isRecord(value)) throw workspaceQueryError("io_error", "Workspace file response must be an object.");
   const rawContentType = stringValue(value.content_type ?? value.contentType);
-  const contentType = rawContentType === "text" || rawContentType === "binary" || rawContentType === "unsupported"
+  const contentType = rawContentType === "text" || rawContentType === "binary" || rawContentType === "unsupported" || rawContentType === "unchanged"
     ? rawContentType
     : "unsupported";
   return {

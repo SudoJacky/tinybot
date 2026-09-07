@@ -106,6 +106,45 @@ describe("Office artifact preview", () => {
     });
   });
 
+  it("extends a rectangular selection with Shift and sends its addresses and values", async () => {
+    const user = userEvent.setup();
+    const onAskForChange = vi.fn();
+    parserMocks.readWorkbook.mockResolvedValue([{ sheet: "Revenue", data: [["Quarter", "Total"], ["Q1", 42]] }]);
+    const view = render(<OfficeArtifactPreview onAskForChange={onAskForChange} source={source("spreadsheet")} />);
+    const preview = within(view.container);
+    await user.click(await preview.findByRole("button", { name: "Cell A1, Quarter" }));
+    await user.keyboard("{Shift>}{ArrowRight}{ArrowDown}{/Shift}{Control>}i{/Control}");
+    expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(4);
+    await user.type(preview.getByRole("textbox"), "Explain this region{Enter}");
+    expect(onAskForChange).toHaveBeenCalledWith({
+      sheet: "Revenue", address: "A1:B2", instruction: "Explain this region",
+      value: JSON.stringify([["Quarter", "Total"], ["Q1", "42"]]),
+    });
+  });
+
+  it("drags a range backwards and clears it when switching worksheets", async () => {
+    const user = userEvent.setup();
+    const onAskForChange = vi.fn();
+    parserMocks.readWorkbook.mockResolvedValue([
+      { sheet: "Revenue", data: [["Quarter", "Total"], ["Q1", 42]] },
+      { sheet: "Costs", data: [["Item", 12]] },
+    ]);
+    const view = render(<OfficeArtifactPreview onAskForChange={onAskForChange} source={source("spreadsheet")} />);
+    const preview = within(view.container);
+    const start = await preview.findByRole("button", { name: "Cell B2, 42" });
+    const end = preview.getByRole("button", { name: "Cell A1, Quarter" });
+    fireEvent.pointerDown(start, { button: 0, buttons: 1 });
+    fireEvent.pointerEnter(end, { buttons: 1 });
+    fireEvent.pointerUp(end, { button: 0 });
+    fireEvent.click(end);
+    expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(4);
+    await user.click(preview.getByRole("button", { name: /Ask for change Ctrl I/ }));
+    await user.type(preview.getByRole("textbox"), "Review this{Enter}");
+    expect(onAskForChange.mock.calls[0][0].address).toBe("A1:B2");
+    await user.click(preview.getByRole("tab", { name: "Costs" }));
+    expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(0);
+  });
+
   it("renders Word content locally and removes active or external content", async () => {
     parserMocks.renderDocument.mockImplementation(async (_bytes: ArrayBuffer, container: HTMLElement) => {
       const paragraph = document.createElement("p");

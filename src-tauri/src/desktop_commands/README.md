@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:9ebb38c6618d62db13520afa1885fa9ca5388443eb35d00a5d8895ba94b8f708 -->
+<!-- tinybot-module-fingerprint: sha256:c538181d30bfe10f50e3e4498401d76ce9e7303475a4548ab824619f9221a655 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -40,7 +40,8 @@ derive the recorded working directory from the canonical Thread projection,
 and then delegate to the same guarded workspace reader. Text uses the ordinary
 chunk response. Modern Office files use a raw IPC response capped at 25 MiB and
 may require the metadata revision so a changed source fails explicitly. Neither
-command accepts a renderer-supplied workspace root.
+command accepts a renderer-supplied workspace root. Chunk requests also forward
+optional `knownRevision` for metadata-only unchanged responses.
 
 Agent Graph commands pass workspace-scoped list, save, and delete requests to
 `agent_graphs`. Schema checks, path containment, atomic writes, and optimistic

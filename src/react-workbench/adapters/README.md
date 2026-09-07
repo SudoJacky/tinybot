@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:8f4b5711ca225540c6907b4ec82297c18f3a6776a4c88ac7803f9723271c6702 -->
+<!-- tinybot-module-fingerprint: sha256:1562c587f7d725a4205b4fc68a8b0d2c9e5ea6492bf53a08f8ea1f72ce0361ae -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -12,7 +12,8 @@ workspace state.
 
 The workspace Adapter keeps default-workspace directory and chunk browsing
 separate from Thread-scoped file preview reads. For the latter it forwards only
-the Thread ID, file path, and optional expected revision to the native API. It
+the Thread ID, file path, and optional expected or known revision to the native API.
+Conditional chunk reads preserve the `unchanged` response without manufacturing content. It
 normalizes the raw IPC body to `Uint8Array` without interpreting file content,
 preserving Rust as the authority for workspace selection, path containment,
 source revision, and byte limits.

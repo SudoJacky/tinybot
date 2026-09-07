@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:394bd3547d2de50a20c7c74deac1afa2d1d72f95b1523acc1ce12e5c74ee82c3 -->
+<!-- tinybot-module-fingerprint: sha256:6f34099aea5ec61eeb70aec67adb74acae304203f702bdba22e040e44b8e45f0 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -81,11 +81,11 @@ smooth vertical pointer-proximity response, while the current slide remains at
 full strength. Pointer hover or keyboard focus expands that rail into numbered
 DOM-derived thumbnails without resizing the slide canvas; activating a
 thumbnail scrolls the owning Artifact surface to the matching slide and marks
-it current. Spreadsheet previews expose one selected
-cell at a time with matching row and column headers, arrow-key navigation,
+it current. Spreadsheet previews expose rectangular cell selections through
+dragging, Shift-click, or Shift-arrow navigation, with matching row and column headers,
 Escape clearing, and an explicit `Ctrl/Cmd+I` change request. Activating that
 action opens a labelled input anchored below the selected cell; Enter or its
-confirm button reports the sheet, address, rendered value, and trimmed request
+confirm button reports the sheet, normalized range address, rendered values, and trimmed request
 through the render callback, while Escape cancels and restores cell focus.
 Sidecar does not own or submit the Chat composer state.
 

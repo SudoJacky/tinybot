@@ -52,6 +52,7 @@ pub(crate) struct WorkerThreadWorkspaceFileChunkInput {
     thread_id: String,
     path: String,
     cursor: Option<String>,
+    known_revision: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -158,6 +159,7 @@ pub(crate) fn worker_thread_workspace_file_chunk(
         input.thread_id,
         input.path,
         input.cursor,
+        input.known_revision,
         native_backend_workspace_root(),
         native_config_snapshot(),
         Duration::from_secs(10),
@@ -349,6 +351,7 @@ pub(crate) fn worker_thread_workspace_file_chunk_with_options(
     thread_id: String,
     path: String,
     cursor: Option<String>,
+    known_revision: Option<String>,
     default_workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -363,7 +366,7 @@ pub(crate) fn worker_thread_workspace_file_chunk_with_options(
                 request_id.id("thread-workspace-file-chunk"),
                 request_id.trace_id("thread-workspace-file-chunk"),
                 "workspace.read_file_chunk",
-                serde_json::json!({ "path": path, "cursor": cursor }),
+                serde_json::json!({ "path": path, "cursor": cursor, "known_revision": known_revision }),
             ));
     serde_json::to_value(response)
         .map_err(|error| format!("thread workspace file chunk failed: {error}"))

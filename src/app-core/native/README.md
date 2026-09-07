@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:7bcef3dfc721145a10e8eb3e86e2287562eed23e5c692a67d4d733bb02ae2d77 -->
+<!-- tinybot-module-fingerprint: sha256:c273c99c7c3acfd64b8fe680d676004dc7f9a5579ac34126f6864c6f647548c5 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -90,7 +90,8 @@ or address Agent shell sessions. Its create contract leaves the working
 directory optional so a regular chat can use Rust's configured native default.
 
 `desktopNativeWorkspace` exposes default-workspace browsing plus Thread-scoped
-file-chunk and raw-byte requests for contextual Artifact previews. The raw-byte
+file-chunk and raw-byte requests for contextual Artifact previews. Chunk requests
+can include `knownRevision` for conditional refreshes. The raw-byte
 request sends only `threadId`, path, and the optional metadata revision; Rust
 remains responsible for selecting the canonical Thread workspace, enforcing
 its filesystem bounds and size limit, and rejecting changed sources.

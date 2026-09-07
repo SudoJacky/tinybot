@@ -516,6 +516,8 @@ struct ListDirPageParams {
 struct ReadFileChunkParams {
     path: String,
     #[serde(default)]
+    known_revision: Option<String>,
+    #[serde(default)]
     cursor: Option<String>,
 }
 

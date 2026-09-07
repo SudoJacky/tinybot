@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:5a9a778ca0bc106957e1f474eaf29399c89ec7eb677d514c28c4621410508da3 -->
+<!-- tinybot-module-fingerprint: sha256:fd010a5202c9a4ebe3a7c2642eead83fb41763f7ad1eba3ca171c59780eede53 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -199,11 +199,20 @@ text is projected through the shared safe Markdown renderer as a document,
 without exposing internal Artifact IDs or MIME metadata above the content. The
 outer Artifact panel owns vertical scrolling for document and plain-text
 previews, avoiding a second height-capped scroll region inside the Sidecar.
-Confirming a selected spreadsheet cell's change request adds a visible,
+`useArtifactFile` observes only the visible local Artifact. It checks every three
+seconds and on window focus/visibility restoration, passing `knownRevision` so
+unchanged files do not reload content or reparse Office bytes. Each observer
+owns its asynchronous reads; closing, hiding, or switching resources cancels
+publication from old reads. Read failures retain the previous preview with a
+visible error and recover on the next successful check.
+Artifact previews can attach the whole resource to the composer without changing
+the draft. Local references record the viewed revision and file path; later
+refreshes leave already attached references unchanged.
+Confirming a selected spreadsheet range's change request adds a visible,
 removable file/range/current-value/request card above the composer and focuses
 the editor without overwriting its existing draft. Chat keeps the structured
-cell annotation in route state and submits it as a source-text input reference,
-so the Agent receives the file path, sheet, address, current value, and requested
+range annotation in route state and submits it as a source-text input reference,
+so the Agent receives the file path, viewed revision, sheet, range, values, and requested
 change even when the composer text is empty. Confirmation never sends a Turn
 implicitly; a successful later send clears the annotation with other composer
 context.

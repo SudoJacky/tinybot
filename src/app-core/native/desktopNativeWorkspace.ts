@@ -8,7 +8,7 @@ export type NativeWorkspaceApi = {
   putFile: (path: string, body: unknown) => Promise<unknown>;
   directory: (request: { cursor?: string; nameQuery?: string; path: string }) => Promise<unknown>;
   fileChunk: (request: { cursor?: string; path: string }) => Promise<unknown>;
-  threadFileChunk: (request: { cursor?: string; path: string; threadId: string }) => Promise<unknown>;
+  threadFileChunk: (request: { cursor?: string; knownRevision?: string; path: string; threadId: string }) => Promise<unknown>;
   threadFileBytes: (request: { expectedRevision?: string; path: string; threadId: string }) => Promise<unknown>;
 };
 

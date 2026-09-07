@@ -3361,6 +3361,41 @@
   gap: 0;
 }
 
+.react-artifact-detail__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0 12px;
+}
+
+.react-artifact-detail__toolbar span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-artifact-detail__toolbar button {
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--color-panel);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.react-artifact-detail__toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.react-artifact-detail__toolbar button:focus-visible {
+  outline: 2px solid var(--color-primary-active);
+  outline-offset: 2px;
+}
+
 .react-artifact-detail dl,
 .react-artifact-detail dl > div {
   display: grid;
@@ -3532,6 +3567,7 @@
 }
 
 .react-office-spreadsheet__cell {
+  user-select: none;
   display: block;
   width: 100%;
   min-height: 44px;

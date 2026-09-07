@@ -101,6 +101,14 @@ describe("desktop workspace store", () => {
     expect(nativeWorkspace.threadFileChunk).toHaveBeenCalledWith({ threadId: "thread-1", path: "src/main.ts" });
   });
 
+  it("passes conditional revisions to the native reader and preserves unchanged responses", async () => {
+    const nativeWorkspace = createNativeWorkspace();
+    nativeWorkspace.threadFileChunk.mockResolvedValue({ result: { path: "report.xlsx", content_type: "unchanged", revision: "v1", size_bytes: 4 } });
+    const store = createDesktopWorkspaceStore({ initialize: async () => undefined, nativeWorkspace });
+    await expect(store.readThreadFile({ path: "report.xlsx", threadId: "s1", knownRevision: "v1" })).resolves.toMatchObject({ contentType: "unchanged", revision: "v1", content: undefined });
+    expect(nativeWorkspace.threadFileChunk).toHaveBeenCalledWith({ path: "report.xlsx", threadId: "s1", knownRevision: "v1" });
+  });
+
   it("preserves structured workspace query failures", async () => {
     const nativeWorkspace = createNativeWorkspace();
     nativeWorkspace.directory.mockResolvedValue({

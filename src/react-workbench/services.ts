@@ -150,7 +150,7 @@ export type ChatStore = {
 export type WorkspaceStore = {
   listDirectory(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryPage>;
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
-  readThreadFile(request: { cursor?: string; path: string; threadId: string }): Promise<WorkspaceFileChunk>;
+  readThreadFile(request: { cursor?: string; knownRevision?: string; path: string; threadId: string }): Promise<WorkspaceFileChunk>;
   readThreadFileBytes?(request: { expectedRevision?: string; path: string; threadId: string }): Promise<Uint8Array>;
 };
 
