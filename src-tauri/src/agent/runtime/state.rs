@@ -1,3 +1,4 @@
+use super::context_checkpoint::{AgentContextCheckpoint, ContextCheckpointStage};
 use super::context_manager::ContextManager;
 use super::continuations::guidance_continuation_message;
 use super::events::{prepare_runtime_event_input, runtime_event_timestamp, runtime_status_label};
@@ -16,6 +17,7 @@ use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase, AgentTurnEmitter,
     ModelOutputEvent, PendingAgentEvent,
 };
+use crate::threads::rollout::checkpoint_lineage::ContextCheckpointParent;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -34,8 +36,8 @@ pub(super) struct AgentTurnState {
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
     stop_reason: Option<AgentStopReason>,
-    context_checkpoint: Option<Value>,
-    source_context_checkpoint: Option<Value>,
+    context_checkpoint: Option<AgentContextCheckpoint>,
+    source_context_checkpoint: Option<ContextCheckpointParent>,
     pending_guidance_message: Option<Value>,
     pub(super) tool_loop_guard: ToolLoopGuard,
 }
@@ -66,13 +68,17 @@ impl AgentTurnState {
                 .metadata
                 .get("contextSourceCheckpoint")
                 .or_else(|| context.metadata.get("context_source_checkpoint"))
-                .filter(|checkpoint| checkpoint.is_object())
                 .cloned()
                 .or_else(|| {
                     string_field(&context.metadata, "contextSourceCheckpointId")
                         .or_else(|| string_field(&context.metadata, "context_source_checkpoint_id"))
                         .map(|context_id| serde_json::json!({ "contextId": context_id }))
-                }),
+                })
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| {
+                    AgentError::invalid_input(format!("invalid context checkpoint parent: {error}"))
+                })?,
             pending_guidance_message: guidance_continuation_message(context.continuation.as_ref()),
             tool_loop_guard: ToolLoopGuard::default(),
         })
@@ -206,69 +212,65 @@ impl AgentTurnState {
     pub(super) fn compacted_context_checkpoint(
         &self,
         replacement_history: &[Value],
-        event_payload: &Value,
-    ) -> Value {
-        let source_version = context_messages_version(&self.history.messages());
-        let parent_checkpoint = self
+        event: &super::usage::ContextWindowActionPayload,
+    ) -> Result<AgentContextCheckpoint, AgentError> {
+        let context_id = event
+            .context_id
+            .clone()
+            .ok_or_else(|| AgentError::invalid_input("compaction action is missing contextId"))?;
+        let parent = self
             .context_checkpoint
             .as_ref()
-            .or(self.source_context_checkpoint.as_ref());
-        let context_id = event_payload
-            .get("contextId")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let window = crate::threads::rollout::checkpoint_lineage::next_context_window(
+            .map(AgentContextCheckpoint::parent);
+        let lineage = crate::threads::rollout::checkpoint_lineage::next_context_window_from_parent(
             &self.session_id,
-            context_id,
-            parent_checkpoint,
+            &context_id,
+            parent.as_ref().or(self.source_context_checkpoint.as_ref()),
         );
-        serde_json::json!({
-            "schemaVersion": 1,
-            "contextId": event_payload.get("contextId").cloned().unwrap_or(Value::Null),
-            "sourceVersion": source_version,
-            "historyVersion": self.history.history_version(),
-            "sourceContextId": window.source_context_id,
-            "windowNumber": window.window_number,
-            "firstWindowId": window.first_window_id,
-            "previousWindowId": window.previous_window_id,
-            "windowId": window.window_id,
-            "trigger": event_payload.get("trigger").cloned().unwrap_or(Value::Null),
-            "reason": event_payload.get("reason").cloned().unwrap_or(Value::Null),
-            "phase": event_payload.get("phase").cloned().unwrap_or(Value::Null),
-            "method": event_payload.get("method").cloned().unwrap_or(Value::Null),
-            "provider": event_payload.get("provider").cloned().unwrap_or(Value::Null),
-            "model": event_payload.get("model").cloned().unwrap_or(Value::Null),
-            "estimatedTokensBefore": event_payload.get("estimatedTokensBefore").cloned().unwrap_or(Value::Null),
-            "estimatedTokensAfter": event_payload.get("estimatedTokensAfter").cloned().unwrap_or(Value::Null),
-            "maskedToolOutputCount": event_payload.get("maskedToolOutputCount").cloned().unwrap_or(Value::Null),
-            "summaryRequestCount": event_payload.get("summaryRequestCount").cloned().unwrap_or(Value::Null),
-            "installedReplacementHistory": replacement_history,
-            "replacementHistory": replacement_history,
-            "checkpointStage": "installed",
+        let history = super::AgentItemHistory::from_legacy_messages(replacement_history)?;
+        Ok(AgentContextCheckpoint {
+            schema_version: 1,
+            context_id,
+            source_version: context_messages_version(&self.history.messages()),
+            history_version: self.history.history_version(),
+            lineage,
+            trigger: event.trigger.clone(),
+            reason: event.reason.clone(),
+            phase: event.phase.clone(),
+            method: event.method.clone(),
+            provider: event.provider.clone(),
+            model: event.model.clone(),
+            estimated_tokens_before: event.estimated_tokens_before,
+            estimated_tokens_after: event.estimated_tokens_after,
+            masked_tool_output_count: event.masked_tool_output_count,
+            summary_request_count: event.summary_request_count,
+            installed_replacement_history: history.clone(),
+            replacement_history: history,
+            checkpoint_stage: ContextCheckpointStage::Installed,
         })
     }
 
-    pub(super) fn install_compacted_context(
-        &mut self,
-        replacement_history: Vec<Value>,
-        checkpoint: Value,
-    ) -> Result<(), AgentError> {
-        self.history.replace(replacement_history)?;
+    pub(super) fn install_compacted_context(&mut self, checkpoint: AgentContextCheckpoint) {
+        self.history
+            .replace_history(&checkpoint.replacement_history);
         self.context_checkpoint = Some(checkpoint);
-        Ok(())
     }
 
     pub(super) fn finalized_context_checkpoint(
         &self,
         final_message: Option<Value>,
-    ) -> Option<Value> {
+    ) -> Option<AgentContextCheckpoint> {
         let mut checkpoint = self.context_checkpoint.clone()?;
-        let mut replacement_history = self.history.messages();
-        if let Some(final_message) = final_message {
-            replacement_history.push(final_message);
+        let mut history = self.history.history();
+        if let Some(message) = final_message {
+            history.items.extend(
+                super::AgentItemHistory::from_legacy_messages(&[message])
+                    .expect("runtime final message must be a valid agent item")
+                    .items,
+            );
         }
-        checkpoint["replacementHistory"] = Value::Array(replacement_history);
-        checkpoint["checkpointStage"] = Value::String("finalized".to_string());
+        checkpoint.replacement_history = history;
+        checkpoint.checkpoint_stage = ContextCheckpointStage::Finalized;
         Some(checkpoint)
     }
 
@@ -277,9 +279,7 @@ impl AgentTurnState {
         result: &mut AgentTurnResult,
         final_message: Option<Value>,
     ) {
-        if let Some(checkpoint) = self.finalized_context_checkpoint(final_message) {
-            result.context_checkpoint = Some(checkpoint);
-        }
+        result.context_checkpoint = self.finalized_context_checkpoint(final_message);
     }
 
     pub(super) fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {

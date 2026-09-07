@@ -210,7 +210,7 @@ pub struct AgentTurnResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint: Option<super::AgentCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_checkpoint: Option<Value>,
+    pub context_checkpoint: Option<super::AgentContextCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restored_checkpoint: Option<super::AgentCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]

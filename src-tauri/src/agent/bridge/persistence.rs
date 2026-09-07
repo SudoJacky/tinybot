@@ -252,14 +252,18 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
                 turn_id,
                 stop_reason.as_str(),
                 Some(result.final_content.clone()),
-                result.context_checkpoint.clone(),
+                result.context_checkpoint.as_ref().map(|checkpoint| {
+                    serde_json::to_value(checkpoint).expect("context checkpoint must serialize")
+                }),
             ),
             AgentExecutionStatus::Failed => thread_store.fail_agent_turn(
                 session_id,
                 turn_id,
                 stop_reason.as_str(),
                 error_value.expect("failed result error was checked"),
-                result.context_checkpoint.clone(),
+                result.context_checkpoint.as_ref().map(|checkpoint| {
+                    serde_json::to_value(checkpoint).expect("context checkpoint must serialize")
+                }),
             ),
             AgentExecutionStatus::Cancelled => thread_store.cancel_agent_turn(session_id, turn_id),
             AgentExecutionStatus::Interrupted => thread_store.interrupt_agent_turn(

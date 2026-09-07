@@ -1,5 +1,5 @@
 # Thread Rollout
-<!-- tinybot-module-fingerprint: sha256:8afa40d4497bd5ffdcf386ac5fd7d58d560fd29712e0b14ae471c5a13cf6f6bf -->
+<!-- tinybot-module-fingerprint: sha256:4fde31f636835d68e1bf620a1ab8b419e5867adaec5ded4fbd51d5c5e697c872 -->
 
 `rollout` defines Tinybot's durable, append-oriented thread history.
 

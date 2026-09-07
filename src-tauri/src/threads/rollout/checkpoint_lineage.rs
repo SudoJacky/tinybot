@@ -7,13 +7,14 @@ const PREVIOUS_WINDOW_ID: &str = "previousWindowId";
 const WINDOW_ID: &str = "windowId";
 const SOURCE_CONTEXT_ID: &str = "sourceContextId";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ContextWindowLineage {
-    pub(crate) source_context_id: Option<String>,
-    pub(crate) window_number: u64,
-    pub(crate) first_window_id: String,
-    pub(crate) previous_window_id: String,
-    pub(crate) window_id: String,
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextWindowLineage {
+    pub source_context_id: Option<String>,
+    pub window_number: u64,
+    pub first_window_id: String,
+    pub previous_window_id: String,
+    pub window_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,18 +39,44 @@ pub(crate) fn next_context_window(
     context_id: &str,
     parent_checkpoint: Option<&Value>,
 ) -> ContextWindowLineage {
+    let parent = parent_checkpoint.and_then(|checkpoint| {
+        Some(ContextCheckpointParent {
+            context_id: string_field(checkpoint, "contextId")?,
+            window_number: u64_field(checkpoint, WINDOW_NUMBER, "window_number"),
+            first_window_id: string_field(checkpoint, FIRST_WINDOW_ID),
+            window_id: string_field(checkpoint, WINDOW_ID),
+        })
+    });
+    next_context_window_from_parent(session_id, context_id, parent.as_ref())
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextCheckpointParent {
+    #[serde(alias = "context_id")]
+    pub context_id: String,
+    #[serde(alias = "window_number")]
+    pub window_number: Option<u64>,
+    #[serde(alias = "first_window_id")]
+    pub first_window_id: Option<String>,
+    #[serde(alias = "window_id")]
+    pub window_id: Option<String>,
+}
+
+pub(crate) fn next_context_window_from_parent(
+    session_id: &str,
+    context_id: &str,
+    parent: Option<&ContextCheckpointParent>,
+) -> ContextWindowLineage {
     let initial_window_id = initial_context_window_id(session_id);
-    let source_context_id =
-        parent_checkpoint.and_then(|checkpoint| string_field(checkpoint, "contextId"));
-    let parent_window_number = parent_checkpoint
-        .and_then(|checkpoint| u64_field(checkpoint, WINDOW_NUMBER, "window_number"))
-        .unwrap_or(0);
-    let parent_window_id = parent_checkpoint
-        .and_then(|checkpoint| string_field(checkpoint, WINDOW_ID))
+    let source_context_id = parent.map(|p| p.context_id.clone());
+    let parent_window_number = parent.and_then(|p| p.window_number).unwrap_or(0);
+    let parent_window_id = parent
+        .and_then(|p| p.window_id.clone())
         .or_else(|| source_context_id.clone())
         .unwrap_or_else(|| initial_window_id.clone());
-    let first_window_id = parent_checkpoint
-        .and_then(|checkpoint| string_field(checkpoint, FIRST_WINDOW_ID))
+    let first_window_id = parent
+        .and_then(|p| p.first_window_id.clone())
         .unwrap_or_else(|| {
             if source_context_id.is_some() {
                 parent_window_id.clone()
@@ -57,7 +84,6 @@ pub(crate) fn next_context_window(
                 initial_window_id
             }
         });
-
     ContextWindowLineage {
         source_context_id,
         window_number: parent_window_number.saturating_add(1),

@@ -112,12 +112,21 @@ struct FailingContextCheckpointCommitter {
 }
 
 impl NativeAgentContextCheckpointCommitter for FailingContextCheckpointCommitter {
-    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String> {
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), AgentError> {
         self.commits
             .lock()
             .expect("checkpoint commit lock should not be poisoned")
             .push(input.clone());
-        Err("fixture durable append failed".to_string())
+        Err(AgentError::persistence(
+            "context checkpoint commit",
+            crate::protocol::WorkerProtocolError::new(
+                crate::protocol::WorkerProtocolErrorCode::CapabilityDenied,
+                "fixture durable append failed",
+                json!({"contextId": input.checkpoint.context_id}),
+                false,
+                crate::protocol::WorkerProtocolErrorSource::RustCore,
+            ),
+        ))
     }
 }
 

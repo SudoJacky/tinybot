@@ -6,6 +6,23 @@ use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtoc
 use serde_json::Value;
 
 impl WorkspaceThreadStore {
+    pub(crate) fn commit_agent_context_checkpoint(
+        &self,
+        thread_id: &str,
+        turn_id: &str,
+        checkpoint: &crate::agent::runtime::AgentContextCheckpoint,
+    ) -> Result<super::rollout::store::ContextCheckpointCommitResult, WorkerProtocolError> {
+        self.turn_operation(|operation| {
+            let checkpoint =
+                serde_json::to_value(checkpoint).expect("context checkpoint must serialize");
+            let result = operation
+                .thread_log()
+                .commit_context_checkpoint(thread_id, turn_id, checkpoint)?;
+            operation.sync_thread_projection(thread_id)?;
+            Ok(result)
+        })
+    }
+
     pub(crate) fn agent_history(
         &self,
         thread_id: &str,

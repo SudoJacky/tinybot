@@ -813,29 +813,17 @@ impl<'a> NativeAgentTurnExecution<'a> {
             provider_protocol(&self.context)?
                 .reset_replay_after_context_projection(&mut self.context)?;
             let mut payload = context_window_action_payload(&self.context, iteration, action);
-            if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
-                self.context
-                    .metrics()
-                    .set_gauge("context.tokens.before", tokens);
-            }
-            if let Some(tokens) = payload.get("estimatedTokensAfter").and_then(Value::as_i64) {
-                self.context
-                    .metrics()
-                    .set_gauge("context.tokens.after", tokens);
-            }
+            self.context
+                .metrics()
+                .set_gauge("context.tokens.before", payload.estimated_tokens_before);
+            self.context
+                .metrics()
+                .set_gauge("context.tokens.after", payload.estimated_tokens_after);
             if action.event_kind == AgentEventKind::ContextCompacted {
                 let checkpoint = self
                     .state
-                    .compacted_context_checkpoint(&projection.messages, &payload);
-                for field in [
-                    "sourceContextId",
-                    "windowNumber",
-                    "firstWindowId",
-                    "previousWindowId",
-                    "windowId",
-                ] {
-                    payload[field] = checkpoint.get(field).cloned().unwrap_or(Value::Null);
-                }
+                    .compacted_context_checkpoint(&projection.messages, &payload)?;
+                payload.lineage = Some(checkpoint.lineage.clone());
                 let commit = NativeAgentContextCheckpointCommit {
                     session_id: self.context.session_id.clone(),
                     turn_id: self.context.turn_id.clone(),
@@ -843,7 +831,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     checkpoint: checkpoint.clone(),
                 };
                 if let Err(error) = self.dependencies.commit_context_checkpoint(commit).await {
-                    let message = format!("context compaction checkpoint commit failed: {error}");
+                    let error = error.context("context compaction checkpoint commit failed");
+                    let message = error.to_string();
                     emit_context_compaction_failure(
                         &self.context,
                         &mut self.state,
@@ -851,23 +840,26 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         AgentStopReason::ContextCompactionCommitFailed,
                         &message,
                     )?;
-                    return Ok(ExecutionStage::Finished(agent_failure_result(
+                    let mut result = agent_failure_result(
                         self.dependencies,
                         &self.context,
                         &mut self.state,
                         iteration,
                         AgentStopReason::ContextCompactionCommitFailed,
                         message,
-                    )?));
+                    )?;
+                    result.error = Some(super::AgentResultError::Structured(error));
+                    return Ok(ExecutionStage::Finished(result));
                 }
-                self.state
-                    .install_compacted_context(projection.messages.clone(), checkpoint)?;
+                self.state.install_compacted_context(checkpoint);
                 let prompt_messages = self.state.history.for_prompt()?;
                 self.context.messages = prompt_messages;
                 self.context.metrics().increment("compaction.completed");
             }
-            self.state
-                .emit(PendingAgentEvent::new(action.event_kind, payload))?;
+            self.state.emit(PendingAgentEvent::new(
+                action.event_kind,
+                serde_json::to_value(payload).expect("context event must serialize"),
+            ))?;
             if action.event_kind == AgentEventKind::ContextCompacted {
                 let trigger = if self.context.controls.manual_compaction {
                     "manual"

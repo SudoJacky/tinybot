@@ -65,7 +65,6 @@ async fn run_agent_with_services(
     )?
     .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
         thread_store.clone(),
-        config_snapshot.clone(),
     ));
     let services = match live_trace_sink {
         Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(

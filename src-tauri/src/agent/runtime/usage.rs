@@ -214,42 +214,75 @@ pub(super) async fn context_window_projection_async(
     })
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContextWindowActionPayload {
+    pub iteration: i64,
+    pub context_id: Option<String>,
+    pub trigger: Option<String>,
+    pub reason: Option<String>,
+    pub phase: Option<String>,
+    pub method: Option<String>,
+    pub provider: Option<String>,
+    pub model: String,
+    pub strategy: String,
+    #[serde(flatten)]
+    pub lineage: Option<crate::threads::rollout::checkpoint_lineage::ContextWindowLineage>,
+    pub dropped_message_count: usize,
+    pub retained_message_count: usize,
+    pub replacement_message_count: usize,
+    pub context_window_tokens: i64,
+    pub estimated_tokens_before: i64,
+    pub estimated_tokens_after: i64,
+    pub masked_tool_output_count: usize,
+    pub summary_request_count: usize,
+    pub preserved_user_message_count: usize,
+    pub dropped_user_message_count: usize,
+    pub dropped_assistant_message_count: usize,
+    pub dropped_tool_message_count: usize,
+    pub merged_compaction_summary_count: usize,
+}
+
 pub(super) fn context_window_action_payload(
     context: &AgentTurnContext,
     iteration: i64,
     action: &ContextWindowAction,
-) -> Value {
+) -> ContextWindowActionPayload {
     let compacted = action.event_kind == AgentEventKind::ContextCompacted;
-    serde_json::json!({
-        "iteration": iteration,
-        "contextId": compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
-        "trigger": compacted.then_some(action.trigger),
-        "reason": compacted.then_some(action.reason),
-        "phase": compacted.then_some(if action.trigger == "manual" {
-            action.phase
-        } else if iteration == 0 {
-            "pre_turn"
-        } else {
-            "mid_turn"
+    ContextWindowActionPayload {
+        iteration,
+        context_id: compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
+        trigger: compacted.then(|| action.trigger.to_string()),
+        reason: compacted.then(|| action.reason.to_string()),
+        phase: compacted.then(|| {
+            if action.trigger == "manual" {
+                action.phase
+            } else if iteration == 0 {
+                "pre_turn"
+            } else {
+                "mid_turn"
+            }
+            .to_string()
         }),
-        "method": compacted.then_some("summary"),
-        "provider": context.provider,
-        "model": context.model,
-        "strategy": action.strategy,
-        "droppedMessageCount": action.dropped_message_count,
-        "retainedMessageCount": action.retained_message_count,
-        "replacementMessageCount": action.replacement_message_count,
-        "contextWindowTokens": action.context_window_tokens,
-        "estimatedTokensBefore": action.estimated_tokens_before,
-        "estimatedTokensAfter": action.estimated_tokens_after,
-        "maskedToolOutputCount": action.masked_tool_output_count,
-        "summaryRequestCount": action.summary_request_count,
-        "preservedUserMessageCount": action.preserved_user_message_count,
-        "droppedUserMessageCount": action.dropped_user_message_count,
-        "droppedAssistantMessageCount": action.dropped_assistant_message_count,
-        "droppedToolMessageCount": action.dropped_tool_message_count,
-        "mergedCompactionSummaryCount": action.merged_compaction_summary_count,
-    })
+        method: compacted.then(|| "summary".to_string()),
+        provider: context.provider.clone(),
+        model: context.model.clone(),
+        strategy: action.strategy.to_string(),
+        lineage: None,
+        dropped_message_count: action.dropped_message_count,
+        retained_message_count: action.retained_message_count,
+        replacement_message_count: action.replacement_message_count,
+        context_window_tokens: action.context_window_tokens,
+        estimated_tokens_before: action.estimated_tokens_before,
+        estimated_tokens_after: action.estimated_tokens_after,
+        masked_tool_output_count: action.masked_tool_output_count,
+        summary_request_count: action.summary_request_count,
+        preserved_user_message_count: action.preserved_user_message_count,
+        dropped_user_message_count: action.dropped_user_message_count,
+        dropped_assistant_message_count: action.dropped_assistant_message_count,
+        dropped_tool_message_count: action.dropped_tool_message_count,
+        merged_compaction_summary_count: action.merged_compaction_summary_count,
+    }
 }
 
 pub(super) fn context_with_projected_messages(

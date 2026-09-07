@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:12311be4ccb214ec55903bad4d4ae966bacc68a676fea7756ee38951f44f6616 -->
+<!-- tinybot-module-fingerprint: sha256:217f3d4b305fd37dc895fe3d841f3400fee91f2910d59116824901ddb02d5d93 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -25,8 +25,11 @@ cleanup use typed contracts. Tool envelopes retain dynamic extension payloads.
 Input, execution context, in-memory checkpoints, and result messages share
 `AgentItemHistory`. History merges operate on `AgentItem`; protocol messages are
 encoded at provider, event, and storage adapters. User message IDs, client event IDs,
-and references survive entry normalization. Configuration, context checkpoints,
-extension metadata, and provider-native items remain dynamic. `AgentError` preserves execution error categories and the
+and references survive entry normalization. Context compaction checkpoints carry
+typed history, window lineage, and installed/finalized stages. The committer calls
+the persistence service directly and retains structured commit failures.
+Configuration, extension metadata, and provider-native items remain dynamic.
+`AgentError` preserves execution error categories and the
 complete service error (code, source, details, retryability) across task ownership,
 trace buffering, and bridge persistence. Multiple failures retain their individual
 causes. String conversion is reserved for legacy response boundaries and diagnostics.

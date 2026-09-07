@@ -73,9 +73,13 @@ impl ContextManager {
     }
 
     pub(super) fn replace(&mut self, messages: Vec<Value>) -> Result<(), String> {
-        self.items = AgentItemHistory::from_legacy_messages(&messages)?.items;
-        self.history_version = self.history_version.saturating_add(1);
+        self.replace_history(&AgentItemHistory::from_legacy_messages(&messages)?);
         Ok(())
+    }
+
+    pub(super) fn replace_history(&mut self, history: &AgentItemHistory) {
+        self.items = history.items.clone();
+        self.history_version = self.history_version.saturating_add(1);
     }
 }
 

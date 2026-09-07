@@ -150,7 +150,7 @@ pub struct ExecutionCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments_json: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context_checkpoint: Option<Value>,
+    pub context_checkpoint: Option<super::AgentContextCheckpoint>,
 }
 
 /// Internal construction data: fields are assigned directly rather than promoted from JSON.

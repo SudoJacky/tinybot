@@ -799,6 +799,8 @@ fn manual_and_auto_compaction_install_the_same_role_aware_history() {
         0,
         manual.action.as_ref().expect("manual action should exist"),
     );
+    let auto_payload = serde_json::to_value(auto_payload).unwrap();
+    let manual_payload = serde_json::to_value(manual_payload).unwrap();
     assert_eq!(auto_payload["trigger"], "auto");
     assert_eq!(manual_payload["trigger"], "manual");
     assert_eq!(auto_payload["preservedUserMessageCount"], 2);
@@ -885,10 +887,16 @@ fn context_checkpoint_uses_hydrated_parent_context_id() {
         json!({}),
     );
     let state = super::state::AgentTurnState::new(&context, None).unwrap();
-    let checkpoint = state.compacted_context_checkpoint(
-        &[json!({ "role": "system", "content": "summary" })],
-        &json!({ "contextId": "next-context" }),
-    );
+    let checkpoint = state
+        .compacted_context_checkpoint(
+            &[json!({ "role": "system", "content": "summary" })],
+            &super::usage::ContextWindowActionPayload {
+                context_id: Some("next-context".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let checkpoint = serde_json::to_value(checkpoint).unwrap();
 
     assert_eq!(checkpoint["sourceContextId"], "previous-context");
     assert_eq!(checkpoint["windowNumber"], 4);
@@ -904,12 +912,25 @@ fn in_memory_context_checkpoint_committer_bootstraps_and_enforces_lineage() {
         session_id: "session-context-lineage".to_string(),
         turn_id: format!("turn-{context_id}"),
         thread_id: None,
-        checkpoint: json!({
-            "contextId": context_id,
-            "sourceContextId": source_context_id,
-            "checkpointStage": "installed",
-            "replacementHistory": []
-        }),
+        checkpoint: {
+            let context = AgentTurnContext::from_spec(
+                json!({
+                    "turnId": format!("turn-{context_id}"), "sessionId": "session-context-lineage",
+                    "metadata": {"contextSourceCheckpointId": source_context_id}
+                }),
+                json!({}),
+            );
+            super::state::AgentTurnState::new(&context, None)
+                .unwrap()
+                .compacted_context_checkpoint(
+                    &[],
+                    &super::usage::ContextWindowActionPayload {
+                        context_id: Some(context_id.into()),
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+        },
     };
 
     committer
@@ -918,7 +939,9 @@ fn in_memory_context_checkpoint_committer_bootstraps_and_enforces_lineage() {
     let stale = committer
         .commit(&commit("context-stale", "context-1"))
         .unwrap_err();
-    assert!(stale.contains("stale context compaction checkpoint"));
+    assert!(stale
+        .to_string()
+        .contains("stale context compaction checkpoint"));
 }
 
 #[test]
@@ -956,6 +979,13 @@ fn context_compaction_commit_failure_keeps_live_context_unmodified() {
     .expect("commit failure should be returned as a terminal agent result");
 
     assert_eq!(result["stopReason"], "context_compaction_commit_failed");
+    assert_eq!(result["error"]["code"], "persistence_error");
+    assert_eq!(result["error"]["serviceError"]["code"], "capability_denied");
+    assert_eq!(result["error"]["serviceError"]["retryable"], false);
+    assert_eq!(
+        result["error"]["serviceError"]["details"]["contextId"],
+        "turn-context-commit-failed:context:1"
+    );
     assert!(result.get("contextCheckpoint").is_none());
     assert!(result["runtimeEvents"]
         .as_array()
@@ -979,8 +1009,9 @@ fn context_compaction_commit_failure_keeps_live_context_unmodified() {
         .lock()
         .expect("checkpoint commit lock should not be poisoned");
     assert_eq!(commits.len(), 1);
-    assert_eq!(commits[0].checkpoint["checkpointStage"], "installed");
-    assert!(commits[0].checkpoint["replacementHistory"]
+    let checkpoint = serde_json::to_value(&commits[0].checkpoint).unwrap();
+    assert_eq!(checkpoint["checkpointStage"], "installed");
+    assert!(checkpoint["replacementHistory"]
         .as_array()
         .is_some_and(|messages| messages.iter().any(|message| message["content"]
             .as_str()

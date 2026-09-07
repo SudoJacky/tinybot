@@ -1,3 +1,4 @@
+mod context_checkpoint;
 use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTraceContext};
 use crate::collaboration::subagents::SubagentThreadManager;
 #[cfg(test)]
@@ -7,6 +8,7 @@ use crate::collaboration::subagents::{
 use crate::runtime::mcp::McpRuntime;
 use crate::runtime::turn_execution::{AgentCancelReason, TurnExecutionRuntime};
 use crate::tools::shell::WorkerShellRuntime;
+pub use context_checkpoint::AgentContextCheckpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, future::Future, pin::Pin, sync::Arc};
@@ -501,11 +503,11 @@ pub struct NativeAgentContextCheckpointCommit {
     pub session_id: String,
     pub turn_id: String,
     pub thread_id: Option<String>,
-    pub checkpoint: Value,
+    pub checkpoint: AgentContextCheckpoint,
 }
 
 pub trait NativeAgentContextCheckpointCommitter: Send + Sync {
-    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String>;
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), AgentError>;
 }
 
 #[derive(Default)]
@@ -515,17 +517,13 @@ struct InMemoryNativeAgentContextCheckpointCommitter {
 
 #[derive(Default)]
 struct InMemoryContextCheckpointState {
-    checkpoints: std::collections::HashMap<(String, String), Value>,
-    latest_checkpoints: std::collections::HashMap<String, Value>,
+    checkpoints: std::collections::HashMap<(String, String), AgentContextCheckpoint>,
+    latest_checkpoints: std::collections::HashMap<String, AgentContextCheckpoint>,
 }
 
 impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpointCommitter {
-    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String> {
-        let context_id = input
-            .checkpoint
-            .get("contextId")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "context checkpoint is missing contextId".to_string())?;
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), AgentError> {
+        let context_id = &input.checkpoint.context_id;
         let key = (input.session_id.clone(), context_id.to_string());
         let mut state = self
             .state
@@ -535,17 +533,15 @@ impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpo
             if existing != &input.checkpoint {
                 return Err(format!(
                     "context checkpoint identity `{context_id}` already has different content"
-                ));
+                )
+                .into());
             }
             return Ok(());
         }
         if let Some(current) = state.latest_checkpoints.get(&input.session_id) {
-            crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_successor(
-                &input.session_id,
-                Some(current),
-                &input.checkpoint,
-            )
-            .map_err(|error| error.to_string())?;
+            input
+                .checkpoint
+                .validate_successor(&input.session_id, current)?;
         }
         state.checkpoints.insert(key, input.checkpoint.clone());
         state
@@ -720,7 +716,7 @@ impl NativeAgentRuntimeServices {
     pub(crate) async fn commit_context_checkpoint(
         &self,
         input: NativeAgentContextCheckpointCommit,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let committer = self.context_checkpoint_committer.clone();
         tauri::async_runtime::spawn_blocking(move || committer.commit(&input))
             .await
