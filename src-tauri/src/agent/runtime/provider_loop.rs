@@ -7,14 +7,14 @@ use super::state::{current_user_message, user_message_text, AgentTurnState};
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
     context_window_action_payload, context_window_projection_async,
-    context_with_projected_messages, estimate_context_tokens_for_request,
-    manual_context_compaction_requested, prepare_provider_request,
+    context_with_projected_messages, estimate_context_tokens_for_request, prepare_provider_request,
 };
 use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnMetrics, AgentTurnResult,
+    AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnInput, AgentTurnMetrics,
+    AgentTurnResult,
 };
 use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, ComposedInstructions,
@@ -54,9 +54,15 @@ pub async fn run_native_agent_turn_with_config_async(
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    run_owned_native_agent_turn_async(services, spec, config_snapshot, None, None)
-        .await?
-        .into_value()
+    run_owned_native_agent_turn_async(
+        services,
+        AgentTurnInput::from_wire(&spec, &config_snapshot)?,
+        config_snapshot,
+        None,
+        None,
+    )
+    .await?
+    .into_value()
 }
 
 #[cfg(test)]
@@ -92,7 +98,7 @@ pub async fn run_native_agent_turn_with_workspace_async(
     )?;
     run_owned_native_agent_turn_async(
         services,
-        spec,
+        AgentTurnInput::from_wire(&spec, &config_snapshot)?,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
         Some(instructions),
@@ -102,14 +108,14 @@ pub async fn run_native_agent_turn_with_workspace_async(
 
 pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
     services: &NativeAgentRuntimeServices,
-    spec: Value,
+    input: AgentTurnInput,
     config_snapshot: Value,
     workspace_root: &Path,
     instructions: ComposedInstructions,
 ) -> Result<AgentTurnResult, String> {
     run_owned_native_agent_turn_async(
         services,
-        spec,
+        input,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
         Some(instructions),
@@ -119,18 +125,19 @@ pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
 
 async fn run_owned_native_agent_turn_async(
     services: &NativeAgentRuntimeServices,
-    spec: Value,
+    input: AgentTurnInput,
     config_snapshot: Value,
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
 ) -> Result<AgentTurnResult, String> {
-    let mut identity = AgentTurnContext::from_spec(spec.clone(), config_snapshot.clone());
+    let mut identity = AgentTurnContext::from_input(input, config_snapshot.clone());
     identity.attach_observability(services);
     let continuation_metadata = identity
-        .metadata
-        .get("agentContinuation")
-        .or_else(|| identity.metadata.get("continuation"))
-        .cloned();
+        .continuation
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| format!("failed to serialize turn continuation: {error}"))?;
     let restored_continuation_checkpoint = continuation_metadata.as_ref().and_then(|_| {
         services
             .checkpoints
@@ -155,13 +162,14 @@ async fn run_owned_native_agent_turn_async(
     }
     let request = StartAgentTurn::new(identity.turn_id.clone(), identity.session_id.clone());
     let owned_services = services.clone();
+    let execution_context = identity.clone();
     let result_instructions = instructions.clone();
     let handle = services
         .task_runtime
         .start_cooperative_async(request, Duration::from_secs(5), async move {
             run_native_agent_turn_with_instructions_async(
                 &owned_services,
-                spec,
+                execution_context,
                 config_snapshot,
                 instructions,
                 workspace_root.as_deref(),
@@ -436,14 +444,14 @@ struct CompletedProviderIteration {
 impl<'a> NativeAgentTurnExecution<'a> {
     async fn execute(
         dependencies: &'a NativeAgentRuntimeServices,
-        spec: Value,
+        context: AgentTurnContext,
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
     ) -> Result<AgentTurnResult, String> {
         match Self::prepare(
             dependencies,
-            spec,
+            context,
             config_snapshot,
             instructions,
             workspace_root,
@@ -460,17 +468,15 @@ impl<'a> NativeAgentTurnExecution<'a> {
 
     async fn prepare(
         dependencies: &'a NativeAgentRuntimeServices,
-        spec: Value,
+        mut context: AgentTurnContext,
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
     ) -> Result<PreparedNativeAgentTurnExecution<'a>, String> {
-        let mut context = AgentTurnContext::from_spec(spec, config_snapshot.clone());
         context.attach_observability(dependencies);
         if let Some(instructions) = instructions.as_ref() {
             context.settings.working_directory = Some(instructions.working_directory.clone());
         }
-        context.settings.validate()?;
         context.instructions = instructions;
         context.attach_cancellation(
             dependencies.cancellations.clone(),
@@ -555,8 +561,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             let graph_node_turn = ["graphRunId", "graph_run_id"]
                 .iter()
                 .any(|key| context.metadata.get(*key).is_some());
-            if !graph_node_turn && turn_declares_working_directory(&context.spec, &context.metadata)
-            {
+            if !graph_node_turn && context.controls.declares_working_directory {
                 if let Some(definition_workspace_root) =
                     context.settings.working_directory.as_deref()
                 {
@@ -664,13 +669,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 iteration
             }
             None => {
-                if !manual_context_compaction_requested(&context.spec) {
+                if !context.controls.manual_compaction {
                     state.emit_turn_started(&context)?;
                 }
                 0
             }
         };
-        if !is_continuation && !manual_context_compaction_requested(&context.spec) {
+        if !is_continuation && !context.controls.manual_compaction {
             let prompt = current_user_message(&context.messages)
                 .as_ref()
                 .map(user_message_text)
@@ -760,8 +765,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             self.state.active_checkpoint_payload("running"),
         );
         let prompt_messages = self.state.history.for_prompt()?;
-        self.context.messages = prompt_messages.clone();
-        self.context.spec["messages"] = Value::Array(prompt_messages);
+        self.context.messages = prompt_messages;
         let mut projection = match context_window_projection_async(&self.context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
@@ -838,14 +842,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 self.state
                     .install_compacted_context(projection.messages.clone(), checkpoint)?;
                 let prompt_messages = self.state.history.for_prompt()?;
-                self.context.messages = prompt_messages.clone();
-                self.context.spec["messages"] = Value::Array(prompt_messages);
+                self.context.messages = prompt_messages;
                 self.context.metrics().increment("compaction.completed");
             }
             self.state
                 .emit(PendingAgentEvent::new(action.event_kind, payload))?;
             if action.event_kind == AgentEventKind::ContextCompacted {
-                let trigger = if manual_context_compaction_requested(&self.context.spec) {
+                let trigger = if self.context.controls.manual_compaction {
                     "manual"
                 } else {
                     "auto"
@@ -875,11 +878,10 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 }
                 projection.messages = self.state.history.for_prompt()?;
                 self.context.messages = projection.messages.clone();
-                self.context.spec["messages"] = Value::Array(projection.messages.clone());
             }
         }
 
-        if manual_context_compaction_requested(&self.context.spec) {
+        if self.context.controls.manual_compaction {
             if projection
                 .action
                 .as_ref()
@@ -1418,46 +1420,16 @@ impl<'a> NativeAgentTurnExecution<'a> {
     }
 }
 
-fn turn_declares_working_directory(spec: &Value, metadata: &Value) -> bool {
-    ["cwd", "workingDirectory", "working_directory", "workspace"]
-        .iter()
-        .any(|key| {
-            [spec, metadata].iter().any(|source| {
-                source
-                    .get(*key)
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty())
-            })
-        })
-}
-
-#[cfg(test)]
-mod workspace_graph_tests {
-    use super::turn_declares_working_directory;
-
-    #[test]
-    fn workspace_graphs_require_a_turn_declared_workspace() {
-        assert!(!turn_declares_working_directory(
-            &serde_json::json!({}),
-            &serde_json::json!({})
-        ));
-        assert!(turn_declares_working_directory(
-            &serde_json::json!({}),
-            &serde_json::json!({ "workingDirectory": "D:\\work\\alerts" })
-        ));
-    }
-}
-
 async fn run_native_agent_turn_with_instructions_async(
     services: &NativeAgentRuntimeServices,
-    spec: Value,
+    context: AgentTurnContext,
     config_snapshot: Value,
     instructions: Option<ComposedInstructions>,
     workspace_root: Option<&Path>,
 ) -> Result<AgentTurnResult, String> {
     NativeAgentTurnExecution::execute(
         services,
-        spec,
+        context,
         config_snapshot,
         instructions,
         workspace_root,
@@ -1538,7 +1510,7 @@ fn emit_context_compaction_failure(
     message: &str,
 ) -> Result<(), String> {
     context.metrics().increment("compaction.failed");
-    let manual = manual_context_compaction_requested(&context.spec);
+    let manual = context.controls.manual_compaction;
     state.emit(PendingAgentEvent::new(
         AgentEventKind::ContextCompactionFailed,
         serde_json::json!({

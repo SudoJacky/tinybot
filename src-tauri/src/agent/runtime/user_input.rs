@@ -1,5 +1,4 @@
 use super::checkpoint::save_phase_checkpoint;
-use super::continuations::typed_continuation_from_metadata;
 use super::state::AgentTurnState;
 use super::tool_projection::{commit_tool_observation, prepare_continuation_tool_observation};
 use super::{
@@ -188,7 +187,7 @@ pub(super) fn prepare_user_input_continuation(
         form_id,
         action,
         values,
-    }) = typed_continuation_from_metadata(&context.metadata)
+    }) = context.continuation.clone()
     else {
         return Ok(None);
     };
@@ -263,8 +262,7 @@ pub(super) fn prepare_user_input_continuation(
         })
         .transpose()?
         .unwrap_or_default();
-    context.messages = messages.clone();
-    context.spec["messages"] = Value::Array(messages);
+    context.messages = messages;
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);

@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:2296f0ebd0dd5f76d6f8de4f9b46e293c71a62814b787ab83192a015d7049316 -->
+<!-- tinybot-module-fingerprint: sha256:1b24096977c2e3141501e3ffa8c63ec1046c84e8b3a4d7c47ad5e8795b2737e0 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -12,9 +12,14 @@ consumers. `AgentStopReason` exhaustively maps each stop to an
 `AgentExecutionStatus` and runtime phase; waiting stops remain resumable.
 Runtime events and instruction diagnostics are retained as Rust types and the
 complete result is serialized only at a command or WebUI response boundary.
-The input spec, configuration, legacy messages/checkpoints, and infrastructure
-`String` errors are separate migration work; this result contract does not
-claim to type those paths or remove internal state-service RPC calls.
+`AgentTurnInput` resolves wire aliases, identity, settings, continuation, and
+execution controls before task ownership. The core consumes that input once;
+`AgentTurnContext` no longer retains or reparses a JSON spec. Invalid settings,
+field types, and malformed continuations fail before an owned task starts.
+Context projection is runtime state rather than a mutable JSON input flag.
+Configuration, legacy messages/checkpoints, extension metadata, and provider
+items remain dynamic. Infrastructure `String` errors and internal state-service
+RPC calls are separate migration work.
 
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
@@ -61,10 +66,11 @@ decide which durable conversation store a caller uses.
 
 ## Execution flow
 
-1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
+1. The bridge normalizes its hydrated wire specification into `AgentTurnInput`
+   and provides `NativeAgentRuntimeServices`, the typed input, the
    effective configuration, workspace context, and composed instructions.
 2. `provider_loop.rs` merges project-local MCP definitions for the effective
-   working directory, validates turn settings, and prepares the typed history.
+   working directory and prepares the typed history from legacy messages.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.

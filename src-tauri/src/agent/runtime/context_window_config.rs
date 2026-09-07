@@ -11,16 +11,13 @@ const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS: &[(&str, i64)] = &[
 ];
 
 pub(super) fn resolve_context_window_tokens(context: &AgentTurnContext) -> i64 {
-    turn_context_window_tokens(&context.spec)
+    context
+        .controls
+        .context_window_tokens
         .or_else(|| profile_context_window_tokens(context))
         .or_else(|| default_context_window_tokens_for_model(&context.model))
         .or_else(|| legacy_context_window_fallback(&context.config_snapshot))
         .unwrap_or(DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS)
-}
-
-fn turn_context_window_tokens(spec: &Value) -> Option<i64> {
-    positive_i64_field(spec, "contextWindowTokens")
-        .or_else(|| positive_i64_field(spec, "context_window_tokens"))
 }
 
 fn profile_context_window_tokens(context: &AgentTurnContext) -> Option<i64> {

@@ -13,7 +13,7 @@ use crate::agent::runtime::{
     ensure_agent_trace_context, run_native_agent_turn_with_workspace_and_instructions_async,
     InstructionComposer, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
-use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnResult};
+use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnInput, AgentTurnResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -84,14 +84,19 @@ pub(crate) async fn run_agent_with_services(
         &crate::config::application::tinybot_data_root(),
         &instructions.working_directory,
     ));
-    let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
-        &services,
-        runtime_spec,
-        config_snapshot.clone(),
-        &workspace_root,
-        instructions,
-    )
-    .await;
+    let turn_result = match AgentTurnInput::from_wire(&runtime_spec, &config_snapshot) {
+        Ok(input) => {
+            run_native_agent_turn_with_workspace_and_instructions_async(
+                &services,
+                input,
+                config_snapshot.clone(),
+                &workspace_root,
+                instructions,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
     let flush_result = services.flush_trace_sink();
     let mut result = match (turn_result, flush_result) {
         (Ok(result), Ok(())) => result,

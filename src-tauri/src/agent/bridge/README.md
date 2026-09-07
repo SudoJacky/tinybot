@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:ab9dd6f4a2052ff9c297f9d920093e587bbc153ec686adaa06c9301febdc88d7 -->
+<!-- tinybot-module-fingerprint: sha256:bb2425ab7d7168cc1f2e41b77867f94cdc16c895c18ce6779d910990d6d48a6f -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -26,6 +26,9 @@ The bridge does **not** implement provider iteration or define the canonical
 Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 
 `run_agent_with_services` returns the runtime's typed `AgentTurnResult`.
+After instruction composition and history hydration, it normalizes the wire
+specification into `AgentTurnInput` for the execution core. Input validation
+errors follow the same failed-turn persistence path as execution errors.
 Terminal persistence matches `AgentStopReason` through its exhaustive status
 mapping, preserving waiting outcomes and error messages/codes. Only the outer
 desktop, Thread-response, and WebUI adapters serialize the complete result.

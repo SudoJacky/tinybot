@@ -112,6 +112,56 @@ impl Drop for TestWorkspace {
 }
 
 #[test]
+fn invalid_continuation_persists_failure_without_starting_a_task() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestWorkspace::new();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let provider = Arc::new(DataViewProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(store.clone());
+        let runtime = services.task_runtime().clone();
+        let error = run_agent_with_services(
+            services,
+            serde_json::json!({
+                "sessionId": "thread-invalid-input", "threadId": "thread-invalid-input",
+                "turnId": "turn-invalid-input", "model": "fixture-model",
+                "messages": [{"role":"user", "content":"hello"}],
+                "metadata": {"agentContinuation": {"kind":"form", "formId":"missing-action"}}
+            }),
+            workspace.root.clone(),
+            serde_json::json!({}),
+            None,
+        )
+        .await
+        .expect_err("invalid continuation should fail");
+        assert!(error.contains("agentContinuation"), "{error}");
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+        assert!(runtime.status("turn-invalid-input").is_none());
+        let correlation = next_worker_request_correlation();
+        let persisted = call_rust_state_service(&store, serde_json::json!({}), WorkerRequest::new(
+            correlation.id("invalid-input-turn-get"), correlation.trace_id("invalid-input-turn-get"),
+            "thread.turn.get", serde_json::json!({"threadId":"thread-invalid-input", "turnId":"turn-invalid-input"}),
+        ), "invalid input turn get").expect("failed turn should load");
+        assert_eq!(persisted["status"], "failed");
+        assert!(persisted["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("agentContinuation"));
+    });
+}
+
+#[test]
 fn runtime_error_after_tool_delta_persists_a_failed_turn() {
     tauri::async_runtime::block_on(async {
         let workspace = TestWorkspace::new();

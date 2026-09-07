@@ -2,21 +2,11 @@ use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::runtime_protocol::AgentContinuationInput;
 use serde_json::Value;
 
-pub(super) fn typed_continuation_from_metadata(metadata: &Value) -> Option<AgentContinuationInput> {
-    metadata
-        .get("agentContinuation")
-        .or_else(|| metadata.get("continuation"))
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
-}
-
 pub(super) fn restore_activated_tools_for_continuation(
     services: &NativeAgentRuntimeServices,
     context: &mut AgentTurnContext,
 ) -> Result<(), String> {
-    let Some(AgentContinuationInput::Form { form_id, .. }) =
-        typed_continuation_from_metadata(&context.metadata)
-    else {
+    let Some(AgentContinuationInput::Form { form_id, .. }) = context.continuation.clone() else {
         return Ok(());
     };
     let checkpoint = services
@@ -48,22 +38,22 @@ pub(super) fn restore_activated_tools_for_continuation(
         .map_err(|error| format!("failed to restore activated tools from checkpoint: {error}"))
 }
 
-pub(super) fn queued_user_continuation_message(metadata: &Value) -> Option<Value> {
-    let AgentContinuationInput::QueuedUserMessage { content, .. } =
-        typed_continuation_from_metadata(metadata)?
-    else {
+pub(super) fn queued_user_continuation_message(
+    continuation: Option<&AgentContinuationInput>,
+) -> Option<Value> {
+    let AgentContinuationInput::QueuedUserMessage { content, .. } = continuation? else {
         return None;
     };
-    user_continuation_message(content)
+    user_continuation_message(content.clone())
 }
 
-pub(super) fn guidance_continuation_message(metadata: &Value) -> Option<Value> {
-    let AgentContinuationInput::Guidance { content, .. } =
-        typed_continuation_from_metadata(metadata)?
-    else {
+pub(super) fn guidance_continuation_message(
+    continuation: Option<&AgentContinuationInput>,
+) -> Option<Value> {
+    let AgentContinuationInput::Guidance { content, .. } = continuation? else {
         return None;
     };
-    user_continuation_message(content)
+    user_continuation_message(content.clone())
 }
 
 fn user_continuation_message(content: String) -> Option<Value> {

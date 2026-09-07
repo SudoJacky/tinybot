@@ -24,8 +24,7 @@ pub(super) fn checkpoint_value(context: &AgentTurnContext, phase: &str, payload:
     let messages = payload
         .get("messages")
         .cloned()
-        .or_else(|| context.spec.get("messages").cloned())
-        .unwrap_or_else(|| serde_json::json!([]));
+        .unwrap_or_else(|| Value::Array(context.messages.clone()));
     let mut phase_payload = payload;
     if let Some(phase_payload) = phase_payload.as_object_mut() {
         for promoted_field in [

@@ -1,7 +1,6 @@
 use super::context_window_config::resolve_context_window_tokens;
 use super::{
-    agent_provider_config, bool_field, chat_completion_content, AgentTurnContext,
-    NativeAgentProviderFailure,
+    agent_provider_config, chat_completion_content, AgentTurnContext, NativeAgentProviderFailure,
 };
 use super::{
     chat_completions_adapter::ChatCompletionsAdapter, provider_protocol::ProviderProtocolAdapter,
@@ -75,7 +74,7 @@ struct CompactionSummary {
 
 #[cfg(test)]
 pub(super) fn context_window_messages(context: &AgentTurnContext) -> Result<Vec<Value>, String> {
-    if bool_field(&context.spec, "_contextWindowProjected") {
+    if context.context_window_projected {
         return Ok(context.messages.clone());
     }
     context_window_projection(context).map(|projection| projection.messages)
@@ -84,7 +83,7 @@ pub(super) fn context_window_messages(context: &AgentTurnContext) -> Result<Vec<
 pub(super) async fn context_window_messages_async(
     context: &AgentTurnContext,
 ) -> Result<Vec<Value>, NativeAgentProviderFailure> {
-    if bool_field(&context.spec, "_contextWindowProjected") {
+    if context.context_window_projected {
         return Ok(context.messages.clone());
     }
     context_window_projection_async(context)
@@ -111,7 +110,7 @@ pub(super) async fn context_window_projection_async(
         .max(1);
     let full_estimate = estimate_context_tokens_for_request(context)
         .map_err(NativeAgentProviderFailure::provider)?;
-    let manual_compaction = manual_context_compaction_requested(&context.spec);
+    let manual_compaction = context.controls.manual_compaction;
     let automatic_compaction = context_window_strategy(context) == "compact"
         && compact_threshold_reached(context, full_estimate, context_window_tokens);
     if manual_compaction || automatic_compaction {
@@ -254,9 +253,8 @@ pub(super) fn context_with_projected_messages(
     messages: Vec<Value>,
 ) -> AgentTurnContext {
     let mut projected = context.clone();
-    projected.messages = messages.clone();
-    projected.spec["messages"] = Value::Array(messages);
-    projected.spec["_contextWindowProjected"] = Value::Bool(true);
+    projected.messages = messages;
+    projected.context_window_projected = true;
     projected.prepared_provider_request = None;
     projected
 }
@@ -353,35 +351,17 @@ fn context_window_strategy(context: &AgentTurnContext) -> String {
 }
 
 fn compact_trigger_percent(context: &AgentTurnContext) -> i64 {
-    positive_i64_field(&context.spec, "compactTriggerPercent")
-        .or_else(|| positive_i64_field(&context.spec, "compact_trigger_percent"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    positive_i64_field(defaults, "compactTriggerPercent")
-                        .or_else(|| positive_i64_field(defaults, "compact_trigger_percent"))
-                })
-        })
+    context
+        .controls
+        .compact_trigger_percent
         .unwrap_or(DEFAULT_COMPACT_TRIGGER_PERCENT)
         .clamp(1, 100)
 }
 
 fn compact_summary_max_tokens(context: &AgentTurnContext) -> i64 {
-    positive_i64_field(&context.spec, "compactSummaryMaxTokens")
-        .or_else(|| positive_i64_field(&context.spec, "compact_summary_max_tokens"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    positive_i64_field(defaults, "compactSummaryMaxTokens")
-                        .or_else(|| positive_i64_field(defaults, "compact_summary_max_tokens"))
-                })
-        })
+    context
+        .controls
+        .compact_summary_max_tokens
         .unwrap_or(DEFAULT_COMPACT_SUMMARY_MAX_TOKENS)
 }
 

@@ -173,8 +173,10 @@ fn prepare_tool_free_text_completion(
     title_spec.remove("responseItems");
     title_spec.remove("response_items");
 
-    let context =
-        AgentTurnContext::from_spec(Value::Object(title_spec.clone()), config_snapshot.clone());
+    let context = AgentTurnContext::from_input(
+        super::AgentTurnInput::from_wire(&Value::Object(title_spec.clone()), config_snapshot)?,
+        config_snapshot.clone(),
+    );
     let provider_config = agent_provider_config(&context);
     let adapter = ProviderProtocolAdapter::resolve(&context, &provider_config)?;
     let request = match adapter {

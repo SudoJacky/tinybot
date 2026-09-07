@@ -32,6 +32,8 @@ mod provider_loop;
 mod provider_protocol;
 mod responses_adapter;
 mod result;
+mod turn_input;
+pub use turn_input::AgentTurnInput;
 mod turn_result;
 pub(crate) use turn_result::AgentTurnMetrics;
 pub use turn_result::{AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult};
@@ -161,7 +163,9 @@ pub struct AgentTurnContext {
     pub turn_id: String,
     pub session_id: String,
     pub thread_id: Option<String>,
-    pub spec: Value,
+    continuation: Option<crate::agent::runtime_protocol::AgentContinuationInput>,
+    controls: turn_input::AgentTurnControls,
+    context_window_projected: bool,
     pub messages: Vec<Value>,
     pub config_snapshot: Value,
     pub metadata: Value,
@@ -910,10 +914,6 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-}
-
-fn bool_field(value: &Value, key: &str) -> bool {
-    value.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
 #[cfg(test)]

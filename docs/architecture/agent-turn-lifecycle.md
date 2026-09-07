@@ -7,13 +7,14 @@ src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/provider_loop.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
 src-tauri/src/agent/runtime/turn_result.rs
+src-tauri/src/agent/runtime/turn_input.rs
 src-tauri/src/runtime/turn_execution.rs
 src-tauri/src/agent/runtime_protocol/README.md
 src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:51b280aa340df7a52155299d4307fb3686e55251bf9e516c75160e9bfcc74a85 -->
+<!-- tinybot-doc-fingerprint: sha256:568b011612cb7eb97be66fb034788a762cbcfb1644fcc4e14391e967a9c7fa7e -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -35,9 +36,13 @@ interruption, failure, and resumable waiting; tool and subagent waits retain
 their waiting phase instead of falling through to failure. Lifecycle hooks
 append typed runtime events directly. Complete-result JSON serialization occurs
 at the desktop, Thread-response, or WebUI boundary and preserves the wire schema.
-Turn input/configuration and checkpoint payloads still have dynamic fields,
-and infrastructure errors still use `String`; those migrations are independent
-of the result contract.
+The bridge normalizes hydrated input into `AgentTurnInput` before task ownership.
+Identity, settings, continuation, and execution controls are resolved once;
+the execution context retains no raw spec. Invalid field types and malformed
+continuations fail explicitly, and the bridge persists validation failures.
+Configuration, legacy history, extension metadata, provider-native items, and
+checkpoint payloads still have dynamic fields. Infrastructure errors still use
+`String`, and same-process state-service RPC remains a separate migration.
 
 ## Execution flow
 

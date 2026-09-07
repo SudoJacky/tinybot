@@ -74,7 +74,7 @@ impl AgentTurnState {
                         .or_else(|| string_field(&context.metadata, "context_source_checkpoint_id"))
                         .map(|context_id| serde_json::json!({ "contextId": context_id }))
                 }),
-            pending_guidance_message: guidance_continuation_message(&context.metadata),
+            pending_guidance_message: guidance_continuation_message(context.continuation.as_ref()),
             tool_loop_guard: ToolLoopGuard::default(),
         })
     }

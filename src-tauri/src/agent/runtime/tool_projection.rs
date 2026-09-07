@@ -329,28 +329,7 @@ fn required_envelope_string<'a>(
 }
 
 fn configured_max_tool_result_chars(context: &AgentTurnContext) -> Option<usize> {
-    context
-        .spec
-        .get("maxToolResultChars")
-        .or_else(|| context.spec.get("max_tool_result_chars"))
-        .or_else(|| context.metadata.get("maxToolResultChars"))
-        .or_else(|| context.metadata.get("max_tool_result_chars"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    defaults
-                        .get("maxToolResultChars")
-                        .or_else(|| defaults.get("max_tool_result_chars"))
-                })
-        })
-        .or_else(|| context.config_snapshot.get("maxToolResultChars"))
-        .or_else(|| context.config_snapshot.get("max_tool_result_chars"))
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-        .filter(|value| *value > 0)
+    context.controls.max_tool_result_chars
 }
 
 fn config_redaction_values(value: &Value) -> Vec<String> {
