@@ -6,6 +6,7 @@ use super::{
     NativeAgentToolCall, NativeAgentToolResult, PreparedToolCall,
 };
 use super::{AgentResultError, AgentStopReason, AgentTurnResult};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentContinuationInput, AgentEventKind, AgentFormAction, AgentRuntimePhase, PendingAgentEvent,
     TerminalEvent,
@@ -40,7 +41,7 @@ impl UserInputResume {
         self,
         context: &mut AgentTurnContext,
         state: &mut AgentTurnState,
-    ) -> Result<i64, String> {
+    ) -> Result<i64, AgentError> {
         context.restore_pending_tool_hook_context(self.pending_hook_context);
         state
             .completed_tool_results
@@ -99,7 +100,7 @@ pub(super) fn awaiting_user_input_result(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_call: PreparedToolCall,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let form_id = form_id_for_tool_call(&tool_call.id)?;
     let request = parse_user_input_request(tool_call.arguments())?;
     let mut form = serde_json::to_value(request)
@@ -182,7 +183,7 @@ pub(super) fn awaiting_user_input_result(
 pub(super) fn prepare_user_input_continuation(
     services: &NativeAgentRuntimeServices,
     context: &mut AgentTurnContext,
-) -> Result<Option<UserInputContinuationOutcome>, String> {
+) -> Result<Option<UserInputContinuationOutcome>, AgentError> {
     let Some(AgentContinuationInput::Form {
         form_id,
         action,
@@ -286,7 +287,7 @@ fn cancelled_user_input_result(
     checkpoint: Value,
     form_id: String,
     iteration: i64,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let message = "User input request was cancelled.";
     let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())?;
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
@@ -353,7 +354,9 @@ fn attach_thread_command_id(payload: &mut Value, context: &AgentTurnContext) {
 
 fn validate_user_input_checkpoint(checkpoint: &Value, form_id: &str) -> Result<(), String> {
     if checkpoint.get("phase").and_then(Value::as_str) != Some("awaiting_form") {
-        return Err("invalid user input checkpoint: phase must be awaiting_form".to_string());
+        return Err("invalid user input checkpoint: phase must be awaiting_form"
+            .to_string()
+            .into());
     }
     let expected_form_id = checkpoint
         .pointer("/payload/formId")
@@ -362,7 +365,8 @@ fn validate_user_input_checkpoint(checkpoint: &Value, form_id: &str) -> Result<(
     if form_id != expected_form_id {
         return Err(format!(
             "form continuation ID `{form_id}` does not match checkpoint `{expected_form_id}`"
-        ));
+        )
+        .into());
     }
     Ok(())
 }
@@ -378,7 +382,8 @@ fn user_input_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCal
         return Err(format!(
             "invalid user input checkpoint: expected one pending tool call, found {}",
             pending.len()
-        ));
+        )
+        .into());
     }
     let pending = &pending[0];
     let id = required_string(pending, "toolCallId", "pending toolCallId")?;
@@ -386,7 +391,7 @@ fn user_input_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCal
     if name != REQUEST_USER_INPUT_METHOD {
         return Err(format!(
             "invalid user input checkpoint: pending tool must be `{REQUEST_USER_INPUT_METHOD}`, found `{name}`"
-        ));
+        ).into());
     }
     Ok(NativeAgentToolCall {
         id,
@@ -405,7 +410,7 @@ fn form_id_for_tool_call(tool_call_id: &str) -> Result<String, String> {
     {
         return Err(format!(
             "invalid request_user_input tool call id: expected 1-{MAX_TOOL_CALL_ID_LENGTH} safe ASCII characters"
-        ));
+        ).into());
     }
     Ok(format!("user-input:{tool_call_id}"))
 }
@@ -457,7 +462,7 @@ fn parse_user_input_request(arguments: &Map<String, Value>) -> Result<UserInputR
     if request.fields.is_empty() || request.fields.len() > MAX_FORM_FIELDS {
         return Err(format!(
             "invalid request_user_input arguments: fields must contain between 1 and {MAX_FORM_FIELDS} entries"
-        ));
+        ).into());
     }
     let mut names = HashSet::new();
     for (index, field) in request.fields.iter_mut().enumerate() {
@@ -466,7 +471,8 @@ fn parse_user_input_request(arguments: &Map<String, Value>) -> Result<UserInputR
             return Err(format!(
                 "invalid request_user_input arguments: duplicate field name `{}`",
                 field.name
-            ));
+            )
+            .into());
         }
     }
     Ok(request)
@@ -481,7 +487,8 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
     {
         return Err(format!(
             "invalid request_user_input arguments: fields[{index}].name is unsafe"
-        ));
+        )
+        .into());
     }
     normalize_required_string(&mut field.field_type, &format!("fields[{index}].type"), 64)?;
     if !matches!(
@@ -490,7 +497,8 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
     ) {
         return Err(format!(
             "invalid request_user_input arguments: fields[{index}].type is unsupported"
-        ));
+        )
+        .into());
     }
     normalize_required_string(&mut field.label, &format!("fields[{index}].label"), 256)?;
     normalize_optional_string(
@@ -521,19 +529,19 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
                     return Err(format!(
                         "invalid request_user_input arguments: fields[{index}] has duplicate option value `{}`",
                         option.value
-                    ));
+                    ).into());
                 }
             }
         }
         (Some(_), true) | (None, true) => {
             return Err(format!(
                 "invalid request_user_input arguments: fields[{index}].options must contain between 1 and {MAX_FORM_OPTIONS} entries"
-            ));
+            ).into());
         }
         (Some(_), false) => {
             return Err(format!(
                 "invalid request_user_input arguments: fields[{index}].options is only valid for choice fields"
-            ));
+            ).into());
         }
         (None, false) => {}
     }
@@ -543,7 +551,11 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
 fn validate_submitted_values(form: &Value, values: Option<Value>) -> Result<Value, String> {
     let values = match values.unwrap_or_else(|| Value::Object(Map::new())) {
         Value::Object(values) => values,
-        _ => return Err("invalid user input submission: values must be an object".to_string()),
+        _ => {
+            return Err("invalid user input submission: values must be an object"
+                .to_string()
+                .into())
+        }
     };
     let fields = form
         .get("fields")
@@ -557,9 +569,7 @@ fn validate_submitted_values(form: &Value, values: Option<Value>) -> Result<Valu
         .keys()
         .find(|name| !allowed_names.contains(name.as_str()))
     {
-        return Err(format!(
-            "invalid user input submission: unknown field `{unknown}`"
-        ));
+        return Err(format!("invalid user input submission: unknown field `{unknown}`").into());
     }
     for field in fields {
         validate_submitted_field(
@@ -584,9 +594,7 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
     });
     if missing {
         return if required {
-            Err(format!(
-                "invalid user input submission: field `{name}` is required"
-            ))
+            Err(format!("invalid user input submission: field `{name}` is required").into())
         } else {
             Ok(())
         };
@@ -600,18 +608,18 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
             if text.len() > MAX_FORM_TEXT_LENGTH {
                 return Err(format!(
                     "invalid user input submission: field `{name}` exceeds {MAX_FORM_TEXT_LENGTH} characters"
-                ));
+                ).into());
             }
         }
         "number" if !value.is_number() => {
-            return Err(format!(
-                "invalid user input submission: field `{name}` must be a number"
-            ));
+            return Err(
+                format!("invalid user input submission: field `{name}` must be a number").into(),
+            );
         }
         "checkbox" if !value.is_boolean() => {
-            return Err(format!(
-                "invalid user input submission: field `{name}` must be a boolean"
-            ));
+            return Err(
+                format!("invalid user input submission: field `{name}` must be a boolean").into(),
+            );
         }
         "select" | "radio" => {
             let selected = value.as_str().ok_or_else(|| {
@@ -620,7 +628,8 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
             if !choice_values(field).contains(selected) {
                 return Err(format!(
                     "invalid user input submission: field `{name}` contains an unsupported option"
-                ));
+                )
+                .into());
             }
         }
         "multiselect" => {
@@ -635,7 +644,8 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
             }) {
                 return Err(format!(
                     "invalid user input submission: field `{name}` contains an unsupported option"
-                ));
+                )
+                .into());
             }
         }
         _ => {}
@@ -671,7 +681,7 @@ fn normalize_required_string(
     if value.is_empty() || value.len() > max_length {
         return Err(format!(
             "invalid request_user_input arguments: {path} must contain between 1 and {max_length} characters"
-        ));
+        ).into());
     }
     Ok(())
 }
@@ -688,7 +698,8 @@ fn normalize_optional_string(
     if current.len() > max_length {
         return Err(format!(
             "invalid request_user_input arguments: {path} must not exceed {max_length} characters"
-        ));
+        )
+        .into());
     }
     if current.is_empty() {
         *value = None;

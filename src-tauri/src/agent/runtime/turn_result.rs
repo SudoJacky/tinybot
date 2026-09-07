@@ -170,6 +170,7 @@ impl AgentStopReason {
 #[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
 pub enum AgentResultError {
+    Structured(super::AgentError),
     Message(String),
     Coded {
         code: AgentStopReason,
@@ -180,6 +181,7 @@ pub enum AgentResultError {
 impl AgentResultError {
     pub fn message(&self) -> &str {
         match self {
+            Self::Structured(error) => &error.message,
             Self::Message(message) | Self::Coded { message, .. } => message,
         }
     }

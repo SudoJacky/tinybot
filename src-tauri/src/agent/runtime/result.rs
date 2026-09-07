@@ -3,6 +3,7 @@ use super::events::standalone_runtime_event;
 use super::state::AgentTurnState;
 use super::{AgentResultError, AgentStopReason, AgentTurnResult};
 use super::{AgentTurnContext, NativeAgentRuntimeServices};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{AgentEventKind, TerminalEvent};
 use serde_json::Value;
 
@@ -65,7 +66,7 @@ pub(super) fn cancelled_turn_result(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let stop_reason = cancellation_stop_reason(services, &context.turn_id);
     let completed_tool_results = state.completed_tool_results.clone();
     let checkpoint = save_phase_checkpoint(

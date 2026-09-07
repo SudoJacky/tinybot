@@ -14,6 +14,7 @@ use super::{
     NativeAgentToolCall, NativeToolOutcome, NativeToolRetry, PreparedToolCall,
 };
 use super::{AgentResultError, AgentStopReason, AgentTurnResult};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
 };
@@ -63,8 +64,8 @@ enum ToolDispatchOutcome {
     },
 }
 
-fn completed_tool_error(tool_call: PreparedToolCall, error: String) -> ToolDispatchOutcome {
-    let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
+fn completed_tool_error(tool_call: PreparedToolCall, error: AgentError) -> ToolDispatchOutcome {
+    let result = super::NativeAgentToolResult::execution_error(&tool_call, error);
     ToolDispatchOutcome::Completed(ToolDispatchCompleted { tool_call, result })
 }
 
@@ -183,7 +184,7 @@ pub(super) async fn execute_tool_calls_for_iteration(
     iteration: i64,
     final_content: String,
     tool_calls: Vec<NativeAgentToolCall>,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     state.transition_phase(
         AgentRuntimePhase::ToolCalling,
         iteration,
@@ -310,7 +311,15 @@ pub(super) async fn execute_tool_calls_for_iteration(
             tool_call.clone(),
         ) {
             Ok(result) => Ok(NativeAgentToolExecutionOutcome::Finished(result)),
-            Err(error) => tool_error_result(services, context, state, iteration, &tool_call, error),
+            Err(error) if error.code == super::AgentErrorCode::PersistenceError => Err(error),
+            Err(error) => tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                &tool_call,
+                error.to_string(),
+            ),
         };
     }
 
@@ -347,7 +356,7 @@ async fn evaluate_pre_tool_hooks(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<PreparedToolCall>,
-) -> Result<Vec<PreparedToolCall>, String> {
+) -> Result<Vec<PreparedToolCall>, AgentError> {
     let mut allowed = Vec::with_capacity(tool_calls.len());
     for mut tool_call in tool_calls {
         let invocation = AgentHookInvocation::tool(
@@ -386,7 +395,7 @@ async fn commit_executed_tool_observation(
     iteration: i64,
     tool_call: PreparedToolCall,
     mut result: super::NativeAgentToolResult,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let invocation = AgentHookInvocation::tool(
         AgentHookStage::AfterToolUse,
         context.trace_context.clone(),
@@ -416,7 +425,7 @@ async fn execute_publish_data_views(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<PreparedToolCall>,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     let is_multi_call = tool_calls.len() > 1;
     let planned_calls = tool_calls
         .into_iter()
@@ -553,7 +562,7 @@ fn execute_update_plan_call(
     state: &mut AgentTurnState,
     iteration: i64,
     planned: PlannedToolCall,
-) -> Result<IndexedToolDispatchOutcome, String> {
+) -> Result<IndexedToolDispatchOutcome, AgentError> {
     let index = planned.index;
     let tool_call = planned.tool_call;
     context.metrics().increment("tool.started");
@@ -565,7 +574,7 @@ fn execute_update_plan_call(
                 .metrics()
                 .record_duration("tool.durationMs", tool_started_at.elapsed());
             context.metrics().increment("tool.failed");
-            let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
+            let result = super::NativeAgentToolResult::execution_error(&tool_call, error);
             return Ok(IndexedToolDispatchOutcome {
                 index,
                 outcome: ToolDispatchOutcome::Completed(ToolDispatchCompleted {
@@ -618,18 +627,23 @@ fn execute_update_plan_call(
 
 fn parse_update_plan_args(
     arguments: &serde_json::Map<String, Value>,
-) -> Result<UpdatePlanArgs, String> {
+) -> Result<UpdatePlanArgs, AgentError> {
     let mut args = serde_json::from_value::<UpdatePlanArgs>(Value::Object(arguments.clone()))
         .map_err(|error| format!("invalid update_plan arguments: {error}"))?;
     if let Some(explanation) = args.explanation.as_mut() {
         *explanation = explanation.trim().to_string();
         if explanation.is_empty() {
-            return Err("invalid update_plan arguments: explanation must not be empty".to_string());
+            return Err(
+                "invalid update_plan arguments: explanation must not be empty"
+                    .to_string()
+                    .into(),
+            );
         }
         if explanation.chars().count() > 1024 {
             return Err(
                 "invalid update_plan arguments: explanation must not exceed 1024 characters"
-                    .to_string(),
+                    .to_string()
+                    .into(),
             );
         }
     }
@@ -751,7 +765,7 @@ async fn dispatch_tool_call(
     services: &NativeAgentRuntimeServices,
     context: AgentTurnContext,
     tool_call: PreparedToolCall,
-) -> Result<super::NativeAgentToolResult, String> {
+) -> Result<super::NativeAgentToolResult, AgentError> {
     let raw_result = match tool_call.name.as_str() {
         SPAWN_WORKSPACE_THREAD_METHOD => Some(
             super::workspace_threads::spawn_workspace_thread(
@@ -775,14 +789,13 @@ async fn dispatch_tool_call(
         Some(Ok(value)) => Ok(super::NativeAgentToolResult::generic_success(
             &tool_call, value,
         )),
-        Some(Err(error)) => Err(error),
-        None => {
-            services
-                .tools
-                .clone()
-                .dispatch_async(context, tool_call)
-                .await
-        }
+        Some(Err(error)) => Err(error.into()),
+        None => services
+            .tools
+            .clone()
+            .dispatch_async(context, tool_call)
+            .await
+            .map_err(AgentError::from),
     }
 }
 
@@ -802,7 +815,7 @@ async fn execute_tool_wave(
     state: &mut AgentTurnState,
     iteration: i64,
     wave: ToolWave,
-) -> Result<Vec<IndexedToolDispatchOutcome>, String> {
+) -> Result<Vec<IndexedToolDispatchOutcome>, AgentError> {
     match wave {
         ToolWave::Exclusive(call) if call.tool_call.name == UPDATE_PLAN_METHOD => {
             Ok(vec![execute_update_plan_call(
@@ -827,7 +840,7 @@ async fn execute_tool_batch(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<PreparedToolCall>,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     let (tool_calls, blocked_calls) = partition_repeated_no_progress_calls(state, tool_calls);
     commit_loop_blocked_calls(context, state, iteration, blocked_calls)?;
     if tool_calls.is_empty() {
@@ -953,7 +966,7 @@ fn commit_loop_blocked_calls(
     state: &mut AgentTurnState,
     iteration: i64,
     blocked_calls: Vec<(PreparedToolCall, ToolLoopBlock)>,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     if blocked_calls.is_empty() {
         return Ok(());
     }
@@ -1005,7 +1018,7 @@ fn queue_tool_batch(
     state: &mut AgentTurnState,
     iteration: i64,
     calls: &[PlannedToolCall],
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     state.transition_phase(
         AgentRuntimePhase::ToolRunning,
         iteration,
@@ -1052,7 +1065,7 @@ fn mark_tool_wave_running(
     iteration: i64,
     wave_index: usize,
     wave: &ToolWave,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     for call in wave.calls() {
         let tool_call = &call.tool_call;
         state.mark_pending_tool_running(&tool_call.id);
@@ -1089,11 +1102,16 @@ fn finish_wave_terminal(
     state: &mut AgentTurnState,
     iteration: i64,
     terminal: IndexedToolDispatchOutcome,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     match terminal.outcome {
-        ToolDispatchOutcome::RuntimeFailure { tool_call, error } => {
-            fatal_tool_error_result(services, context, state, iteration, &tool_call, error)
-        }
+        ToolDispatchOutcome::RuntimeFailure { tool_call, error } => fatal_tool_error_result(
+            services,
+            context,
+            state,
+            iteration,
+            &tool_call,
+            error.to_string(),
+        ),
         ToolDispatchOutcome::Cancelled { .. } => {
             cancelled_result(services, context, state, iteration)
         }
@@ -1122,7 +1140,7 @@ fn emit_ignored_wave_outcomes(
     wave_index: usize,
     terminal_reason: &str,
     ignored: Vec<IndexedToolDispatchOutcome>,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     for ignored_outcome in ignored {
         let model_index = ignored_outcome.index;
         let (tool_call, ignored_reason, error) = match ignored_outcome.outcome {
@@ -1196,7 +1214,7 @@ fn start_tool_call(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     state.tools_used.push(tool_call.name.clone());
     state.transition_phase(
         AgentRuntimePhase::ToolRunning,
@@ -1234,7 +1252,7 @@ fn record_tool_failure(
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: &str,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let result = super::NativeAgentToolResult::generic_error(tool_call, error.to_string());
     commit_tool_observation(context, state, iteration, tool_call.clone(), result)
 }
@@ -1245,7 +1263,7 @@ fn tool_batch_error_result(
     state: &mut AgentTurnState,
     iteration: i64,
     failures: Vec<(&NativeAgentToolCall, String)>,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     for (tool_call, error) in failures {
         record_tool_failure(context, state, iteration, tool_call, &error)?;
     }
@@ -1259,7 +1277,7 @@ fn tool_error_result(
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: String,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     record_tool_failure(context, state, iteration, tool_call, &error)?;
     finish_recoverable_tool_errors(services, context, state, iteration)
 }
@@ -1269,7 +1287,7 @@ fn finish_recoverable_tool_errors(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
@@ -1295,7 +1313,7 @@ fn fatal_tool_error_result(
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: String,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     record_tool_failure(context, state, iteration, tool_call, &error)?;
     finish_tool_error_result(services, context, state, iteration, tool_call, error)
 }
@@ -1307,7 +1325,7 @@ fn finish_tool_error_result(
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: String,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     state.set_stop_reason(
         AgentStopReason::ToolError,
         iteration,
@@ -1346,7 +1364,7 @@ fn tool_cleanup_timeout_result(
     tool_call: &NativeAgentToolCall,
     cancellation_mode: ToolCancellationMode,
     timeout_ms: u64,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     let error = format!(
         "native tool `{}` cleanup exceeded {} ms for cancellation mode `{}`",
         tool_call.name,
@@ -1394,7 +1412,7 @@ fn cancelled_result(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
     state.emit_pending_hook_evaluations(context)?;
     state.transition_phase(
         AgentRuntimePhase::Cancelled,

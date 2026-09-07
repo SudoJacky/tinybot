@@ -151,7 +151,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         &self,
         _session_id: &str,
         _turn_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, crate::agent::runtime::AgentError> {
         Ok(self
             .events
             .lock()
@@ -164,7 +164,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         self.events
             .lock()
             .expect("trace sink lock should not be poisoned")
@@ -177,7 +177,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         self.timeline_patches
             .lock()
             .expect("timeline patch sink lock should not be poisoned")

@@ -22,6 +22,7 @@ use super::{
     NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
     NativeAgentRuntimeServices,
 };
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentAssistantMessagePhase, AgentEventKind, AgentRuntimePhase, ModelOutputEvent,
     PendingAgentEvent, TerminalEvent,
@@ -40,7 +41,7 @@ pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     tauri::async_runtime::block_on(run_native_agent_turn_with_config_async(
         services,
         spec,
@@ -53,16 +54,17 @@ pub async fn run_native_agent_turn_with_config_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     run_owned_native_agent_turn_async(
         services,
-        AgentTurnInput::from_wire(&spec, &config_snapshot)?,
+        AgentTurnInput::from_wire(&spec, &config_snapshot).map_err(AgentError::invalid_input)?,
         config_snapshot,
         None,
         None,
     )
     .await?
     .into_value()
+    .map_err(AgentError::from)
 }
 
 #[cfg(test)]
@@ -71,7 +73,7 @@ pub fn run_native_agent_turn_with_workspace(
     spec: Value,
     config_snapshot: Value,
     workspace_root: &Path,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     tauri::async_runtime::block_on(run_native_agent_turn_with_workspace_async(
         services,
         spec,
@@ -79,6 +81,7 @@ pub fn run_native_agent_turn_with_workspace(
         workspace_root,
     ))?
     .into_value()
+    .map_err(AgentError::from)
 }
 
 pub async fn run_native_agent_turn_with_workspace_async(
@@ -86,7 +89,7 @@ pub async fn run_native_agent_turn_with_workspace_async(
     spec: Value,
     mut config_snapshot: Value,
     workspace_root: &Path,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let instructions = InstructionComposer::default().compose_with_config(
         workspace_root,
         &spec,
@@ -98,7 +101,7 @@ pub async fn run_native_agent_turn_with_workspace_async(
     )?;
     run_owned_native_agent_turn_async(
         services,
-        AgentTurnInput::from_wire(&spec, &config_snapshot)?,
+        AgentTurnInput::from_wire(&spec, &config_snapshot).map_err(AgentError::invalid_input)?,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
         Some(instructions),
@@ -112,7 +115,7 @@ pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
     config_snapshot: Value,
     workspace_root: &Path,
     instructions: ComposedInstructions,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     run_owned_native_agent_turn_async(
         services,
         input,
@@ -129,7 +132,7 @@ async fn run_owned_native_agent_turn_async(
     config_snapshot: Value,
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let mut identity = AgentTurnContext::from_input(input, config_snapshot.clone());
     identity.attach_observability(services);
     let continuation_metadata = identity
@@ -178,10 +181,16 @@ async fn run_owned_native_agent_turn_async(
         })
         .map_err(|error| format!("failed to start owned agent task: {error}"))?;
     if handle.turn_id() != identity.turn_id || handle.session_id() != identity.session_id {
-        return Err("owned agent task identity does not match the normalized turn".to_string());
+        return Err(
+            "owned agent task identity does not match the normalized turn"
+                .to_string()
+                .into(),
+        );
     }
     if handle.status().is_none() {
-        return Err("owned agent task did not publish a runtime status".to_string());
+        return Err("owned agent task did not publish a runtime status"
+            .to_string()
+            .into());
     }
     let turn_started_at = Instant::now();
     identity.metrics().increment("turn.started");
@@ -196,9 +205,11 @@ async fn run_owned_native_agent_turn_async(
                 AgentHookStage::TurnAbort,
                 identity.trace_context.clone(),
             );
-            identity
-                .evaluate_hook(invocation)
-                .map_err(|hook_error| format!("{error}; turn abort hook failed: {hook_error}"))?;
+            identity.evaluate_hook(invocation).map_err(|hook_error| {
+                error
+                    .clone()
+                    .combine(AgentError::from(hook_error).context("turn abort hook failed"))
+            })?;
             return Err(error);
         }
     };
@@ -249,7 +260,7 @@ struct ProviderStreamState {
     reasoning_content: String,
     message_phase: AgentAssistantMessagePhase,
     observer_cancelled: bool,
-    trace_error: Option<String>,
+    trace_error: Option<AgentError>,
 }
 
 impl ProviderStreamState {
@@ -353,7 +364,7 @@ impl ProviderStreamState {
         iteration: i64,
         provider_attempt_id: &str,
         assistant_message_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         if !self.streamed_content || self.message_content.is_empty() {
             return Ok(());
         }
@@ -448,7 +459,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
-    ) -> Result<AgentTurnResult, String> {
+    ) -> Result<AgentTurnResult, AgentError> {
         match Self::prepare(
             dependencies,
             context,
@@ -472,7 +483,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
-    ) -> Result<PreparedNativeAgentTurnExecution<'a>, String> {
+    ) -> Result<PreparedNativeAgentTurnExecution<'a>, AgentError> {
         context.attach_observability(dependencies);
         if let Some(instructions) = instructions.as_ref() {
             context.settings.working_directory = Some(instructions.working_directory.clone());
@@ -550,7 +561,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         return Err(format!(
                             "MCP registry snapshot failed for server `{}` over {}: {}",
                             error.server, error.transport, error.message
-                        ));
+                        )
+                        .into());
                     }
                 }
             } else {
@@ -724,7 +736,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         })
     }
 
-    async fn run_loop(mut self, start_iteration: i64) -> Result<AgentTurnResult, String> {
+    async fn run_loop(mut self, start_iteration: i64) -> Result<AgentTurnResult, AgentError> {
         for iteration in start_iteration..self.context.max_iterations {
             match self.advance_iteration(iteration).await? {
                 IterationOutcome::Continue => {}
@@ -734,7 +746,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         self.finish_max_iterations()
     }
 
-    async fn advance_iteration(&mut self, iteration: i64) -> Result<IterationOutcome, String> {
+    async fn advance_iteration(&mut self, iteration: i64) -> Result<IterationOutcome, AgentError> {
         let prepared = match self.prepare_provider_iteration(iteration).await? {
             ExecutionStage::Ready(prepared) => prepared,
             ExecutionStage::Finished(result) => return Ok(IterationOutcome::Finished(result)),
@@ -749,7 +761,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn prepare_provider_iteration(
         &mut self,
         iteration: i64,
-    ) -> Result<ExecutionStage<PreparedProviderIteration>, String> {
+    ) -> Result<ExecutionStage<PreparedProviderIteration>, AgentError> {
         self.state
             .transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call")?;
         if turn_context_is_cancelled(&self.context) {
@@ -956,7 +968,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn call_provider(
         &mut self,
         prepared: PreparedProviderIteration,
-    ) -> Result<ExecutionStage<CompletedProviderIteration>, String> {
+    ) -> Result<ExecutionStage<CompletedProviderIteration>, AgentError> {
         let PreparedProviderIteration {
             provider_context,
             mut attempt,
@@ -1004,7 +1016,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }
         };
         if let Some(error) = attempt.stream.trace_error.take() {
-            return Err(error);
+            return Err(error.into());
         }
         let provider_duration = provider_started_at.elapsed();
         let timing = crate::agent::runtime_protocol::AgentModelTiming {
@@ -1089,7 +1101,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn reduce_provider_iteration(
         &mut self,
         mut completed: CompletedProviderIteration,
-    ) -> Result<IterationOutcome, String> {
+    ) -> Result<IterationOutcome, AgentError> {
         let iteration = completed.attempt.iteration;
         let provider_phase_conflict = match completed.attempt.stream.message_phase {
             AgentAssistantMessagePhase::FinalAnswer
@@ -1139,7 +1151,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     fn project_provider_fallbacks(
         &mut self,
         completed: &mut CompletedProviderIteration,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let iteration = completed.attempt.iteration;
         if let Some(reasoning_delta) = completed
             .response
@@ -1198,7 +1210,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn complete_tool_iteration(
         &mut self,
         completed: CompletedProviderIteration,
-    ) -> Result<IterationOutcome, String> {
+    ) -> Result<IterationOutcome, AgentError> {
         let CompletedProviderIteration {
             response,
             attempt,
@@ -1268,7 +1280,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     fn finish_final_response(
         &mut self,
         completed: CompletedProviderIteration,
-    ) -> Result<AgentTurnResult, String> {
+    ) -> Result<AgentTurnResult, AgentError> {
         let CompletedProviderIteration {
             response,
             attempt,
@@ -1341,7 +1353,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         Ok(result)
     }
 
-    fn finish_cancelled(&mut self, iteration: i64) -> Result<AgentTurnResult, String> {
+    fn finish_cancelled(&mut self, iteration: i64) -> Result<AgentTurnResult, AgentError> {
         self.state.transition_phase(
             AgentRuntimePhase::Cancelled,
             iteration,
@@ -1350,7 +1362,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         cancelled_turn_result(self.dependencies, &self.context, &mut self.state, iteration)
     }
 
-    fn finish_context_compaction(&mut self, iteration: i64) -> Result<AgentTurnResult, String> {
+    fn finish_context_compaction(&mut self, iteration: i64) -> Result<AgentTurnResult, AgentError> {
         self.state.transition_phase(
             AgentRuntimePhase::Finalizing,
             iteration,
@@ -1386,7 +1398,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         Ok(result)
     }
 
-    fn finish_max_iterations(&mut self) -> Result<AgentTurnResult, String> {
+    fn finish_max_iterations(&mut self) -> Result<AgentTurnResult, AgentError> {
         let error = "Rust agent runtime reached max iterations before final response.";
         self.state.set_stop_reason(
             AgentStopReason::MaxIterations,
@@ -1426,7 +1438,7 @@ async fn run_native_agent_turn_with_instructions_async(
     config_snapshot: Value,
     instructions: Option<ComposedInstructions>,
     workspace_root: Option<&Path>,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     NativeAgentTurnExecution::execute(
         services,
         context,
@@ -1440,12 +1452,14 @@ async fn run_native_agent_turn_with_instructions_async(
 fn append_response_tool_outputs(
     context: &mut AgentTurnContext,
     results: &[Value],
-) -> Result<(), String> {
-    provider_protocol(context)?.record_tool_outputs(context, results)
+) -> Result<(), AgentError> {
+    provider_protocol(context)?
+        .record_tool_outputs(context, results)
+        .map_err(AgentError::from)
 }
 
-fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, String> {
-    ProviderProtocolAdapter::for_runtime_request(context)
+fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, AgentError> {
+    ProviderProtocolAdapter::for_runtime_request(context).map_err(AgentError::from)
 }
 
 fn turn_context_is_cancelled(context: &AgentTurnContext) -> bool {
@@ -1461,7 +1475,7 @@ fn provider_failure_result(
     state: &mut AgentTurnState,
     iteration: i64,
     error: NativeAgentProviderFailure,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     agent_failure_result(
         services,
         context,
@@ -1479,7 +1493,7 @@ fn agent_failure_result(
     iteration: i64,
     stop_reason: AgentStopReason,
     message: String,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     state.set_stop_reason(stop_reason, iteration, AgentEventKind::Error.wire_name())?;
     state.emit(TerminalEvent::Error(serde_json::json!({
         "iteration": iteration,
@@ -1508,7 +1522,7 @@ fn emit_context_compaction_failure(
     iteration: i64,
     failure_stop_reason: AgentStopReason,
     message: &str,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     context.metrics().increment("compaction.failed");
     let manual = context.controls.manual_compaction;
     state.emit(PendingAgentEvent::new(
@@ -1545,7 +1559,7 @@ fn hook_denied_result(
     state: &mut AgentTurnState,
     iteration: i64,
     reason: String,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     state.set_stop_reason(
         AgentStopReason::HookDenied,
         iteration,
@@ -1582,7 +1596,7 @@ fn append_hook_evaluation_to_result(
     context: &AgentTurnContext,
     invocation: &AgentHookInvocation,
     evaluation: &AgentHookEvaluation,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     if evaluation.decisions.is_empty() {
         return Ok(());
     }
@@ -1615,7 +1629,7 @@ enum PreparedContinuation {
 async fn prepare_continuation(
     services: NativeAgentRuntimeServices,
     mut context: AgentTurnContext,
-) -> Result<PreparedContinuation, String> {
+) -> Result<PreparedContinuation, AgentError> {
     restore_activated_tools_for_continuation(&services, &mut context)?;
     let resume = match prepare_user_input_continuation(&services, &mut context)? {
         Some(UserInputContinuationOutcome::Finished(result)) => {

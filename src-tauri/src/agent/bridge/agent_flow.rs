@@ -7,13 +7,14 @@ use crate::agent::bridge::{
     persist_native_agent_turn_start, persist_native_agent_turn_terminal_if_present,
     reject_native_agent_terminal_turn_reentry,
 };
-#[cfg(not(test))]
-use crate::agent::runtime::AgentExecutionStatus;
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
     ensure_agent_trace_context, run_native_agent_turn_with_workspace_and_instructions_async,
     InstructionComposer, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
-use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnInput, AgentTurnResult};
+#[cfg(not(test))]
+use crate::agent::runtime::{AgentExecutionStatus, AgentStopReason};
+use crate::agent::runtime::{AgentResultError, AgentTurnInput, AgentTurnResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -27,7 +28,7 @@ pub(crate) async fn run_agent_with_services(
     workspace_root: PathBuf,
     mut config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<AgentTurnResult, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let thread_store = base_services.thread_store()?;
     let trace_context = ensure_agent_trace_context(&mut spec)?;
     if let Some(mut rejection) =
@@ -95,7 +96,7 @@ pub(crate) async fn run_agent_with_services(
             )
             .await
         }
-        Err(error) => Err(error),
+        Err(error) => Err(AgentError::invalid_input(error)),
     };
     let flush_result = services.flush_trace_sink();
     let mut result = match (turn_result, flush_result) {
@@ -121,9 +122,7 @@ pub(crate) async fn run_agent_with_services(
                 &persistence_spec,
                 &thread_store,
                 config_snapshot,
-                format!(
-                    "native agent turn failed: {turn_error}; trace persistence flush failed: {flush_error}"
-                ),
+                turn_error.combine(flush_error.context("trace persistence flush failed")),
             ))
         }
     };
@@ -150,18 +149,15 @@ fn persist_failed_agent_turn(
     persistence_spec: &serde_json::Value,
     thread_store: &crate::threads::workspace_store::WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
-    runtime_error: String,
-) -> String {
+    runtime_error: AgentError,
+) -> AgentError {
     let turn_id = crate::agent::runtime::agent_trace_context_from_value(persistence_spec).turn_id;
     let session_id = crate::agent::bridge::native_agent_thread_id(persistence_spec)
         .or_else(|| crate::agent::bridge::native_agent_session_id(persistence_spec))
         .unwrap_or_else(|| "native-rust-session".to_string());
     let mut failure = AgentTurnResult {
-        error: Some(AgentResultError::Coded {
-            code: AgentStopReason::RuntimeError,
-            message: runtime_error.clone(),
-        }),
-        ..AgentTurnResult::new(&turn_id, &session_id, AgentStopReason::RuntimeError)
+        error: Some(AgentResultError::Structured(runtime_error.clone())),
+        ..AgentTurnResult::new(&turn_id, &session_id, runtime_error.stop_reason())
     };
     if let Err(persistence_error) = persist_native_agent_turn_terminal_if_present(
         persistence_spec.clone(),
@@ -169,9 +165,8 @@ fn persist_failed_agent_turn(
         thread_store,
         config_snapshot,
     ) {
-        return format!(
-            "{runtime_error}; failed to persist terminal turn state: {persistence_error}"
-        );
+        return runtime_error
+            .combine(persistence_error.context("failed to persist terminal turn state"));
     }
     runtime_error
 }

@@ -88,7 +88,7 @@ async fn run_title_task(
                 "thread.title_generation.notification_failed",
                 &task,
                 started_at,
-                Some(&error),
+                Some(&error.to_string()),
             );
         }
     }

@@ -3,12 +3,13 @@ use crate::agent::bridge::{
     native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
     persist_native_agent_turn_terminal_if_present,
 };
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
     run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service;
+use crate::rpc::call_rust_state_service_typed as call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,17 +19,17 @@ use std::sync::Arc;
 mod tests;
 
 fn finish_native_agent_turn<T>(
-    turn_result: Result<T, String>,
-    flush_result: Result<(), String>,
+    turn_result: Result<T, AgentError>,
+    flush_result: Result<(), AgentError>,
     label: &str,
-) -> Result<T, String> {
+) -> Result<T, AgentError> {
     match (turn_result, flush_result) {
         (Ok(result), Ok(())) => Ok(result),
         (Err(turn_error), Ok(())) => Err(turn_error),
         (Ok(_), Err(flush_error)) => Err(flush_error),
-        (Err(turn_error), Err(flush_error)) => Err(format!(
-            "{label} failed: {turn_error}; trace persistence flush failed: {flush_error}"
-        )),
+        (Err(turn_error), Err(flush_error)) => Err(turn_error
+            .context(format!("{label} failed"))
+            .combine(flush_error.context("trace persistence flush failed"))),
     }
 }
 
@@ -50,7 +51,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<(u16, serde_json::Value), String> {
+) -> Result<(u16, serde_json::Value), AgentError> {
     let thread_store = base_services.thread_store()?;
     let session_key = agent_ui_form_session_key(body).unwrap_or_default();
     let values = body
@@ -269,7 +270,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AgentError> {
     let thread_store = base_services.thread_store()?;
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
@@ -348,7 +349,7 @@ pub(crate) fn clear_native_session_checkpoint(
     thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     label: &str,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
         thread_store,
@@ -369,7 +370,7 @@ pub(crate) fn native_session_checkpoint(
     thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     label: &str,
-) -> Result<Option<serde_json::Value>, String> {
+) -> Result<Option<serde_json::Value>, AgentError> {
     let request_id = next_worker_request_correlation();
     let checkpoint = call_rust_state_service(
         thread_store,

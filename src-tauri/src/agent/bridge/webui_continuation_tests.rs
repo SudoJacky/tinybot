@@ -54,14 +54,14 @@ fn form_continuation_preserves_thread_command_correlation() {
 #[test]
 fn continuation_turn_reports_both_runtime_and_flush_failures() {
     let error = finish_native_agent_turn::<()>(
-        Err("runtime failed".to_string()),
-        Err("flush failed".to_string()),
+        Err("runtime failed".to_string().into()),
+        Err("flush failed".to_string().into()),
         "native agent continuation",
     )
     .expect_err("both failures should be reported");
 
     assert_eq!(
-        error,
+        error.to_string(),
         "native agent continuation failed: runtime failed; trace persistence flush failed: \
              flush failed"
     );

@@ -56,7 +56,7 @@ pub(crate) fn native_agent_thread_id(spec: &serde_json::Value) -> Option<String>
 pub(crate) fn hydrate_native_agent_memory_snapshot_for_runtime(
     mut spec: serde_json::Value,
     thread_store: &WorkspaceThreadStore,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, crate::agent::runtime::AgentError> {
     let Some(thread_id) = native_agent_thread_id(&spec).or_else(|| native_agent_session_id(&spec))
     else {
         return Ok(spec);
@@ -71,9 +71,9 @@ pub(crate) fn hydrate_native_agent_memory_snapshot_for_runtime(
         .thread_log()
         .get_thread_memory_snapshot(&thread_id)
         .map_err(|error| {
-            format!(
-                "failed to read Thread memory snapshot `{thread_id}`: {}",
-                error.message
+            crate::agent::runtime::AgentError::persistence(
+                &format!("Thread memory snapshot `{thread_id}`"),
+                error,
             )
         })?;
     let Some(snapshot) = snapshot else {
@@ -93,7 +93,7 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
     mut spec: serde_json::Value,
     thread_store: &WorkspaceThreadStore,
     _config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, crate::agent::runtime::AgentError> {
     let Some(session_id) = native_agent_session_id(&spec) else {
         return Ok(spec);
     };
@@ -101,10 +101,7 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
     let history = thread_store
         .agent_history(&session_id, 500)
         .map_err(|error| {
-            format!(
-                "native agent context hydration failed: {}; details={}",
-                error.message, error.details
-            )
+            crate::agent::runtime::AgentError::persistence("native agent context hydration", error)
         })?;
     let (api_mode, history_messages, response_items, source_checkpoint) = match history {
         Some(history) => (

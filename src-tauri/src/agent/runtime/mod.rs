@@ -21,7 +21,9 @@ mod context_manager;
 mod context_window_config;
 mod continuations;
 mod data_view;
+mod error;
 mod events;
+pub use error::{AgentError, AgentErrorCode};
 mod hooks;
 mod instructions;
 mod item_event_projection;
@@ -564,7 +566,7 @@ pub trait NativeAgentTraceSink: Send + Sync {
         &self,
         _session_id: &str,
         _turn_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, AgentError> {
         Ok(Vec::new())
     }
 
@@ -573,14 +575,14 @@ pub trait NativeAgentTraceSink: Send + Sync {
         session_id: &str,
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String>;
+    ) -> Result<(), AgentError>;
 
     fn append_trace_events(
         &self,
         session_id: &str,
         turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         for event in events {
             self.append_trace_event(session_id, turn_id, event)?;
         }
@@ -592,15 +594,19 @@ pub trait NativeAgentTraceSink: Send + Sync {
         _session_id: &str,
         _turn_id: &str,
         _patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         Ok(())
     }
 
-    fn thread_title_updated(&self, _thread_id: &str, _source_turn_id: &str) -> Result<(), String> {
+    fn thread_title_updated(
+        &self,
+        _thread_id: &str,
+        _source_turn_id: &str,
+    ) -> Result<(), AgentError> {
         Ok(())
     }
 
-    fn flush(&self) -> Result<(), String> {
+    fn flush(&self) -> Result<(), AgentError> {
         Ok(())
     }
 }
@@ -715,7 +721,7 @@ impl NativeAgentRuntimeServices {
             .map_err(|error| format!("context checkpoint commit task failed: {error}"))?
     }
 
-    pub(crate) fn flush_trace_sink(&self) -> Result<(), String> {
+    pub(crate) fn flush_trace_sink(&self) -> Result<(), AgentError> {
         self.trace_sink
             .as_ref()
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
@@ -897,6 +903,7 @@ pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
     run_native_agent_turn_with_config(&services, spec, config_snapshot)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -905,6 +912,7 @@ pub fn run_native_agent_turn_with_services(
     spec: Value,
 ) -> Result<Value, String> {
     run_native_agent_turn_with_config(services, spec, serde_json::json!({}))
+        .map_err(|error| error.to_string())
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {

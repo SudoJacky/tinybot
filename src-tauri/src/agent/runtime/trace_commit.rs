@@ -1,3 +1,4 @@
+use super::AgentError;
 use super::NativeAgentTraceSink;
 use crate::agent::runtime_protocol::{
     is_durable_agent_timeline_event, AgentRuntimeEventEnvelope, AgentTimelinePatch,
@@ -28,7 +29,7 @@ impl TraceCommitStage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct TraceCommitError {
     stage: TraceCommitStage,
     session_id: String,
@@ -38,7 +39,7 @@ pub(super) struct TraceCommitError {
     event_sequence: Option<u64>,
     request_id: Option<String>,
     trace_id: Option<String>,
-    source: String,
+    source: AgentError,
 }
 
 impl TraceCommitError {
@@ -47,7 +48,7 @@ impl TraceCommitError {
         session_id: &str,
         turn_id: &str,
         event: Option<&AgentRuntimeEventEnvelope>,
-        source: impl Into<String>,
+        source: impl Into<AgentError>,
     ) -> Self {
         let trace_context = event.and_then(|event| event.trace_context.as_ref());
         Self {
@@ -313,10 +314,10 @@ mod tests {
             &self,
             _session_id: &str,
             _turn_id: &str,
-        ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+        ) -> Result<Vec<AgentRuntimeEventEnvelope>, crate::agent::runtime::AgentError> {
             self.load_count.fetch_add(1, Ordering::Relaxed);
             if self.fail_load.load(Ordering::Relaxed) {
-                return Err("load failed".to_string());
+                return Err("load failed".to_string().into());
             }
             Ok(self
                 .events
@@ -330,9 +331,9 @@ mod tests {
             _session_id: &str,
             _turn_id: &str,
             event: &AgentRuntimeEventEnvelope,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             if self.fail_append.load(Ordering::Relaxed) {
-                return Err("append failed".to_string());
+                return Err("append failed".to_string().into());
             }
             self.events
                 .lock()
@@ -346,9 +347,9 @@ mod tests {
             _session_id: &str,
             _turn_id: &str,
             patch: &AgentTimelinePatch,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             if self.fail_patch.load(Ordering::Relaxed) {
-                return Err("patch failed".to_string());
+                return Err("patch failed".to_string().into());
             }
             self.patches
                 .lock()
@@ -482,5 +483,14 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         assert_eq!(sink.load_count.load(Ordering::Relaxed), 1);
+    }
+}
+
+impl From<TraceCommitError> for AgentError {
+    fn from(error: TraceCommitError) -> Self {
+        let message = error.to_string();
+        let mut source = error.source;
+        source.message = message;
+        source
     }
 }

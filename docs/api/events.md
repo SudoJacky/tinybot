@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:193998ea1d269a4c58daf00a28d5e60e3df0d31d79fa283707aea91caf6eb1c0 -->
+<!-- tinybot-doc-fingerprint: sha256:6c3a74c11413c524020476d36b6f1a88b7d60f7f2de080a35bb586a052889e3e -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines

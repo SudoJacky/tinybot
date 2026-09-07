@@ -11,6 +11,7 @@ use super::{
     string_field, AgentHookInvocation, AgentTurnContext, NativeAgentToolCall, NativeAgentTraceSink,
 };
 use super::{AgentStopReason, AgentTurnResult};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase, AgentTurnEmitter,
     ModelOutputEvent, PendingAgentEvent,
@@ -44,7 +45,7 @@ impl AgentTurnState {
     pub(super) fn new(
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AgentError> {
         Ok(Self {
             turn_id: context.turn_id.clone(),
             session_id: context.session_id.clone(),
@@ -79,19 +80,17 @@ impl AgentTurnState {
         })
     }
 
-    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) -> Result<(), String> {
-        self.trace_committer
-            .commit(event)
-            .map_err(|error| error.to_string())
+    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) -> Result<(), AgentError> {
+        self.trace_committer.commit(event).map_err(AgentError::from)
     }
 
     pub(super) fn new_for_continuation(
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AgentError> {
         let (trace_committer, existing) =
             TraceCommitter::resume(&context.session_id, &context.turn_id, trace_sink)
-                .map_err(|error| error.to_string())?;
+                .map_err(AgentError::from)?;
         let mut state = Self::new(context, None)?;
         state.trace_committer = trace_committer;
         if !existing.is_empty() {
@@ -109,7 +108,7 @@ impl AgentTurnState {
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
         existing_events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AgentError> {
         let mut state = Self::new_for_continuation(context, trace_sink)?;
         if !existing_events.is_empty() {
             state.emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
@@ -127,7 +126,7 @@ impl AgentTurnState {
         phase: AgentRuntimePhase,
         iteration: i64,
         trigger_event_name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let previous_phase = self.phase.clone();
         self.iteration = iteration;
         if previous_phase == phase {
@@ -151,7 +150,7 @@ impl AgentTurnState {
         &mut self,
         iteration: i64,
         trigger_event_name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let Some(label) = runtime_status_label(&self.phase) else {
             return Ok(());
         };
@@ -178,7 +177,7 @@ impl AgentTurnState {
         stop_reason: AgentStopReason,
         iteration: i64,
         trigger_event_name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.stop_reason = Some(stop_reason);
         let phase = stop_reason.runtime_phase();
         self.transition_phase(phase, iteration, trigger_event_name)
@@ -246,7 +245,7 @@ impl AgentTurnState {
         &mut self,
         replacement_history: Vec<Value>,
         checkpoint: Value,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.history.replace(replacement_history)?;
         self.context_checkpoint = Some(checkpoint);
         Ok(())
@@ -314,7 +313,7 @@ impl AgentTurnState {
         self.pending_tool_calls.clear();
     }
 
-    pub(super) fn emit(&mut self, event: impl Into<PendingAgentEvent>) -> Result<(), String> {
+    pub(super) fn emit(&mut self, event: impl Into<PendingAgentEvent>) -> Result<(), AgentError> {
         let input = prepare_runtime_event_input(
             &self.session_id,
             &self.turn_id,
@@ -330,7 +329,7 @@ impl AgentTurnState {
         &mut self,
         invocation: &AgentHookInvocation,
         evaluation: &AgentHookEvaluation,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         if evaluation.decisions.is_empty() && evaluation.command_runs.is_empty() {
             return Ok(());
         }
@@ -344,14 +343,14 @@ impl AgentTurnState {
         &mut self,
         context: &mut AgentTurnContext,
         evaluation: &AgentHookEvaluation,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.apply_additional_context(context, evaluation.additional_context.clone(), false)
     }
 
     pub(super) fn apply_pending_tool_hook_context(
         &mut self,
         context: &mut AgentTurnContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let pending = context.take_pending_tool_hook_context();
         self.apply_additional_context(context, pending, true)
     }
@@ -361,7 +360,7 @@ impl AgentTurnState {
         context: &mut AgentTurnContext,
         additional_contexts: Vec<String>,
         defer_response_items: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         for additional_context in additional_contexts {
             let message = serde_json::json!({
                 "role": "developer",
@@ -380,14 +379,17 @@ impl AgentTurnState {
     pub(super) fn emit_pending_hook_evaluations(
         &mut self,
         context: &AgentTurnContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         for (invocation, evaluation) in context.drain_hook_evaluations() {
             self.emit_hook_evaluation(&invocation, &evaluation)?;
         }
         Ok(())
     }
 
-    pub(super) fn emit_turn_started(&mut self, context: &AgentTurnContext) -> Result<(), String> {
+    pub(super) fn emit_turn_started(
+        &mut self,
+        context: &AgentTurnContext,
+    ) -> Result<(), AgentError> {
         let current = current_user_message(&context.messages);
         let message_id = current
             .as_ref()
@@ -463,7 +465,7 @@ impl AgentTurnState {
     pub(super) fn emit_thread_command_acknowledgement(
         &mut self,
         context: &AgentTurnContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let Some(command) = context.metadata.get("_threadCommand") else {
             return Ok(());
         };
@@ -497,7 +499,7 @@ impl AgentTurnState {
         self.emitter.take_events()
     }
 
-    pub(super) fn drain_pending_guidance(&mut self) -> Result<Option<Value>, String> {
+    pub(super) fn drain_pending_guidance(&mut self) -> Result<Option<Value>, AgentError> {
         let Some(message) = self.pending_guidance_message.take() else {
             return Ok(None);
         };
@@ -513,7 +515,7 @@ impl AgentTurnState {
         provider_usage: Option<Value>,
         estimated_context_tokens: i64,
         model_timing: crate::agent::runtime_protocol::AgentModelTiming,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let normalized_provider_usage = crate::token_usage::normalize_provider_token_usage(
             provider_usage.as_ref().unwrap_or(&Value::Null),
         )?;

@@ -354,7 +354,7 @@ mod tests {
             spec[field] = value;
             let error = run_native_agent_turn_with_config(&services, spec, json!({}))
                 .expect_err("invalid input should fail");
-            assert!(error.contains(diagnostic), "{error}");
+            assert!(error.to_string().contains(diagnostic), "{error}");
             assert!(services.task_runtime.status("invalid-turn").is_none());
         }
     }

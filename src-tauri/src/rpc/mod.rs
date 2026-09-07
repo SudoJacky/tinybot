@@ -821,14 +821,30 @@ pub(crate) fn call_rust_state_service(
     request: WorkerRequest,
     label: &str,
 ) -> Result<serde_json::Value, String> {
+    call_rust_state_service_typed(threads, config_snapshot, request, label)
+        .map_err(|error| worker_service_error_message(label, &error))
+}
+
+pub(crate) fn call_rust_state_service_typed(
+    threads: &WorkspaceThreadStore,
+    config_snapshot: Value,
+    request: WorkerRequest,
+    label: &str,
+) -> Result<Value, WorkerProtocolError> {
     let mut router = native_request_router(threads.clone(), config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
-        return Err(worker_service_error_message(label, &error));
+        return Err(error);
     }
-    response
-        .result
-        .ok_or_else(|| format!("{label} failed: missing response result"))
+    response.result.ok_or_else(|| {
+        WorkerProtocolError::new(
+            WorkerProtocolErrorCode::WorkerError,
+            format!("{label} failed: missing response result"),
+            serde_json::json!({"requestId":request.id,"traceId":request.trace_id}),
+            false,
+            WorkerProtocolErrorSource::RustCore,
+        )
+    })
 }
 
 pub(crate) fn call_rust_state_service_with_mcp_runtime(

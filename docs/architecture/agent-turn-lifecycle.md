@@ -14,7 +14,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2748b05fdf3b020e5c310544b7d7fe6987fb7618935a4b15dfd78ecf8fe9ffe7 -->
+<!-- tinybot-doc-fingerprint: sha256:6fdb42be9b5be17c27f245044182b9675ae5be2200c389afe4733886d7b2e194 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -41,8 +41,9 @@ Identity, settings, continuation, and execution controls are resolved once;
 the execution context retains no raw spec. Invalid field types and malformed
 continuations fail explicitly, and the bridge persists validation failures.
 Configuration, legacy history, extension metadata, provider-native items, and
-checkpoint payloads still have dynamic fields. Infrastructure errors still use
-`String`. Turn records, runtime events, checkpoints, and history now use direct
+checkpoint payloads still have dynamic fields. `AgentError` carries error categories
+and original service errors across execution, buffering, and persistence, including
+combined execution and flush failures. Turn records, runtime events, checkpoints, and history use direct
 workspace store operations. The RPC adapter uses the same guarded Turn service;
 other tool and Thread-management RPC paths remain separate migration work.
 
@@ -86,7 +87,8 @@ Rollout reconstruction and live timeline events -> React projection
 The bridge persists the Turn start before provider work. This ordering makes a
 visible Turn recoverable after interruption. Trace output is flushed before a
 successful terminal result is persisted. If runtime execution or trace flush
-fails, the bridge persists a failed terminal state with `runtime_error` before
+fails, the bridge persists a failed terminal state with `runtime_error` (or
+`invalid_request` for malformed input) and the structured error before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
 

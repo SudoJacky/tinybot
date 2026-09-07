@@ -2,6 +2,7 @@ use crate::agent::bridge::{
     native_agent_current_user_message, native_agent_max_iterations, native_agent_model,
     native_agent_provider, native_agent_session_id, native_agent_thread_id, native_agent_turn_id,
 };
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{agent_trace_context_from_value, manual_context_compaction_requested};
 use crate::agent::runtime::{
     AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult,
@@ -22,7 +23,7 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
     spec: &serde_json::Value,
     thread_store: &WorkspaceThreadStore,
     _config_snapshot: serde_json::Value,
-) -> Result<Option<AgentTurnResult>, String> {
+) -> Result<Option<AgentTurnResult>, AgentError> {
     let Some(session_id) = native_agent_rollout_id(spec) else {
         return Ok(None);
     };
@@ -76,7 +77,7 @@ pub(crate) fn persist_native_agent_turn_start(
     spec: serde_json::Value,
     thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let session_id =
         native_agent_rollout_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
     let turn_id = native_agent_turn_id(&spec).unwrap_or_else(|| "native-rust-turn".to_string());
@@ -239,7 +240,7 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
     result: &mut AgentTurnResult,
     thread_store: &WorkspaceThreadStore,
     _config_snapshot: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let session_id = &result.session_id;
     let turn_id = &result.turn_id;
     let stop_reason = result.stop_reason;
@@ -260,7 +261,8 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
         return Err(format!(
             "failed agent turn `{turn_id}` is missing its error ({})",
             stop_reason.as_str()
-        ));
+        )
+        .into());
     }
     let persisted = traced_persistence(
         &trace_context,
@@ -341,7 +343,7 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
     result: &AgentTurnResult,
     thread_store: &WorkspaceThreadStore,
     _config_snapshot: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let Some(checkpoint) = result.checkpoint.as_ref() else {
         return Ok(());
     };
@@ -367,7 +369,7 @@ fn traced_persistence<T>(
     operation: &str,
     metric_kind: &str,
     action: impl FnOnce() -> Result<T, WorkerProtocolError>,
-) -> Result<T, String> {
+) -> Result<T, AgentError> {
     let metrics = crate::runtime::observability::global_agent_runtime_metrics();
     metrics.increment(&format!("persistence.{metric_kind}.started"));
     let started_at = Instant::now();
@@ -386,7 +388,7 @@ fn traced_persistence<T>(
     ));
     result.map_err(|error| {
         eprintln!("agent_persistence_failed operation={} request_id={} trace_id={} turn_id={} error={} details={}", operation, trace_context.request_id, trace_context.trace_id, trace_context.turn_id, error.message, error.details);
-        format!("{operation} failed: {}; details={}", error.message, error.details)
+        AgentError::persistence(operation, error)
     })
 }
 

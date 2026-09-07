@@ -71,10 +71,19 @@ impl NativeAgentTraceSink for FailWhenToolStartsLiveSink {
         _session_id: &str,
         _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         if event.event_name == "agent.phase.changed" && event.payload["nextPhase"] == "tool_running"
         {
-            return Err("simulated live trace failure after tool delta".to_string());
+            return Err(AgentError::persistence(
+                "live trace",
+                crate::protocol::WorkerProtocolError::new(
+                    crate::protocol::WorkerProtocolErrorCode::WorkerError,
+                    "simulated live trace failure after tool delta",
+                    serde_json::json!({"operation":"emit_tool_start"}),
+                    true,
+                    crate::protocol::WorkerProtocolErrorSource::RustCore,
+                ),
+            ));
         }
         Ok(())
     }
@@ -84,7 +93,7 @@ impl NativeAgentTraceSink for FailWhenToolStartsLiveSink {
         _session_id: &str,
         _turn_id: &str,
         _patch: &AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         Ok(())
     }
 }
@@ -145,7 +154,11 @@ fn invalid_continuation_persists_failure_without_starting_a_task() {
         )
         .await
         .expect_err("invalid continuation should fail");
-        assert!(error.contains("agentContinuation"), "{error}");
+        assert!(error.to_string().contains("agentContinuation"), "{error}");
+        assert_eq!(
+            error.code,
+            crate::agent::runtime::AgentErrorCode::InvalidRequest
+        );
         assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
         assert!(runtime.status("turn-invalid-input").is_none());
         let correlation = next_worker_request_correlation();
@@ -197,6 +210,7 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
 
         assert!(result
             .expect_err("live trace failure should remain observable")
+            .to_string()
             .contains("simulated live trace failure after tool delta"));
 
         let correlation = next_worker_request_correlation();
@@ -243,6 +257,13 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
             .as_str()
             .expect("failed turn should preserve the runtime error")
             .contains("simulated live trace failure after tool delta"));
+        assert_eq!(persisted["error"]["code"], "persistence_error");
+        assert_eq!(persisted["error"]["serviceError"]["code"], "worker_error");
+        assert_eq!(persisted["error"]["serviceError"]["retryable"], true);
+        assert_eq!(
+            persisted["error"]["serviceError"]["details"]["operation"],
+            "emit_tool_start"
+        );
 
         let correlation = next_worker_request_correlation();
         let runtime_state = call_rust_state_service(

@@ -1,3 +1,4 @@
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::agent::runtime_protocol::{
     resolve_event_name, AgentEventKind, AgentRuntimeEventEnvelope, AgentTimelinePatch,
@@ -31,16 +32,11 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         &self,
         session_id: &str,
         turn_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, AgentError> {
         self.thread_store
             .agent_turn_runtime_state(session_id, turn_id)
             .map(|state| state.runtime_events)
-            .map_err(|error| {
-                format!(
-                    "native agent turn runtime state failed: {}; details={}",
-                    error.message, error.details
-                )
-            })
+            .map_err(|error| AgentError::persistence("native agent turn runtime state", error))
     }
 
     fn append_trace_event(
@@ -48,7 +44,7 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         session_id: &str,
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.append_trace_events(session_id, turn_id, std::slice::from_ref(event))
     }
 
@@ -57,9 +53,13 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         session_id: &str,
         turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         if events.is_empty() {
-            return Err("native agent semantic batch must contain at least one event".to_string());
+            return Err(
+                "native agent semantic batch must contain at least one event"
+                    .to_string()
+                    .into(),
+            );
         }
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         metrics.increment("persistence.batch.started");
@@ -67,12 +67,7 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         let result = self
             .thread_store
             .append_agent_turn_events(session_id, turn_id, events)
-            .map_err(|error| {
-                format!(
-                    "native agent semantic batch append failed: {}; details={}",
-                    error.message, error.details
-                )
-            });
+            .map_err(|error| AgentError::persistence("native agent semantic batch append", error));
         metrics.record_duration("persistence.batch.durationMs", started_at.elapsed());
         let event_count = events.len() as u64;
         if result.is_ok() {
@@ -99,20 +94,20 @@ enum TracePersistenceCommand {
         turn_id: String,
         event: AgentRuntimeEventEnvelope,
     },
-    Flush(mpsc::SyncSender<Result<(), String>>),
-    Shutdown(mpsc::SyncSender<Result<(), String>>),
+    Flush(mpsc::SyncSender<Result<(), AgentError>>),
+    Shutdown(mpsc::SyncSender<Result<(), AgentError>>),
 }
 
 struct TracePersistenceWorker {
     sender: mpsc::SyncSender<TracePersistenceCommand>,
     queued_events: Arc<AtomicUsize>,
     queue_high_watermark: Arc<AtomicUsize>,
-    terminal_error: Arc<Mutex<Option<String>>>,
+    terminal_error: Arc<Mutex<Option<AgentError>>>,
     join_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl TracePersistenceWorker {
-    fn terminal_result(&self) -> Result<(), String> {
+    fn terminal_result(&self) -> Result<(), AgentError> {
         self.terminal_error
             .lock()
             .expect("trace persistence terminal error lock should not be poisoned")
@@ -120,7 +115,7 @@ impl TracePersistenceWorker {
             .map_or(Ok(()), Err)
     }
 
-    fn shutdown(&self) -> Result<(), String> {
+    fn shutdown(&self) -> Result<(), AgentError> {
         let mut join_handle = self
             .join_handle
             .lock()
@@ -132,15 +127,17 @@ impl TracePersistenceWorker {
         let worker_result = self
             .sender
             .send(TracePersistenceCommand::Shutdown(reply_sender))
-            .map_err(|_| "trace persistence worker stopped before shutdown".to_string())
+            .map_err(|_| {
+                AgentError::from("trace persistence worker stopped before shutdown".to_string())
+            })
             .and_then(|_| {
-                reply_receiver
-                    .recv()
-                    .map_err(|_| "trace persistence worker stopped during shutdown".to_string())?
+                reply_receiver.recv().map_err(|_| {
+                    AgentError::from("trace persistence worker stopped during shutdown".to_string())
+                })?
             });
-        let join_result = worker_thread
-            .join()
-            .map_err(|_| "trace persistence worker panicked during shutdown".to_string());
+        let join_result = worker_thread.join().map_err(|_| {
+            AgentError::from("trace persistence worker panicked during shutdown".to_string())
+        });
         worker_result.and(join_result)
     }
 }
@@ -183,7 +180,7 @@ impl NativeAgentTraceSink for NoopNativeAgentTraceSink {
         _session_id: &str,
         _turn_id: &str,
         _event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         Ok(())
     }
 }
@@ -233,7 +230,7 @@ impl BufferedNativeAgentTraceSink {
         session_id: &str,
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.worker.terminal_result()?;
         let depth = self.worker.queued_events.fetch_add(1, Ordering::Relaxed) + 1;
         update_persistence_queue_gauges(
@@ -250,7 +247,9 @@ impl BufferedNativeAgentTraceSink {
         if self.worker.sender.send(command).is_err() {
             self.worker.queued_events.fetch_sub(1, Ordering::Relaxed);
             update_persistence_queue_gauge(&self.worker.queued_events);
-            return Err("trace persistence worker stopped before accepting event".to_string());
+            return Err("trace persistence worker stopped before accepting event"
+                .to_string()
+                .into());
         }
         crate::runtime::observability::global_agent_runtime_metrics().record_duration(
             "persistence.queue.backpressure.durationMs",
@@ -260,7 +259,7 @@ impl BufferedNativeAgentTraceSink {
     }
 
     #[cfg(test)]
-    fn shutdown(&self) -> Result<(), String> {
+    fn shutdown(&self) -> Result<(), AgentError> {
         self.worker.shutdown()
     }
 }
@@ -270,7 +269,7 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
         &self,
         session_id: &str,
         turn_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, AgentError> {
         self.flush()?;
         self.durable_sink.load_runtime_events(session_id, turn_id)
     }
@@ -280,7 +279,7 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
         session_id: &str,
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.worker.terminal_result()?;
         let live_result = self
             .live_sink
@@ -303,21 +302,23 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
         session_id: &str,
         turn_id: &str,
         patch: &AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.live_sink
             .append_timeline_patch(session_id, turn_id, patch)
     }
 
-    fn flush(&self) -> Result<(), String> {
+    fn flush(&self) -> Result<(), AgentError> {
         self.worker.terminal_result()?;
         let (reply_sender, reply_receiver) = mpsc::sync_channel(0);
         self.worker
             .sender
             .send(TracePersistenceCommand::Flush(reply_sender))
-            .map_err(|_| "trace persistence worker stopped before flush".to_string())?;
-        reply_receiver
-            .recv()
-            .map_err(|_| "trace persistence worker stopped during flush".to_string())?
+            .map_err(|_| {
+                AgentError::from("trace persistence worker stopped before flush".to_string())
+            })?;
+        reply_receiver.recv().map_err(|_| {
+            AgentError::from("trace persistence worker stopped during flush".to_string())
+        })?
     }
 }
 
@@ -325,7 +326,7 @@ fn run_trace_persistence_worker(
     durable_sink: Arc<dyn NativeAgentTraceSink>,
     receiver: mpsc::Receiver<TracePersistenceCommand>,
     queued_events: Arc<AtomicUsize>,
-    terminal_error: Arc<Mutex<Option<String>>>,
+    terminal_error: Arc<Mutex<Option<AgentError>>>,
 ) {
     let mut pending_session_id = String::new();
     let mut pending_turn_id = String::new();
@@ -489,7 +490,7 @@ fn persist_pending_trace_events(
     pending_events: &mut Vec<AgentRuntimeEventEnvelope>,
     pending_started_at: &mut Option<Instant>,
     queued_events: &AtomicUsize,
-    terminal_error: &Mutex<Option<String>>,
+    terminal_error: &Mutex<Option<AgentError>>,
 ) {
     if pending_events.is_empty() {
         return;
@@ -540,20 +541,24 @@ fn reject_queued_trace_events(queued_events: &AtomicUsize, count: usize) {
         .increment_by("persistence.events.rejected", count as u64);
 }
 
-fn trace_persistence_terminal_error(terminal_error: &Mutex<Option<String>>) -> Option<String> {
+fn trace_persistence_terminal_error(
+    terminal_error: &Mutex<Option<AgentError>>,
+) -> Option<AgentError> {
     terminal_error
         .lock()
         .expect("trace persistence terminal error lock should not be poisoned")
         .clone()
 }
 
-fn trace_persistence_terminal_result(terminal_error: &Mutex<Option<String>>) -> Result<(), String> {
+fn trace_persistence_terminal_result(
+    terminal_error: &Mutex<Option<AgentError>>,
+) -> Result<(), AgentError> {
     trace_persistence_terminal_error(terminal_error).map_or(Ok(()), Err)
 }
 
 fn send_trace_worker_reply(
-    reply: mpsc::SyncSender<Result<(), String>>,
-    result: Result<(), String>,
+    reply: mpsc::SyncSender<Result<(), AgentError>>,
+    result: Result<(), AgentError>,
     operation: &str,
 ) {
     if reply.send(result).is_err() {
@@ -600,7 +605,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         session_id: &str,
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let event_name = tauri_safe_event_name(&event.event_name);
         let mut payload = event.payload.clone();
         if let (Some(object), Some(trace_context)) =
@@ -639,7 +644,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         } else {
             "live.trace.emit.failed"
         });
-        result
+        result.map_err(AgentError::from)
     }
 
     fn append_timeline_patch(
@@ -647,7 +652,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         session_id: &str,
         turn_id: &str,
         patch: &AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         let started_at = Instant::now();
         let result = self
@@ -675,10 +680,14 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         } else {
             "live.timeline_patch.emit.failed"
         });
-        result
+        result.map_err(AgentError::from)
     }
 
-    fn thread_title_updated(&self, thread_id: &str, source_turn_id: &str) -> Result<(), String> {
+    fn thread_title_updated(
+        &self,
+        thread_id: &str,
+        source_turn_id: &str,
+    ) -> Result<(), AgentError> {
         self.app
             .emit(
                 &tauri_safe_event_name("thread.title.updated"),
@@ -687,7 +696,11 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
                     "threadId": thread_id,
                 }),
             )
-            .map_err(|error| format!("generated Thread title frontend event emit failed: {error}"))
+            .map_err(|error| {
+                AgentError::from(format!(
+                    "generated Thread title frontend event emit failed: {error}"
+                ))
+            })
     }
 }
 

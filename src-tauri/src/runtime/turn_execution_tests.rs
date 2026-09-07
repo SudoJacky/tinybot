@@ -328,7 +328,8 @@ fn async_cancellation_drops_operation_without_a_late_completion() {
             .start_async(request("turn-async-cancel"), async move {
                 let _drop_signal = DropSignal(operation_dropped);
                 started_sender.send(()).expect("async start should send");
-                std::future::pending::<Result<AgentTurnResult, String>>().await
+                std::future::pending::<Result<AgentTurnResult, crate::agent::runtime::AgentError>>()
+                    .await
             })
             .expect("async turn should start");
         started_receiver
@@ -375,17 +376,21 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let operation_dropped = dropped.clone();
         let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
-        let handle = runtime
-            .start_cooperative_async(
-                request("turn-cooperative-cleanup-timeout"),
-                Duration::from_millis(20),
-                async move {
-                    let _drop_signal = DropSignal(operation_dropped);
-                    started_sender.send(()).expect("async start should send");
-                    std::future::pending::<Result<AgentTurnResult, String>>().await
-                },
-            )
-            .expect("cooperative async turn should start");
+        let handle =
+            runtime
+                .start_cooperative_async(
+                    request("turn-cooperative-cleanup-timeout"),
+                    Duration::from_millis(20),
+                    async move {
+                        let _drop_signal = DropSignal(operation_dropped);
+                        started_sender.send(()).expect("async start should send");
+                        std::future::pending::<
+                            Result<AgentTurnResult, crate::agent::runtime::AgentError>,
+                        >()
+                        .await
+                    },
+                )
+                .expect("cooperative async turn should start");
         started_receiver
             .await
             .expect("cooperative async turn should enter future");

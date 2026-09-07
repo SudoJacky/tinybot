@@ -255,7 +255,9 @@ pub(crate) async fn start(
                         index,
                     ) {
                         Ok(thread_id) => thread_id,
-                        Err(error) => return finish_failed_run(data_root, run, index, error),
+                        Err(error) => {
+                            return finish_failed_run(data_root, run, index, error.to_string())
+                        }
                     },
                 };
                 run.node_runs[index].thread_id = Some(thread_id.clone());
@@ -294,7 +296,9 @@ pub(crate) async fn start(
                 };
                 let result = match result {
                     Ok(result) => result,
-                    Err(error) => return finish_failed_run(data_root, run, index, error),
+                    Err(error) => {
+                        return finish_failed_run(data_root, run, index, error.to_string())
+                    }
                 };
                 let stop_reason = result.result.stop_reason;
                 if stop_reason != AgentStopReason::FinalResponse {
@@ -334,7 +338,9 @@ pub(crate) async fn start(
                 };
                 let decision = match decision {
                     Ok(decision) => decision,
-                    Err(error) => return finish_failed_run(data_root, run, index, error),
+                    Err(error) => {
+                        return finish_failed_run(data_root, run, index, error.to_string())
+                    }
                 };
                 let edge = match plan
                     .outgoing

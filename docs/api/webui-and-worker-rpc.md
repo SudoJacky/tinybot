@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:b884629f154e474ea7063a89410f665b07a01add008b307c314f914b23b9a5c5 -->
+<!-- tinybot-doc-fingerprint: sha256:6ce949fd643031c81d0e5e8d1d4452847a4eda9ed9fc606863bc720f9d6377bb -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which

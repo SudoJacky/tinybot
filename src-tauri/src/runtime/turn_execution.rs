@@ -1,4 +1,5 @@
 use crate::agent::runtime::standalone_runtime_event;
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
     AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult,
 };
@@ -118,7 +119,7 @@ struct TurnExecutionRuntimeState {
     active: HashMap<String, OwnedTurnExecution>,
     draining: HashMap<TurnExecutionKey, OwnedTurnExecution>,
     statuses: HashMap<String, TurnExecutionStatus>,
-    terminal_results: HashMap<String, Result<AgentTurnResult, String>>,
+    terminal_results: HashMap<String, Result<AgentTurnResult, AgentError>>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -195,7 +196,7 @@ impl OwnedExecutionHandle {
 }
 
 struct TurnExecutionCompletion {
-    result: Mutex<Option<Result<AgentTurnResult, String>>>,
+    result: Mutex<Option<Result<AgentTurnResult, AgentError>>>,
     #[cfg(test)]
     ready: Condvar,
     async_ready: Notify,
@@ -211,7 +212,7 @@ impl TurnExecutionCompletion {
         }
     }
 
-    fn complete(&self, result: Result<AgentTurnResult, String>) -> bool {
+    fn complete(&self, result: Result<AgentTurnResult, AgentError>) -> bool {
         let mut completion = self
             .result
             .lock()
@@ -227,7 +228,7 @@ impl TurnExecutionCompletion {
     }
 
     #[cfg(test)]
-    fn wait(&self) -> Result<AgentTurnResult, String> {
+    fn wait(&self) -> Result<AgentTurnResult, AgentError> {
         let mut completion = self
             .result
             .lock()
@@ -244,7 +245,7 @@ impl TurnExecutionCompletion {
             .clone()
     }
 
-    async fn wait_async(&self) -> Result<AgentTurnResult, String> {
+    async fn wait_async(&self) -> Result<AgentTurnResult, AgentError> {
         loop {
             let notified = self.async_ready.notified();
             if let Some(result) = self
@@ -289,7 +290,7 @@ impl TurnExecutionRuntime {
         operation: F,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        F: FnOnce() -> Result<AgentTurnResult, String> + Send + 'static,
+        F: FnOnce() -> Result<AgentTurnResult, AgentError> + Send + 'static,
     {
         let mut state = self
             .inner
@@ -309,13 +310,15 @@ impl TurnExecutionRuntime {
                 finish_turn_execution(
                     &inner,
                     &thread_task,
-                    Err("agent task start barrier closed before execution".to_string()),
+                    Err("agent task start barrier closed before execution"
+                        .to_string()
+                        .into()),
                 );
                 return;
             }
             let result = match catch_unwind(AssertUnwindSafe(operation)) {
                 Ok(result) => result,
-                Err(_) => Err("agent task panicked during execution".to_string()),
+                Err(_) => Err(AgentError::from("agent task panicked during execution")),
             };
             finish_turn_execution(&inner, &thread_task, result);
         }) {
@@ -355,7 +358,7 @@ impl TurnExecutionRuntime {
         operation: Fut,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        Fut: Future<Output = Result<AgentTurnResult, String>> + Send + 'static,
+        Fut: Future<Output = Result<AgentTurnResult, AgentError>> + Send + 'static,
     {
         self.start_async_with_cancellation(request, operation, AsyncTaskCancellation::Immediate)
     }
@@ -367,7 +370,7 @@ impl TurnExecutionRuntime {
         operation: Fut,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        Fut: Future<Output = Result<AgentTurnResult, String>> + Send + 'static,
+        Fut: Future<Output = Result<AgentTurnResult, AgentError>> + Send + 'static,
     {
         self.start_async_with_cancellation(
             request,
@@ -385,7 +388,7 @@ impl TurnExecutionRuntime {
         cancellation_mode: AsyncTaskCancellation,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        Fut: Future<Output = Result<AgentTurnResult, String>> + Send + 'static,
+        Fut: Future<Output = Result<AgentTurnResult, AgentError>> + Send + 'static,
     {
         let mut state = self
             .inner
@@ -591,7 +594,10 @@ impl TurnExecutionRuntime {
             .cloned()
     }
 
-    pub(crate) fn terminal_result(&self, turn_id: &str) -> Option<Result<AgentTurnResult, String>> {
+    pub(crate) fn terminal_result(
+        &self,
+        turn_id: &str,
+    ) -> Option<Result<AgentTurnResult, AgentError>> {
         self.inner
             .state
             .lock()
@@ -759,11 +765,11 @@ impl fmt::Debug for AgentTurnHandle {
 
 impl AgentTurnHandle {
     #[cfg(test)]
-    pub(crate) fn wait(self) -> Result<AgentTurnResult, String> {
+    pub(crate) fn wait(self) -> Result<AgentTurnResult, AgentError> {
         self.completion.wait()
     }
 
-    pub(crate) async fn wait_async(self) -> Result<AgentTurnResult, String> {
+    pub(crate) async fn wait_async(self) -> Result<AgentTurnResult, AgentError> {
         self.completion.wait_async().await
     }
 
@@ -984,18 +990,20 @@ fn cancellation_cleanup_timeout_result(
 }
 
 fn async_operation_result(
-    result: Result<Result<AgentTurnResult, String>, Box<dyn std::any::Any + Send>>,
-) -> Result<AgentTurnResult, String> {
+    result: Result<Result<AgentTurnResult, AgentError>, Box<dyn std::any::Any + Send>>,
+) -> Result<AgentTurnResult, AgentError> {
     match result {
         Ok(result) => result,
-        Err(_) => Err("agent task panicked during async execution".to_string()),
+        Err(_) => Err("agent task panicked during async execution"
+            .to_string()
+            .into()),
     }
 }
 
 fn finish_turn_execution(
     inner: &TurnExecutionRuntimeInner,
     task: &OwnedTurnExecution,
-    result: Result<AgentTurnResult, String>,
+    result: Result<AgentTurnResult, AgentError>,
 ) {
     let key = TurnExecutionKey {
         turn_id: task.request.turn_id.clone(),
@@ -1055,7 +1063,7 @@ fn finish_cancelled_turn_execution(inner: &TurnExecutionRuntimeInner, task: &Own
 fn apply_completion_status(
     task: &OwnedTurnExecution,
     status: &mut TurnExecutionStatus,
-    result: &Result<AgentTurnResult, String>,
+    result: &Result<AgentTurnResult, AgentError>,
 ) {
     status.active = false;
     status.checkpoint_ref = None;

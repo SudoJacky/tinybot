@@ -5,6 +5,7 @@ use super::{
     AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem, AgentToolResultItem,
     AgentTurnContext, NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope,
 };
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{AgentEventKind, AgentRuntimePhase, ToolLifecycleEvent};
 use serde_json::Value;
 
@@ -50,7 +51,7 @@ pub(super) fn prepare_continuation_tool_observation(
     messages: &mut Vec<Value>,
     tool_call: &NativeAgentToolCall,
     synthesize_missing_call: bool,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let matching_call_count = messages
         .iter()
         .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
@@ -65,14 +66,16 @@ pub(super) fn prepare_continuation_tool_observation(
             return Err(format!(
                 "continuation checkpoint is missing assistant tool call `{}`",
                 tool_call.id
-            ));
+            )
+            .into());
         }
         1 => {}
         count => {
             return Err(format!(
                 "continuation checkpoint contains {count} assistant tool calls for `{}`",
                 tool_call.id
-            ));
+            )
+            .into());
         }
     }
 
@@ -91,7 +94,7 @@ pub(super) fn prepare_continuation_tool_observation(
         return Err(format!(
             "continuation checkpoint already contains {matching_result_count} tool results for `{}`",
             tool_call.id
-        ));
+        ).into());
     }
 
     Ok(())
@@ -103,7 +106,7 @@ pub(super) fn commit_tool_observation(
     iteration: i64,
     tool_call: NativeAgentToolCall,
     result: NativeAgentToolResult,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     state.emit_pending_hook_evaluations(context)?;
     let result = normalize_tool_result_for_context(result, context).map_err(|error| {
         format!(
@@ -270,9 +273,9 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
             .and_then(Value::as_str)
             .is_none_or(|value| value.trim().is_empty())
         {
-            return Err(format!(
-                "field `structured.outcome.{field}` must be a non-empty string"
-            ));
+            return Err(
+                format!("field `structured.outcome.{field}` must be a non-empty string").into(),
+            );
         }
     }
     let retry = outcome
@@ -283,15 +286,19 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
         retry,
         "do_not_retry" | "retry_with_updated_state" | "after_user_action" | "replan"
     ) {
-        return Err(format!(
-            "field `structured.outcome.retry` has unsupported value `{retry}`"
-        ));
+        return Err(
+            format!("field `structured.outcome.retry` has unsupported value `{retry}`").into(),
+        );
     }
     if outcome
         .get("actionExecuted")
         .is_some_and(|value| !value.is_boolean())
     {
-        return Err("field `structured.outcome.actionExecuted` must be a boolean".to_string());
+        return Err(
+            "field `structured.outcome.actionExecuted` must be a boolean"
+                .to_string()
+                .into(),
+        );
     }
     if let Some(next_action) = outcome.get("nextAction") {
         let next_action = next_action
@@ -303,7 +310,9 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
             .is_none_or(|value| value.trim().is_empty())
         {
             return Err(
-                "field `structured.outcome.nextAction.tool` must be a non-empty string".to_string(),
+                "field `structured.outcome.nextAction.tool` must be a non-empty string"
+                    .to_string()
+                    .into(),
             );
         }
         if next_action
@@ -311,7 +320,9 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
             .is_none_or(|value| !value.is_object())
         {
             return Err(
-                "field `structured.outcome.nextAction.arguments` must be an object".to_string(),
+                "field `structured.outcome.nextAction.arguments` must be an object"
+                    .to_string()
+                    .into(),
             );
         }
     }
@@ -454,7 +465,9 @@ mod tests {
         let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect_err("malformed tool result must fail fast");
 
-        assert!(error.contains("field `status` must be a string"));
+        assert!(error
+            .to_string()
+            .contains("field `status` must be a string"));
         assert_eq!(state.history.messages().len(), 1);
         assert!(state.completed_tool_results.is_empty());
         assert!(state.runtime_events().is_empty());
@@ -524,7 +537,9 @@ mod tests {
         let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect_err("tool outcomes with unsupported retry must fail fast");
 
-        assert!(error.contains("unsupported value `retry_forever`"));
+        assert!(error
+            .to_string()
+            .contains("unsupported value `retry_forever`"));
         assert_eq!(state.history.messages().len(), 1);
         assert!(state.completed_tool_results.is_empty());
     }

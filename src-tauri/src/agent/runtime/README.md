@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1b24096977c2e3141501e3ffa8c63ec1046c84e8b3a4d7c47ad5e8795b2737e0 -->
+<!-- tinybot-module-fingerprint: sha256:bf6d316aa1792e1176631d485450cf3ba300634c82095a7a0456b8235bf66682 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -18,8 +18,10 @@ execution controls before task ownership. The core consumes that input once;
 field types, and malformed continuations fail before an owned task starts.
 Context projection is runtime state rather than a mutable JSON input flag.
 Configuration, legacy messages/checkpoints, extension metadata, and provider
-items remain dynamic. Infrastructure `String` errors and internal state-service
-RPC calls are separate migration work.
+items remain dynamic. `AgentError` preserves execution error categories and the
+complete service error (code, source, details, retryability) across task ownership,
+trace buffering, and bridge persistence. Multiple failures retain their individual
+causes. String conversion is reserved for legacy response boundaries and diagnostics.
 
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong

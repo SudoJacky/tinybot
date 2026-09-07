@@ -190,7 +190,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
             _session_id: &str,
             _turn_id: &str,
             _event: &crate::agent::runtime_protocol::AgentRuntimeEventEnvelope,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             Ok(())
         }
 
@@ -199,7 +199,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
             _session_id: &str,
             _turn_id: &str,
             patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             self.patches
                 .lock()
                 .expect("live patch sink should lock")

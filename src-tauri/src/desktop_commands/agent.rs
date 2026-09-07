@@ -459,7 +459,8 @@ pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
         config_snapshot,
         live_trace_sink,
     )
-    .await?
+    .await
+    .map_err(|error| error.to_string())?
     .into_value()
 }
 
@@ -524,6 +525,7 @@ pub(crate) async fn worker_submit_thread_turn_with_live_trace_sink_async(
         live_trace_sink,
     )
     .await
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -568,6 +570,7 @@ pub(crate) async fn worker_compact_thread_with_live_trace_sink_async(
         live_trace_sink,
     )
     .await
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) fn worker_background_trace_list_with_options(
@@ -816,6 +819,7 @@ pub(crate) async fn worker_submit_thread_form_with_live_trace_sink_async(
         live_trace_sink,
     )
     .await
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) fn worker_task_plan_list_with_options(
