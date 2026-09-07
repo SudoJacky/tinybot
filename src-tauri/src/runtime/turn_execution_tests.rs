@@ -137,7 +137,7 @@ fn waiting_turn_releases_task_and_can_resume_with_same_identity() {
     let first = runtime
         .start_blocking(request("turn-wait"), || {
             Ok(AgentTurnResult {
-                checkpoint: Some(serde_json::json!({ "resumeToken": "form:turn-wait" })),
+                checkpoint: Some(crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({ "turnId":"turn-wait", "sessionId":"session-1", "phase":"awaiting_form", "resumeToken":"form:turn-wait" })).unwrap()),
                 ..AgentTurnResult::new(
                     &("turn-wait"),
                     &("session:turn-wait"),
@@ -178,7 +178,7 @@ fn tool_and_subagent_waits_preserve_checkpoint_and_allow_resuming() {
         let handle = runtime
             .start_blocking(request("turn-wait"), move || {
                 let mut result = AgentTurnResult::new("turn-wait", "session:turn-wait", reason);
-                result.checkpoint = Some(serde_json::json!({ "resumeToken": "resume:turn-wait" }));
+                result.checkpoint = Some(crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({ "turnId":"turn-wait", "sessionId":"session-1", "phase":"awaiting_form", "resumeToken":"resume:turn-wait" })).unwrap());
                 Ok(result)
             })
             .unwrap();
@@ -376,21 +376,20 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
         let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let operation_dropped = dropped.clone();
         let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
-        let handle =
-            runtime
-                .start_cooperative_async(
-                    request("turn-cooperative-cleanup-timeout"),
-                    Duration::from_millis(20),
-                    async move {
-                        let _drop_signal = DropSignal(operation_dropped);
-                        started_sender.send(()).expect("async start should send");
-                        std::future::pending::<
+        let handle = runtime
+            .start_cooperative_async(
+                request("turn-cooperative-cleanup-timeout"),
+                Duration::from_millis(20),
+                async move {
+                    let _drop_signal = DropSignal(operation_dropped);
+                    started_sender.send(()).expect("async start should send");
+                    std::future::pending::<
                             Result<AgentTurnResult, crate::agent::runtime::AgentError>,
                         >()
                         .await
-                    },
-                )
-                .expect("cooperative async turn should start");
+                },
+            )
+            .expect("cooperative async turn should start");
         started_receiver
             .await
             .expect("cooperative async turn should enter future");

@@ -277,7 +277,7 @@ pub(super) async fn execute_tool_calls_for_iteration(
         save_phase_checkpoint(
             services,
             context,
-            state.phase.as_str(),
+            state.phase.clone(),
             state.active_checkpoint_payload("tool_hook_denied"),
         );
         return Ok(NativeAgentToolExecutionOutcome::Continue);
@@ -473,7 +473,7 @@ async fn execute_publish_data_views(
     save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
+        state.phase.clone(),
         state.active_checkpoint_payload("data_views_published"),
     );
     Ok(NativeAgentToolExecutionOutcome::Continue)
@@ -854,7 +854,7 @@ async fn execute_tool_batch(
         save_phase_checkpoint(
             services,
             context,
-            state.phase.as_str(),
+            state.phase.clone(),
             state.active_checkpoint_payload("tool_loop_blocked"),
         );
         return Ok(NativeAgentToolExecutionOutcome::Continue);
@@ -937,7 +937,7 @@ async fn execute_tool_batch(
     save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
+        state.phase.clone(),
         state.active_checkpoint_payload("tool_completed"),
     );
     Ok(NativeAgentToolExecutionOutcome::Continue)
@@ -1048,12 +1048,13 @@ fn queue_tool_batch(
     save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "iteration": iteration,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-        }),
+        state.phase.clone(),
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(iteration),
+            pending_tool_calls: state.pending_tool_calls.clone(),
+            completed_tool_results: state.completed_tool_results.clone(),
+            ..Default::default()
+        },
     );
     Ok(())
 }
@@ -1086,12 +1087,13 @@ fn mark_tool_wave_running(
     save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "iteration": iteration,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-        }),
+        state.phase.clone(),
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(iteration),
+            pending_tool_calls: state.pending_tool_calls.clone(),
+            completed_tool_results: state.completed_tool_results.clone(),
+            ..Default::default()
+        },
     );
     Ok(())
 }
@@ -1233,15 +1235,21 @@ fn start_tool_call(
     save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "iteration": iteration,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "argumentsJson": tool_call.arguments_json,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-        }),
+        state.phase.clone(),
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(iteration),
+            pending_tool_calls: state.pending_tool_calls.clone(),
+            completed_tool_results: state.completed_tool_results.clone(),
+            payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                super::checkpoint_types::ExecutionCheckpoint {
+                    tool_call_id: Some(tool_call.id.clone()),
+                    tool_name: Some(tool_call.name.clone()),
+                    arguments_json: Some(tool_call.arguments_json.clone()),
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        },
     );
     Ok(())
 }
@@ -1297,7 +1305,7 @@ fn finish_recoverable_tool_errors(
     save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
+        state.phase.clone(),
         state.active_checkpoint_payload("tool_failed"),
     );
     if context_is_cancelled(context) {

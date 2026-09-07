@@ -6,7 +6,6 @@ use crate::agent::runtime::{
 use crate::agent::runtime_protocol::AgentEventKind;
 use futures_util::FutureExt;
 use serde::Serialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -914,18 +913,12 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> AgentTurnRes
     );
     AgentTurnResult {
         cancellation_reason: Some(reason.to_string()),
-        checkpoint: Some(serde_json::json!({
-            "schemaVersion": 1,
-            "runtime": "rust",
-            "turnId": request.turn_id,
-            "sessionId": request.session_id,
-            "phase": stop_reason,
-            "resumeToken": null,
-            "payload": {
-                "cancelled": true,
-                "reason": reason
-            }
-        })),
+        checkpoint: Some(crate::agent::runtime::AgentCheckpoint::cancelled(
+            &request.turn_id,
+            &request.session_id,
+            stop_reason,
+            reason,
+        )),
         runtime_events: Some(vec![runtime_event]),
         ..AgentTurnResult::new(&request.turn_id, &request.session_id, stop_reason)
     }
@@ -1093,9 +1086,7 @@ fn apply_completion_status(
                     status.checkpoint_ref = result
                         .checkpoint
                         .as_ref()
-                        .and_then(|checkpoint| checkpoint.get("resumeToken"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
+                        .and_then(|checkpoint| checkpoint.resume_token.clone());
                     status.terminal_outcome = None;
                 }
             }

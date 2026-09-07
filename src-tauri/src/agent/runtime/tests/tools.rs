@@ -1500,23 +1500,15 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
     }
 
     impl NativeAgentCheckpointStore for RecordingCheckpointStore {
-        fn save(&self, session_id: &str, checkpoint: Value) {
+        fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: AgentCheckpoint) {
             self.saved
                 .lock()
                 .expect("saved checkpoints lock should not be poisoned")
-                .push(checkpoint.clone());
-            self.inner.save(session_id, checkpoint);
-        }
-
-        fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
-            self.saved
-                .lock()
-                .expect("saved checkpoints lock should not be poisoned")
-                .push(checkpoint.clone());
+                .push(serde_json::to_value(&checkpoint).unwrap());
             self.inner.save_for_turn(session_id, turn_id, checkpoint);
         }
 
-        fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value> {
+        fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<AgentCheckpoint> {
             self.inner.restore_for_turn(session_id, turn_id)
         }
 

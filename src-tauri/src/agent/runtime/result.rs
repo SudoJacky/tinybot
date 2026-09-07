@@ -5,7 +5,6 @@ use super::{AgentResultError, AgentStopReason, AgentTurnResult};
 use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{AgentEventKind, TerminalEvent};
-use serde_json::Value;
 
 pub(super) fn error_result(
     turn_id: &str,
@@ -36,7 +35,7 @@ pub(super) fn cancelled_result(
     services: &NativeAgentRuntimeServices,
     turn_id: &str,
     session_id: &str,
-    checkpoint: Value,
+    checkpoint: super::AgentCheckpoint,
 ) -> AgentTurnResult {
     let stop_reason = cancellation_stop_reason(services, turn_id);
     let runtime_events = vec![standalone_runtime_event(
@@ -72,13 +71,19 @@ pub(super) fn cancelled_turn_result(
     let checkpoint = save_phase_checkpoint(
         services,
         context,
-        stop_reason.as_str(),
-        serde_json::json!({
-            "cancelled": true,
-            "iteration": iteration,
-            "completedToolResults": completed_tool_results.clone(),
-            "stopReason": stop_reason,
-        }),
+        stop_reason.clone(),
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(iteration),
+            completed_tool_results: completed_tool_results.clone(),
+            stop_reason: Some(stop_reason),
+            payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                super::checkpoint_types::ExecutionCheckpoint {
+                    cancelled: Some(true),
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        },
     );
     state.emit(TerminalEvent::Cancelled(serde_json::json!({
         "iteration": iteration,

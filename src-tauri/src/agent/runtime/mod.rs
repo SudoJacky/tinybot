@@ -16,6 +16,8 @@ pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
 mod chat_completions_adapter;
 mod checkpoint;
+mod checkpoint_types;
+pub use checkpoint_types::{AgentCheckpoint, AgentCheckpointPhase};
 mod context;
 mod context_manager;
 mod context_window_config;
@@ -485,9 +487,8 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
 }
 
 pub trait NativeAgentCheckpointStore: Send + Sync {
-    fn save(&self, session_id: &str, checkpoint: Value);
-    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value);
-    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value>;
+    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: AgentCheckpoint);
+    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<AgentCheckpoint>;
     fn clear_for_turn(&self, session_id: &str, turn_id: &str);
 }
 
@@ -867,14 +868,21 @@ impl NativeAgentRuntimeServices {
         })
     }
 
-    pub fn save_checkpoint(&self, session_id: &str, checkpoint: Value) {
-        self.checkpoints.save(session_id, checkpoint);
+    pub fn save_checkpoint(&self, checkpoint: AgentCheckpoint) {
+        self.checkpoints.save_for_turn(
+            &checkpoint.session_id.clone(),
+            &checkpoint.turn_id.clone(),
+            checkpoint,
+        );
     }
 
     #[cfg(test)]
     pub fn save_turn_checkpoint(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
-        self.checkpoints
-            .save_for_turn(session_id, turn_id, checkpoint);
+        self.checkpoints.save_for_turn(
+            session_id,
+            turn_id,
+            AgentCheckpoint::from_wire(checkpoint).expect("fixture checkpoint must be valid"),
+        );
     }
 
     #[cfg(test)]

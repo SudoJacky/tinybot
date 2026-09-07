@@ -211,15 +211,15 @@ pub struct AgentTurnResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AgentResultError>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub checkpoint: Option<Value>,
+    pub checkpoint: Option<super::AgentCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_checkpoint: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub restored_checkpoint: Option<Value>,
+    pub restored_checkpoint: Option<super::AgentCheckpoint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub form: Option<Value>,
+    pub form: Option<super::user_input::AgentUserInputForm>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_turn: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]

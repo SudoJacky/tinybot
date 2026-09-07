@@ -505,8 +505,16 @@ impl<'a> NativeAgentTurnExecution<'a> {
             let checkpoint = save_phase_checkpoint(
                 dependencies,
                 &context,
-                "cancelled",
-                serde_json::json!({ "cancelled": true }),
+                crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+                super::checkpoint_types::PhaseCheckpointInput {
+                    payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                        super::checkpoint_types::ExecutionCheckpoint {
+                            cancelled: Some(true),
+                            ..Default::default()
+                        },
+                    ),
+                    ..Default::default()
+                },
             );
             return Ok(PreparedNativeAgentTurnExecution::Finished(
                 cancelled_result(
@@ -540,13 +548,19 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         let checkpoint = save_phase_checkpoint(
                             dependencies,
                             &context,
-                            "cancelled",
-                            serde_json::json!({
-                                "cancelled": true,
-                                "phase": "mcp_discovery",
-                                "server": error.server,
-                                "transport": error.transport,
-                            }),
+                            crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+                            super::checkpoint_types::PhaseCheckpointInput {
+                                payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                                    super::checkpoint_types::ExecutionCheckpoint {
+                                        cancelled: Some(true),
+                                        phase: Some("mcp_discovery".into()),
+                                        server: Some(error.server),
+                                        transport: Some(error.transport),
+                                        ..Default::default()
+                                    },
+                                ),
+                                ..Default::default()
+                            },
                         );
                         return Ok(PreparedNativeAgentTurnExecution::Finished(
                             cancelled_result(
@@ -773,7 +787,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         save_phase_checkpoint(
             self.dependencies,
             &self.context,
-            self.state.phase.as_str(),
+            self.state.phase.clone(),
             self.state.active_checkpoint_payload("running"),
         );
         let prompt_messages = self.state.history.for_prompt()?;

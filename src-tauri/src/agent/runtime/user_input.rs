@@ -103,15 +103,16 @@ pub(super) fn awaiting_user_input_result(
 ) -> Result<AgentTurnResult, AgentError> {
     let form_id = form_id_for_tool_call(&tool_call.id)?;
     let request = parse_user_input_request(tool_call.arguments())?;
-    let mut form = serde_json::to_value(request)
-        .map_err(|error| format!("failed to serialize request_user_input form: {error}"))?;
-    form["form_id"] = Value::String(form_id.clone());
-    form["correlation"] = serde_json::json!({
-        "form_id": form_id,
-        "turn_id": context.turn_id,
-        "session_id": context.session_id,
-        "tool_call_id": tool_call.id,
-    });
+    let form = AgentUserInputForm {
+        request,
+        form_id: form_id.clone(),
+        correlation: FormCorrelation {
+            form_id: form_id.clone(),
+            turn_id: context.turn_id.clone(),
+            session_id: context.session_id.clone(),
+            tool_call_id: tool_call.id.clone(),
+        },
+    };
 
     state.tools_used.push(tool_call.name.clone());
     state.set_pending_tool_call(&tool_call);
@@ -123,18 +124,23 @@ pub(super) fn awaiting_user_input_result(
     let checkpoint = save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "kind": "user_input",
-            "iteration": iteration,
-            "formId": form_id,
-            "form": form,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-            "pendingHookContext": context.pending_tool_hook_context(),
-            "messages": state.history.messages(),
-            "resumeToken": format!("form:{form_id}"),
-        }),
+        state.phase.clone(),
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(iteration),
+            pending_tool_calls: state.pending_tool_calls.clone(),
+            completed_tool_results: state.completed_tool_results.clone(),
+            messages: Some(state.history.messages()),
+            resume_token: Some(format!("form:{form_id}")),
+            payload: super::checkpoint_types::AgentCheckpointPayload::UserInput(
+                super::checkpoint_types::UserInputCheckpoint {
+                    kind: super::checkpoint_types::UserInputCheckpointKind::UserInput,
+                    form_id: form_id.clone(),
+                    form: form.clone(),
+                    pending_hook_context: context.pending_tool_hook_context().to_vec(),
+                },
+            ),
+            ..Default::default()
+        },
     );
     state.emit(PendingAgentEvent::new(
         AgentEventKind::Checkpoint,
@@ -152,7 +158,7 @@ pub(super) fn awaiting_user_input_result(
             "toolName": tool_call.name,
             "detailId": format!("form:{form_id}"),
             "status": "waiting",
-            "summary": form["title"],
+            "summary": form.request.title,
             "form": form,
         }),
     ))?;
@@ -198,21 +204,11 @@ pub(super) fn prepare_user_input_continuation(
     else {
         return Ok(None);
     };
-    if checkpoint.pointer("/payload/kind").and_then(Value::as_str) != Some("user_input") {
-        return Ok(None);
-    }
-    validate_user_input_checkpoint(&checkpoint, &form_id)?;
+    let payload = checkpoint.user_input(&form_id)?;
     let tool_call = user_input_pending_tool_call(&checkpoint)?;
     let iteration = checkpoint
-        .get("iteration")
-        .and_then(Value::as_i64)
-        .or_else(|| {
-            checkpoint
-                .pointer("/payload/iteration")
-                .and_then(Value::as_i64)
-        })
+        .iteration
         .ok_or_else(|| "invalid user input checkpoint: iteration is missing".to_string())?;
-
     if matches!(action, AgentFormAction::Cancel) {
         services
             .checkpoints
@@ -222,15 +218,8 @@ pub(super) fn prepare_user_input_continuation(
         )));
     }
 
-    let form = checkpoint
-        .pointer("/payload/form")
-        .ok_or_else(|| "invalid user input checkpoint: form is missing".to_string())?;
-    let values = validate_submitted_values(form, values)?;
-    let mut messages = checkpoint
-        .get("messages")
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| "invalid user input checkpoint: messages must be an array".to_string())?;
+    let values = validate_submitted_values(&payload.form, values)?;
+    let mut messages = checkpoint.messages.clone();
     let raw_result = serde_json::json!({
         "formId": form_id,
         "status": "submitted",
@@ -239,30 +228,8 @@ pub(super) fn prepare_user_input_continuation(
     let result = NativeAgentToolResult::generic_success(&tool_call, raw_result);
     prepare_continuation_tool_observation(&mut messages, &tool_call, false)
         .map_err(|error| format!("invalid user input checkpoint: {error}"))?;
-    let restored_completed_results = checkpoint
-        .get("completedToolResults")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let pending_hook_context = checkpoint
-        .pointer("/payload/pendingHookContext")
-        .map(|value| {
-            value
-                .as_array()
-                .ok_or_else(|| {
-                    "invalid user input checkpoint: pendingHookContext must be an array".to_string()
-                })?
-                .iter()
-                .map(|item| {
-                    item.as_str().map(str::to_string).ok_or_else(|| {
-                        "invalid user input checkpoint: pendingHookContext entries must be strings"
-                            .to_string()
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
+    let restored_completed_results = checkpoint.completed_tool_results.clone();
+    let pending_hook_context = payload.pending_hook_context.clone();
     context.messages = messages;
     services
         .checkpoints
@@ -284,7 +251,7 @@ pub(super) fn prepare_user_input_continuation(
 fn cancelled_user_input_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
-    checkpoint: Value,
+    checkpoint: super::AgentCheckpoint,
     form_id: String,
     iteration: i64,
 ) -> Result<AgentTurnResult, AgentError> {
@@ -352,32 +319,10 @@ fn attach_thread_command_id(payload: &mut Value, context: &AgentTurnContext) {
     payload["commandId"] = Value::String(command_id.to_string());
 }
 
-fn validate_user_input_checkpoint(checkpoint: &Value, form_id: &str) -> Result<(), String> {
-    if checkpoint.get("phase").and_then(Value::as_str) != Some("awaiting_form") {
-        return Err("invalid user input checkpoint: phase must be awaiting_form"
-            .to_string()
-            .into());
-    }
-    let expected_form_id = checkpoint
-        .pointer("/payload/formId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "invalid user input checkpoint: formId is missing".to_string())?;
-    if form_id != expected_form_id {
-        return Err(format!(
-            "form continuation ID `{form_id}` does not match checkpoint `{expected_form_id}`"
-        )
-        .into());
-    }
-    Ok(())
-}
-
-fn user_input_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall, String> {
-    let pending = checkpoint
-        .get("pendingToolCalls")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            "invalid user input checkpoint: pendingToolCalls must be an array".to_string()
-        })?;
+fn user_input_pending_tool_call(
+    checkpoint: &super::AgentCheckpoint,
+) -> Result<NativeAgentToolCall, String> {
+    let pending = &checkpoint.pending_tool_calls;
     if pending.len() != 1 {
         return Err(format!(
             "invalid user input checkpoint: expected one pending tool call, found {}",
@@ -415,9 +360,53 @@ fn form_id_for_tool_call(tool_call_id: &str) -> Result<String, String> {
     Ok(format!("user-input:{tool_call_id}"))
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct AgentUserInputForm {
+    #[serde(flatten)]
+    pub request: UserInputRequest,
+    pub form_id: String,
+    pub correlation: FormCorrelation,
+}
+
+impl<'de> Deserialize<'de> for AgentUserInputForm {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let mut value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| D::Error::custom("form must be an object"))?;
+        let form_id = serde_json::from_value(
+            object
+                .remove("form_id")
+                .ok_or_else(|| D::Error::missing_field("form_id"))?,
+        )
+        .map_err(D::Error::custom)?;
+        let correlation = serde_json::from_value(
+            object
+                .remove("correlation")
+                .ok_or_else(|| D::Error::missing_field("correlation"))?,
+        )
+        .map_err(D::Error::custom)?;
+        let request = serde_json::from_value(value).map_err(D::Error::custom)?;
+        Ok(Self {
+            request,
+            form_id,
+            correlation,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FormCorrelation {
+    pub form_id: String,
+    pub turn_id: String,
+    pub session_id: String,
+    pub tool_call_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct UserInputRequest {
+pub struct UserInputRequest {
     title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     description: Option<String>,
@@ -548,7 +537,10 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
     Ok(())
 }
 
-fn validate_submitted_values(form: &Value, values: Option<Value>) -> Result<Value, String> {
+fn validate_submitted_values(
+    form: &AgentUserInputForm,
+    values: Option<Value>,
+) -> Result<Value, String> {
     let values = match values.unwrap_or_else(|| Value::Object(Map::new())) {
         Value::Object(values) => values,
         _ => {
@@ -557,13 +549,10 @@ fn validate_submitted_values(form: &Value, values: Option<Value>) -> Result<Valu
                 .into())
         }
     };
-    let fields = form
-        .get("fields")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "invalid user input checkpoint: form.fields must be an array".to_string())?;
+    let fields = &form.request.fields;
     let allowed_names = fields
         .iter()
-        .filter_map(|field| field.get("name").and_then(Value::as_str))
+        .map(|field| field.name.as_str())
         .collect::<HashSet<_>>();
     if let Some(unknown) = values
         .keys()
@@ -572,21 +561,15 @@ fn validate_submitted_values(form: &Value, values: Option<Value>) -> Result<Valu
         return Err(format!("invalid user input submission: unknown field `{unknown}`").into());
     }
     for field in fields {
-        validate_submitted_field(
-            field,
-            values.get(required_string(field, "name", "field name")?.as_str()),
-        )?;
+        validate_submitted_field(field, values.get(&field.name))?;
     }
     Ok(Value::Object(values))
 }
 
-fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), String> {
-    let name = required_string(field, "name", "field name")?;
-    let field_type = required_string(field, "type", "field type")?;
-    let required = field
-        .get("required")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+fn validate_submitted_field(field: &UserInputField, value: Option<&Value>) -> Result<(), String> {
+    let name = &field.name;
+    let field_type = &field.field_type;
+    let required = field.required;
     let missing = value.is_none_or(|value| {
         value.is_null()
             || value.as_str().is_some_and(str::is_empty)
@@ -653,13 +636,12 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
     Ok(())
 }
 
-fn choice_values(field: &Value) -> HashSet<&str> {
+fn choice_values(field: &UserInputField) -> HashSet<&str> {
     field
-        .get("options")
-        .and_then(Value::as_array)
-        .into_iter()
+        .options
+        .iter()
         .flatten()
-        .filter_map(|option| option.get("value").and_then(Value::as_str))
+        .map(|option| option.value.as_str())
         .collect()
 }
 

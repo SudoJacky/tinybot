@@ -26,7 +26,6 @@ pub(super) struct AgentTurnState {
     pub(super) session_id: String,
     pub(super) phase: AgentRuntimePhase,
     pub(super) iteration: i64,
-    pub(super) max_iterations: i64,
     pub(super) pending_tool_calls: Vec<Value>,
     pub(super) completed_tool_results: Vec<Value>,
     pub(super) history: ContextManager,
@@ -51,7 +50,6 @@ impl AgentTurnState {
             session_id: context.session_id.clone(),
             phase: AgentRuntimePhase::Queued,
             iteration: 0,
-            max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
             history: ContextManager::from_legacy_messages(&context.messages)?,
@@ -183,17 +181,26 @@ impl AgentTurnState {
         self.transition_phase(phase, iteration, trigger_event_name)
     }
 
-    pub(super) fn active_checkpoint_payload(&self, status: &str) -> Value {
-        serde_json::json!({
-            "status": status,
-            "iteration": self.iteration,
-            "maxIterations": self.max_iterations,
-            "pendingToolCalls": self.pending_tool_calls,
-            "completedToolResults": self.completed_tool_results,
-            "stopReason": self.stop_reason,
-            "messages": self.history.messages(),
-            "contextCheckpoint": self.context_checkpoint,
-        })
+    pub(super) fn active_checkpoint_payload(
+        &self,
+        status: &str,
+    ) -> super::checkpoint_types::PhaseCheckpointInput {
+        use super::checkpoint_types::{
+            AgentCheckpointPayload, ExecutionCheckpoint, PhaseCheckpointInput,
+        };
+        PhaseCheckpointInput {
+            iteration: Some(self.iteration),
+            pending_tool_calls: self.pending_tool_calls.clone(),
+            completed_tool_results: self.completed_tool_results.clone(),
+            stop_reason: self.stop_reason,
+            messages: Some(self.history.messages()),
+            payload: AgentCheckpointPayload::Execution(ExecutionCheckpoint {
+                status: Some(status.into()),
+                context_checkpoint: self.context_checkpoint.clone(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
     }
 
     pub(super) fn compacted_context_checkpoint(

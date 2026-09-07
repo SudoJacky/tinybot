@@ -324,18 +324,17 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         return Ok(());
     };
     let session_id = &result.session_id;
-    let turn_id = checkpoint
-        .get("turnId")
-        .or_else(|| checkpoint.get("turn_id"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "Rust agent checkpoint missing turn id".to_string())?;
+    let turn_id = &checkpoint.turn_id;
     let trace_context = result
         .trace_context
         .as_ref()
         .ok_or_else(|| "agent checkpoint result is missing trace context".to_string())?;
     traced_persistence(trace_context, "checkpoint-write", "write", || {
-        thread_store.set_agent_turn_checkpoint(session_id, turn_id, checkpoint.clone())
+        thread_store.set_agent_turn_checkpoint(
+            session_id,
+            turn_id,
+            serde_json::to_value(checkpoint).expect("checkpoint contains serializable fields"),
+        )
     })?;
     Ok(())
 }

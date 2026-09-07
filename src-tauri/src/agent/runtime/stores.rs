@@ -1,27 +1,21 @@
+use super::AgentCheckpoint;
 use super::{NativeAgentCancellation, NativeAgentCheckpointStore};
-use serde_json::Value;
 use std::{collections::HashMap, sync::Mutex};
 
 #[derive(Default)]
 pub struct InMemoryNativeAgentCheckpointStore {
-    checkpoints: Mutex<HashMap<String, Value>>,
+    checkpoints: Mutex<HashMap<String, AgentCheckpoint>>,
 }
 
 impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
-    fn save(&self, session_id: &str, checkpoint: Value) {
-        let turn_id =
-            checkpoint_turn_id(&checkpoint).unwrap_or_else(|| legacy_session_turn_id(session_id));
-        self.save_for_turn(session_id, &turn_id, checkpoint);
-    }
-
-    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
+    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: AgentCheckpoint) {
         self.checkpoints
             .lock()
             .expect("checkpoint store lock should not be poisoned")
             .insert(checkpoint_key(session_id, turn_id), checkpoint);
     }
 
-    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value> {
+    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<AgentCheckpoint> {
         self.checkpoints
             .lock()
             .expect("checkpoint store lock should not be poisoned")
@@ -39,19 +33,6 @@ impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
 
 fn checkpoint_key(session_id: &str, turn_id: &str) -> String {
     format!("{session_id}\u{1f}{turn_id}")
-}
-
-fn checkpoint_turn_id(checkpoint: &Value) -> Option<String> {
-    checkpoint
-        .get("turnId")
-        .or_else(|| checkpoint.get("turn_id"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-}
-
-fn legacy_session_turn_id(session_id: &str) -> String {
-    format!("legacy-session:{session_id}")
 }
 
 #[derive(Default)]

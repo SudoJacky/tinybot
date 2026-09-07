@@ -248,6 +248,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
                 .checkpoints
                 .restore_for_turn(&context.session_id, &context.turn_id)
                 .expect("active turn checkpoint should be present during provider call");
+            let checkpoint = serde_json::to_value(checkpoint).unwrap();
             assert_eq!(checkpoint["phase"], "calling_model");
             let mut calls = self
                 .calls
@@ -293,6 +294,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
                 .checkpoints
                 .restore_for_turn(&context.session_id, &context.turn_id)
                 .expect("tool wait checkpoint should be present during tool dispatch");
+            let checkpoint = serde_json::to_value(checkpoint).unwrap();
             assert_eq!(checkpoint["phase"], "tool_running");
             assert_eq!(checkpoint["schemaVersion"], 1);
             assert_eq!(checkpoint["runtime"], "rust");

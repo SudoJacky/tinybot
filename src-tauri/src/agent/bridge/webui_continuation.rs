@@ -274,7 +274,9 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     let thread_store = base_services.thread_store()?;
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
-    base_services.save_checkpoint(session_key, checkpoint);
+    base_services.save_checkpoint(crate::agent::runtime::AgentCheckpoint::from_wire(
+        checkpoint,
+    )?);
     let services = native_agent_services_with_tool_executor(
         base_services,
         workspace_root.clone(),

@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:bbe2dcc2948923de9e89203b70f629b48e520c5baee7d75753b6f414dd22eb55 -->
+<!-- tinybot-module-fingerprint: sha256:32dadbc6a03f6d2eea41195e8288683589282b25e52e5d0e114dfe51a66f2bc9 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -17,7 +17,10 @@ execution controls before task ownership. The core consumes that input once;
 `AgentTurnContext` no longer retains or reparses a JSON spec. Invalid settings,
 field types, and malformed continuations fail before an owned task starts.
 Context projection is runtime state rather than a mutable JSON input flag.
-Configuration, legacy messages/checkpoints, extension metadata, and provider
+`AgentCheckpoint` carries typed phases, resume tokens, iteration state, and a
+discriminated execution/form payload through task ownership and in-memory storage.
+Form definitions and correlation are decoded once at the storage boundary.
+Configuration, legacy messages, context checkpoints, extension metadata, and provider
 items remain dynamic. `AgentError` preserves execution error categories and the
 complete service error (code, source, details, retryability) across task ownership,
 trace buffering, and bridge persistence. Multiple failures retain their individual

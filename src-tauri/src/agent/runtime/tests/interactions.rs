@@ -595,19 +595,32 @@ fn backend_selected_deferred_tool_round_trips_through_checkpoint_validation() {
         .tool_router
         .activate_for_turn(&["test.deferred_wait".to_string()])
         .expect("backend-selected deferred wait should activate for the current turn");
-    let checkpoint =
-        super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
+    let checkpoint = super::checkpoint::checkpoint_value(
+        &context,
+        crate::agent::runtime_protocol::AgentRuntimePhase::AwaitingForm,
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(1),
+            ..Default::default()
+        },
+    );
 
     assert_eq!(
-        checkpoint["activatedToolIds"],
+        serde_json::json!(checkpoint.activated_tool_ids),
         json!(["test.deferred_wait"])
     );
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
-        "cancelled",
-        json!({ "iteration": 1, "stopReason": "cancelled" }),
+        crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(1),
+            stop_reason: Some(AgentStopReason::Cancelled),
+            ..Default::default()
+        },
     );
-    assert_eq!(cancelled_checkpoint["activatedToolIds"], json!([]));
+    assert_eq!(
+        serde_json::json!(cancelled_checkpoint.activated_tool_ids),
+        json!([])
+    );
 
     let mut restored = AgentTurnContext::from_spec(
         json!({
@@ -623,7 +636,7 @@ fn backend_selected_deferred_tool_round_trips_through_checkpoint_validation() {
     )]);
     restored
         .tool_router
-        .restore_from_checkpoint(&checkpoint)
+        .restore_activated_tool_ids(&checkpoint.activated_tool_ids)
         .expect("checkpoint activation should restore after registry validation");
     let request = agent_chat_completion_request(&restored)
         .expect("restored provider request should include activated tools");
