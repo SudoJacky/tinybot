@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:281c8e8bf4732e44245b687f4785fb8058f20cc68e3ceb378fb3d30ca721eb8d -->
+<!-- tinybot-module-fingerprint: sha256:7027d52dfc2837f2df3a013b0f19b94d8dfff828540d8f7669ec1c977ef61311 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -8,6 +8,10 @@ definitions, threads, retry, WebUI, and workspace operations.
 
 These handlers should stay thin and delegate domain behavior to the owning
 backend module.
+
+Agent execution returns a typed `AgentTurnResult` through the internal bridge.
+The command response adapter serializes that result using the existing
+camel-case JSON fields and snake-case stop-reason values.
 
 Workspace-registry commands expose the single renderer-facing catalog write
 path: list, register, rename, and forget. Rust canonicalizes registered folders,

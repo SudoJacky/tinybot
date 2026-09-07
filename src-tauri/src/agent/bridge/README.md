@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:7119e833db73af20069ac842e795f642206933f21dbb6f20b5818f1bfb8b32ac -->
+<!-- tinybot-module-fingerprint: sha256:ab9dd6f4a2052ff9c297f9d920093e587bbc153ec686adaa06c9301febdc88d7 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -24,6 +24,13 @@ loop.
 
 The bridge does **not** implement provider iteration or define the canonical
 Thread data model. Those belong to `agent::runtime` and `threads::domain`.
+
+`run_agent_with_services` returns the runtime's typed `AgentTurnResult`.
+Terminal persistence matches `AgentStopReason` through its exhaustive status
+mapping, preserving waiting outcomes and error messages/codes. Only the outer
+desktop, Thread-response, and WebUI adapters serialize the complete result.
+Persistence operations still use the state-service RPC boundary; their trace
+correlation, metrics, and commit behavior remain owned by that path.
 
 ## Turn flow
 
@@ -82,8 +89,7 @@ when it failed.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
   It also owns Agent-only `mcp.config.*` dispatch because configuration changes
   require asynchronous runtime reconciliation rather than generic Worker RPC.
-- `result_projection.rs`: stable result, canonical token-usage, artifact, and
-  status accessors.
+- `result_projection.rs`: input identity, model, provider, and setting accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.
 
 ## Invariants

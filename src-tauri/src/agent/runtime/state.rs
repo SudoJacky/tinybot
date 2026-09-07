@@ -10,6 +10,7 @@ use super::usage::{
 use super::{
     string_field, AgentHookInvocation, AgentTurnContext, NativeAgentToolCall, NativeAgentTraceSink,
 };
+use super::{AgentStopReason, AgentTurnResult};
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase, AgentTurnEmitter,
     ModelOutputEvent, PendingAgentEvent,
@@ -32,7 +33,7 @@ pub(super) struct AgentTurnState {
     trace_committer: TraceCommitter,
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
-    stop_reason: Option<String>,
+    stop_reason: Option<AgentStopReason>,
     context_checkpoint: Option<Value>,
     source_context_checkpoint: Option<Value>,
     pending_guidance_message: Option<Value>,
@@ -174,17 +175,12 @@ impl AgentTurnState {
 
     pub(super) fn set_stop_reason(
         &mut self,
-        stop_reason: &str,
+        stop_reason: AgentStopReason,
         iteration: i64,
         trigger_event_name: &str,
     ) -> Result<(), String> {
-        self.stop_reason = Some(stop_reason.to_string());
-        let phase = match stop_reason {
-            "final_response" | "context_compacted" => AgentRuntimePhase::Completed,
-            "cancelled" => AgentRuntimePhase::Cancelled,
-            "awaiting_form" => AgentRuntimePhase::AwaitingForm,
-            _ => AgentRuntimePhase::Failed,
-        };
+        self.stop_reason = Some(stop_reason);
+        let phase = stop_reason.runtime_phase();
         self.transition_phase(phase, iteration, trigger_event_name)
     }
 
@@ -272,11 +268,11 @@ impl AgentTurnState {
 
     pub(super) fn attach_context_checkpoint(
         &self,
-        result: &mut Value,
+        result: &mut AgentTurnResult,
         final_message: Option<Value>,
     ) {
         if let Some(checkpoint) = self.finalized_context_checkpoint(final_message) {
-            result["contextCheckpoint"] = checkpoint;
+            result.context_checkpoint = Some(checkpoint);
         }
     }
 

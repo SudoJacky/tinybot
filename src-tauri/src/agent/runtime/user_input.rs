@@ -6,6 +6,7 @@ use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
     NativeAgentToolCall, NativeAgentToolResult, PreparedToolCall,
 };
+use super::{AgentResultError, AgentStopReason, AgentTurnResult};
 use crate::agent::runtime_protocol::{
     AgentContinuationInput, AgentEventKind, AgentFormAction, AgentRuntimePhase, PendingAgentEvent,
     TerminalEvent,
@@ -22,7 +23,7 @@ const MAX_TOOL_CALL_ID_LENGTH: usize = 117;
 
 pub(super) enum UserInputContinuationOutcome {
     Resume(UserInputResume),
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 pub(super) struct UserInputResume {
@@ -99,7 +100,7 @@ pub(super) fn awaiting_user_input_result(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_call: PreparedToolCall,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     let form_id = form_id_for_tool_call(&tool_call.id)?;
     let request = parse_user_input_request(tool_call.arguments())?;
     let mut form = serde_json::to_value(request)
@@ -155,25 +156,28 @@ pub(super) fn awaiting_user_input_result(
             "form": form,
         }),
     ))?;
-    state.set_stop_reason("awaiting_form", iteration, AgentEventKind::Done.wire_name())?;
+    state.set_stop_reason(
+        AgentStopReason::AwaitingForm,
+        iteration,
+        AgentEventKind::Done.wire_name(),
+    )?;
     state.emit(TerminalEvent::Done(serde_json::json!({
         "iteration": iteration,
         "stopReason": "awaiting_form",
     })))?;
     let runtime_events = state.runtime_events();
-    Ok(serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "awaiting_form",
-        "messages": [],
-        "toolsUsed": state.tools_used,
-        "completedToolResults": state.completed_tool_results,
-        "form": form,
-        "checkpoint": checkpoint,
-        "runtimeEvents": runtime_events,
-    }))
+    Ok(AgentTurnResult {
+        tools_used: state.tools_used.clone(),
+        completed_tool_results: Some(state.completed_tool_results.clone()),
+        form: Some(form),
+        checkpoint: Some(checkpoint),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::AwaitingForm,
+        )
+    })
 }
 
 pub(super) fn prepare_user_input_continuation(
@@ -284,7 +288,7 @@ fn cancelled_user_input_result(
     checkpoint: Value,
     form_id: String,
     iteration: i64,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     let message = "User input request was cancelled.";
     let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())?;
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
@@ -307,7 +311,7 @@ fn cancelled_user_input_result(
         resolution,
     ))?;
     state.set_stop_reason(
-        "form_cancelled",
+        AgentStopReason::FormCancelled,
         iteration,
         AgentEventKind::Error.wire_name(),
     )?;
@@ -318,23 +322,22 @@ fn cancelled_user_input_result(
         "error": message,
     })))?;
     let runtime_events = state.runtime_events();
-    Ok(serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "form_cancelled",
-        "messages": [],
-        "toolsUsed": state.tools_used,
-        "error": message,
-        "restoredCheckpoint": checkpoint,
-        "continuation": {
+    Ok(AgentTurnResult {
+        tools_used: state.tools_used.clone(),
+        error: Some(AgentResultError::Message(message.to_string())),
+        restored_checkpoint: Some(checkpoint),
+        continuation: Some(serde_json::json!({
             "kind": "form",
             "formId": form_id,
             "action": "cancel",
-        },
-        "runtimeEvents": runtime_events,
-    }))
+        })),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::FormCancelled,
+        )
+    })
 }
 
 fn attach_thread_command_id(payload: &mut Value, context: &AgentTurnContext) {

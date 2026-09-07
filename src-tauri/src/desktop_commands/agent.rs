@@ -459,7 +459,8 @@ pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
         config_snapshot,
         live_trace_sink,
     )
-    .await
+    .await?
+    .into_value()
 }
 
 #[cfg(test)]

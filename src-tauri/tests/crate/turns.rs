@@ -1,5 +1,4 @@
 use super::support::*;
-use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::{
@@ -447,60 +446,6 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
             .expect("persistence-breaking provider lock should not be poisoned"),
         1
     );
-}
-
-#[test]
-fn native_agent_turn_record_includes_structured_token_usage_info() {
-    let spec = serde_json::json!({
-        "runtime": "rust",
-        "turnId": "turn-token-info",
-        "sessionId": "websocket:chat-token-info",
-        "messages": [{ "role": "user", "content": "hello" }]
-    });
-    let result = serde_json::json!({
-        "runtime": "rust",
-        "turnId": "turn-token-info",
-        "sessionId": "websocket:chat-token-info",
-        "stopReason": "final_response",
-        "runtimeEvents": [{
-            "eventName": "agent.usage",
-            "payload": {
-                "usage": {
-                    "prompt_tokens": 5,
-                    "completion_tokens": 167,
-                    "total_tokens": 172,
-                    "contextWindowTokens": 128000,
-                    "contextUsageTokens": 172,
-                    "cumulativeUsageTokens": 1172
-                }
-            }
-        }]
-    });
-
-    let record = native_agent_turn_record(
-        &spec,
-        &result,
-        &serde_json::json!({
-            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } }
-        }),
-        "websocket:chat-token-info",
-        "turn-token-info",
-    );
-
-    assert_eq!(
-        record["tokenUsageInfo"]["lastTokenUsage"]["totalTokens"],
-        172
-    );
-    assert_eq!(record["tokenUsageInfo"]["lastTokenUsage"]["inputTokens"], 5);
-    assert_eq!(
-        record["tokenUsageInfo"]["lastTokenUsage"]["outputTokens"],
-        167
-    );
-    assert_eq!(
-        record["tokenUsageInfo"]["totalTokenUsage"]["totalTokens"],
-        1172
-    );
-    assert_eq!(record["tokenUsageInfo"]["modelContextWindow"], 128000);
 }
 
 #[derive(Clone)]

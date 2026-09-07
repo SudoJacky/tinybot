@@ -1,3 +1,5 @@
+#[cfg(not(test))]
+use crate::agent::bridge::native_agent_thread_id;
 use crate::agent::bridge::{
     hydrate_native_agent_history_for_runtime, hydrate_native_agent_memory_snapshot_for_runtime,
     native_agent_context_checkpoint_committer, native_agent_services_with_tool_executor,
@@ -6,13 +8,12 @@ use crate::agent::bridge::{
     reject_native_agent_terminal_turn_reentry,
 };
 #[cfg(not(test))]
-use crate::agent::bridge::{
-    native_agent_session_id, native_agent_thread_id, native_agent_turn_id, native_agent_turn_status,
-};
+use crate::agent::runtime::AgentExecutionStatus;
 use crate::agent::runtime::{
     ensure_agent_trace_context, run_native_agent_turn_with_workspace_and_instructions_async,
     InstructionComposer, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
+use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,14 +27,13 @@ pub(crate) async fn run_agent_with_services(
     workspace_root: PathBuf,
     mut config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<serde_json::Value, String> {
+) -> Result<AgentTurnResult, String> {
     let thread_store = base_services.thread_store()?;
     let trace_context = ensure_agent_trace_context(&mut spec)?;
     if let Some(mut rejection) =
         reject_native_agent_terminal_turn_reentry(&spec, &thread_store, config_snapshot.clone())?
     {
-        rejection["traceContext"] = serde_json::to_value(trace_context)
-            .map_err(|error| format!("failed to serialize terminal turn trace context: {error}"))?;
+        rejection.trace_context = Some(trace_context);
         return Ok(rejection);
     }
     spec = hydrate_native_agent_memory_snapshot_for_runtime(spec, &thread_store)?;
@@ -147,14 +147,17 @@ fn persist_failed_agent_turn(
     config_snapshot: serde_json::Value,
     runtime_error: String,
 ) -> String {
-    let mut failure = serde_json::json!({
-        "runtime": "rust",
-        "stopReason": "runtime_error",
-        "error": {
-            "code": "runtime_error",
-            "message": runtime_error,
-        },
-    });
+    let turn_id = crate::agent::runtime::agent_trace_context_from_value(persistence_spec).turn_id;
+    let session_id = crate::agent::bridge::native_agent_thread_id(persistence_spec)
+        .or_else(|| crate::agent::bridge::native_agent_session_id(persistence_spec))
+        .unwrap_or_else(|| "native-rust-session".to_string());
+    let mut failure = AgentTurnResult {
+        error: Some(AgentResultError::Coded {
+            code: AgentStopReason::RuntimeError,
+            message: runtime_error.clone(),
+        }),
+        ..AgentTurnResult::new(&turn_id, &session_id, AgentStopReason::RuntimeError)
+    };
     if let Err(persistence_error) = persist_native_agent_turn_terminal_if_present(
         persistence_spec.clone(),
         &mut failure,
@@ -171,37 +174,19 @@ fn persist_failed_agent_turn(
 #[cfg(not(test))]
 fn schedule_completed_turn_memory_extraction(
     spec: &serde_json::Value,
-    result: &serde_json::Value,
+    result: &AgentTurnResult,
     workspace_root: &std::path::Path,
     memory_scope_root: &std::path::Path,
     thread_store: &crate::threads::workspace_store::WorkspaceThreadStore,
     config_snapshot: &serde_json::Value,
 ) {
-    let stop_reason = result
-        .get("stopReason")
-        .or_else(|| result.get("stop_reason"))
-        .and_then(serde_json::Value::as_str);
-    if stop_reason == Some("context_compacted") {
+    if result.stop_reason == AgentStopReason::ContextCompacted
+        || result.stop_reason.status() != AgentExecutionStatus::Completed
+    {
         return;
     }
-    if native_agent_turn_status(stop_reason) != "completed" {
-        return;
-    }
-    let Some(thread_id) = native_agent_thread_id(result)
-        .or_else(|| native_agent_thread_id(spec))
-        .or_else(|| native_agent_session_id(result))
-        .or_else(|| native_agent_session_id(spec))
-    else {
-        eprintln!("memory_phase1_schedule_skipped reason=missing_thread_id");
-        return;
-    };
-    let Some(turn_id) = native_agent_turn_id(result).or_else(|| native_agent_turn_id(spec)) else {
-        eprintln!(
-            "memory_phase1_schedule_skipped reason=missing_turn_id thread_id={}",
-            thread_id
-        );
-        return;
-    };
+    let thread_id = native_agent_thread_id(spec).unwrap_or_else(|| result.session_id.clone());
+    let turn_id = result.turn_id.clone();
     let workspace_path = match crate::memory::normalized_workspace_path(memory_scope_root) {
         Ok(path) => path,
         Err(error) => {

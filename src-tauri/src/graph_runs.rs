@@ -1,5 +1,6 @@
 use crate::agent::bridge::{execute_thread_turn_with_services, SubmitThreadTurnInput};
 use crate::agent::router;
+use crate::agent::runtime::{AgentResultError, AgentStopReason};
 use crate::agent::runtime::{NativeAgentCancellationContext, NativeAgentRuntimeServices};
 #[cfg(test)]
 use crate::agent_graphs::AgentLoopReasoningEffort;
@@ -295,37 +296,20 @@ pub(crate) async fn start(
                     Ok(result) => result,
                     Err(error) => return finish_failed_run(data_root, run, index, error),
                 };
-                let stop_reason = result
-                    .result
-                    .get("stopReason")
-                    .or_else(|| result.result.get("stop_reason"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("missing_stop_reason");
-                if stop_reason != "final_response" {
+                let stop_reason = result.result.stop_reason;
+                if stop_reason != AgentStopReason::FinalResponse {
                     let error = result
                         .result
-                        .get("error")
-                        .and_then(serde_json::Value::as_str)
+                        .error
+                        .as_ref()
+                        .map(AgentResultError::message)
                         .map(str::to_string)
-                        .unwrap_or_else(|| format!("Agent node stopped with `{stop_reason}`"));
+                        .unwrap_or_else(|| {
+                            format!("Agent node stopped with `{}`", stop_reason.as_str())
+                        });
                     return finish_failed_run(data_root, run, index, error);
                 }
-                current_input = match result
-                    .result
-                    .get("finalContent")
-                    .or_else(|| result.result.get("final_content"))
-                    .and_then(serde_json::Value::as_str)
-                {
-                    Some(content) => content.to_string(),
-                    None => {
-                        return finish_failed_run(
-                            data_root,
-                            run,
-                            index,
-                            "Agent node completed without final content".to_string(),
-                        )
-                    }
-                };
+                current_input = result.result.final_content;
                 run.node_runs[index].status = AgentGraphNodeRunStatus::Completed;
                 write_run(data_root, &run)?;
                 cursor = single_outgoing_edge(&plan, &step.node_id)?.target.clone();

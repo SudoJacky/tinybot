@@ -1,7 +1,7 @@
+use super::{AgentExecutionStatus, AgentStopReason};
 use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::bridge::{
-    execute_thread_turn_with_services, native_agent_string_field, native_agent_turn_status,
-    SubmitThreadTurnInput,
+    execute_thread_turn_with_services, native_agent_string_field, SubmitThreadTurnInput,
 };
 use crate::project_groups::ProjectGroup;
 #[cfg(test)]
@@ -229,18 +229,9 @@ fn run_workspace_thread_turn(
         } else {
             execution.await?
         };
-        let stop_reason = executed
-            .result
-            .get("stopReason")
-            .or_else(|| executed.result.get("stop_reason"))
-            .and_then(Value::as_str);
+        let stop_reason = executed.result.stop_reason;
         let status = workspace_thread_status(stop_reason);
-        let final_message = executed
-            .result
-            .get("finalContent")
-            .or_else(|| executed.result.get("final_content"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+        let final_message = &executed.result.final_content;
         eprintln!(
             "workspace_thread_turn_stopped {}",
             json!({
@@ -421,12 +412,12 @@ fn non_empty_argument(name: &str, value: String) -> Result<String, String> {
     Ok(value)
 }
 
-fn workspace_thread_status(stop_reason: Option<&str>) -> &'static str {
-    match native_agent_turn_status(stop_reason) {
-        "completed" => "completed",
-        "waiting" => "awaiting_user",
-        "interrupted" | "cancelled" => "interrupted",
-        _ => "failed",
+fn workspace_thread_status(stop_reason: AgentStopReason) -> &'static str {
+    match stop_reason.status() {
+        AgentExecutionStatus::Completed => "completed",
+        AgentExecutionStatus::Waiting => "awaiting_user",
+        AgentExecutionStatus::Interrupted | AgentExecutionStatus::Cancelled => "interrupted",
+        AgentExecutionStatus::Failed => "failed",
     }
 }
 
@@ -582,13 +573,22 @@ mod tests {
 
     #[test]
     fn result_status_has_only_the_public_workspace_thread_states() {
-        assert_eq!(workspace_thread_status(Some("final_response")), "completed");
         assert_eq!(
-            workspace_thread_status(Some("awaiting_form")),
+            workspace_thread_status(AgentStopReason::FinalResponse),
+            "completed"
+        );
+        assert_eq!(
+            workspace_thread_status(AgentStopReason::AwaitingForm),
             "awaiting_user"
         );
-        assert_eq!(workspace_thread_status(Some("cancelled")), "interrupted");
-        assert_eq!(workspace_thread_status(Some("provider_error")), "failed");
+        assert_eq!(
+            workspace_thread_status(AgentStopReason::Cancelled),
+            "interrupted"
+        );
+        assert_eq!(
+            workspace_thread_status(AgentStopReason::ProviderError),
+            "failed"
+        );
     }
 
     #[test]
@@ -711,10 +711,11 @@ mod tests {
         ))
         .expect("parallel workspace spawns should complete");
 
-        assert_eq!(result["stopReason"], "final_response");
-        assert_eq!(result["finalContent"], "all workspace threads completed");
-        let completed = result["completedToolResults"]
-            .as_array()
+        assert_eq!(result.stop_reason.as_str(), "final_response");
+        assert_eq!(result.final_content, "all workspace threads completed");
+        let completed = result
+            .completed_tool_results
+            .as_ref()
             .expect("completed tool results should be an array");
         assert_eq!(completed.len(), 2);
         assert_eq!(completed[0]["toolCallId"], "call-spawn-0");
@@ -882,7 +883,7 @@ mod tests {
                 .expect("cancelled coordinator task should join")
                 .expect("cancelled coordinator should return a structured result");
 
-            assert_eq!(result["stopReason"], "interrupted");
+            assert_eq!(result.stop_reason.as_str(), "interrupted");
             let request_id = next_worker_request_correlation();
             let listed = call_rust_state_service(
                 &store,

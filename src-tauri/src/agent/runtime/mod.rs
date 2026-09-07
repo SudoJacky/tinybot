@@ -32,6 +32,9 @@ mod provider_loop;
 mod provider_protocol;
 mod responses_adapter;
 mod result;
+mod turn_result;
+pub(crate) use turn_result::AgentTurnMetrics;
+pub use turn_result::{AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult};
 mod settings;
 mod state;
 mod stores;
@@ -210,13 +213,13 @@ pub enum NativeAgentProviderFailureKind {
 }
 
 impl NativeAgentProviderFailureKind {
-    fn stop_reason(self) -> &'static str {
+    fn stop_reason(self) -> AgentStopReason {
         match self {
-            Self::Cancelled => "cancelled",
-            Self::RequestTimeout => "provider_request_timeout",
-            Self::StreamIdleTimeout => "provider_stream_idle_timeout",
-            Self::Transport => "provider_transport_error",
-            Self::Provider => "provider_error",
+            Self::Cancelled => AgentStopReason::Cancelled,
+            Self::RequestTimeout => AgentStopReason::ProviderRequestTimeout,
+            Self::StreamIdleTimeout => AgentStopReason::ProviderStreamIdleTimeout,
+            Self::Transport => AgentStopReason::ProviderTransportError,
+            Self::Provider => AgentStopReason::ProviderError,
         }
     }
 }
@@ -247,7 +250,7 @@ impl NativeAgentProviderFailure {
         &self.message
     }
 
-    pub fn stop_reason(&self) -> &'static str {
+    pub fn stop_reason(&self) -> AgentStopReason {
         self.kind.stop_reason()
     }
 }

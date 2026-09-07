@@ -15,16 +15,14 @@ pub(crate) use history::{
     native_agent_current_user_message, native_agent_thread_id,
 };
 #[cfg(test)]
-pub(crate) use persistence::native_agent_turn_record;
+pub(crate) use persistence::native_agent_turn_start_record;
 pub(crate) use persistence::{
     persist_native_agent_checkpoint_if_present, persist_native_agent_turn_start,
     persist_native_agent_turn_terminal_if_present, reject_native_agent_terminal_turn_reentry,
 };
 pub(crate) use result_projection::{
-    native_agent_artifacts, native_agent_current_iteration, native_agent_max_iterations,
-    native_agent_model, native_agent_provider, native_agent_session_id, native_agent_string_field,
-    native_agent_token_usage_info, native_agent_turn_completed_at, native_agent_turn_id,
-    native_agent_turn_phase_from_stop_reason, native_agent_turn_status, native_agent_usage,
+    native_agent_max_iterations, native_agent_model, native_agent_provider,
+    native_agent_session_id, native_agent_string_field, native_agent_turn_id,
 };
 pub(crate) use thread_flow::{
     compact_thread_with_services, execute_thread_turn_with_services,

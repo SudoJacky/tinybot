@@ -7,6 +7,7 @@ use crate::agent::runtime::{
     ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
     NativeAgentTraceSink,
 };
+use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnResult};
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
@@ -31,7 +32,7 @@ pub(crate) struct ExecutedThreadTurn {
     pub(crate) thread_id: String,
     pub(crate) session_id: String,
     pub(crate) turn_id: String,
-    pub(crate) result: serde_json::Value,
+    pub(crate) result: AgentTurnResult,
 }
 
 pub(crate) struct SubmitThreadFormInput {
@@ -109,14 +110,15 @@ pub(crate) async fn compact_thread_with_services(
         live_trace_sink,
     )
     .await?;
-    if result.get("stopReason").and_then(serde_json::Value::as_str) != Some("context_compacted") {
+    if result.stop_reason != AgentStopReason::ContextCompacted {
         return Err(result
-            .get("error")
-            .and_then(serde_json::Value::as_str)
+            .error
+            .as_ref()
+            .map(AgentResultError::message)
             .unwrap_or("Context compaction failed.")
             .to_string());
     }
-    Ok(result)
+    result.into_value()
 }
 
 pub(crate) async fn submit_thread_turn_with_services(

@@ -14,14 +14,17 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
+    AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnMetrics, AgentTurnResult,
+};
+use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, ComposedInstructions,
     InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
     NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
     NativeAgentRuntimeServices,
 };
 use crate::agent::runtime_protocol::{
-    AgentAssistantMessagePhase, AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase,
-    ModelOutputEvent, PendingAgentEvent, TerminalEvent,
+    AgentAssistantMessagePhase, AgentEventKind, AgentRuntimePhase, ModelOutputEvent,
+    PendingAgentEvent, TerminalEvent,
 };
 use crate::runtime::turn_execution::StartAgentTurn;
 use crate::tools::registry::{
@@ -51,7 +54,9 @@ pub async fn run_native_agent_turn_with_config_async(
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    run_owned_native_agent_turn_async(services, spec, config_snapshot, None, None).await
+    run_owned_native_agent_turn_async(services, spec, config_snapshot, None, None)
+        .await?
+        .into_value()
 }
 
 #[cfg(test)]
@@ -66,7 +71,8 @@ pub fn run_native_agent_turn_with_workspace(
         spec,
         config_snapshot,
         workspace_root,
-    ))
+    ))?
+    .into_value()
 }
 
 pub async fn run_native_agent_turn_with_workspace_async(
@@ -74,7 +80,7 @@ pub async fn run_native_agent_turn_with_workspace_async(
     spec: Value,
     mut config_snapshot: Value,
     workspace_root: &Path,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     let instructions = InstructionComposer::default().compose_with_config(
         workspace_root,
         &spec,
@@ -100,7 +106,7 @@ pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
     config_snapshot: Value,
     workspace_root: &Path,
     instructions: ComposedInstructions,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     run_owned_native_agent_turn_async(
         services,
         spec,
@@ -117,7 +123,7 @@ async fn run_owned_native_agent_turn_async(
     config_snapshot: Value,
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     let mut identity = AgentTurnContext::from_spec(spec.clone(), config_snapshot.clone());
     identity.attach_observability(services);
     let continuation_metadata = identity
@@ -189,22 +195,18 @@ async fn run_owned_native_agent_turn_async(
         }
     };
     if let Some(continuation) = continuation_metadata {
-        if result.get("continuation").is_none() {
-            result["continuation"] = continuation;
+        if result.continuation.is_none() {
+            result.continuation = Some(continuation);
         }
-        if result.get("restoredCheckpoint").is_none() {
+        if result.restored_checkpoint.is_none() {
             if let Some(checkpoint) = restored_continuation_checkpoint {
-                result["restoredCheckpoint"] = checkpoint;
+                result.restored_checkpoint = Some(checkpoint);
             }
         }
     }
-    let stop_reason = result
-        .get("stopReason")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
     let completed = matches!(
-        stop_reason,
-        "final_response" | "context_compacted" | "awaiting_form" | "awaiting_subagent"
+        result.stop_reason.status(),
+        AgentExecutionStatus::Completed | AgentExecutionStatus::Waiting
     );
     let stage = if completed {
         identity.metrics().increment("turn.completed");
@@ -220,14 +222,14 @@ async fn run_owned_native_agent_turn_async(
     let invocation = AgentHookInvocation::lifecycle(stage, identity.trace_context.clone());
     let evaluation = identity.evaluate_hook(invocation.clone())?;
     append_hook_evaluation_to_result(&mut result, services, &identity, &invocation, &evaluation)?;
-    result["traceContext"] = serde_json::to_value(&identity.trace_context)
-        .map_err(|error| format!("failed to serialize agent trace context: {error}"))?;
-    result["turnMetrics"] = serde_json::json!({
-        "turnDurationMs": duration.as_millis().min(u128::from(u64::MAX)) as u64,
-        "outcome": if completed { "completed" } else { "aborted" },
+    result.trace_context = Some(identity.trace_context.clone());
+    result.turn_metrics = Some(AgentTurnMetrics {
+        turn_duration_ms: duration.as_millis().min(u128::from(u64::MAX)) as u64,
+        outcome: if completed { "completed" } else { "aborted" },
     });
     if let Some(instructions) = result_instructions {
-        instructions.attach_diagnostics(&mut result)?;
+        result.instruction_provenance = Some(instructions.provenance());
+        result.instruction_diagnostics = Some(instructions.diagnostics());
     }
     Ok(result)
 }
@@ -385,17 +387,17 @@ enum PreparedNativeAgentTurnExecution<'a> {
         execution: NativeAgentTurnExecution<'a>,
         start_iteration: i64,
     },
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 enum ExecutionStage<T> {
     Ready(T),
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 enum IterationOutcome {
     Continue,
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 struct ProviderAttempt {
@@ -438,7 +440,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
-    ) -> Result<Value, String> {
+    ) -> Result<AgentTurnResult, String> {
         match Self::prepare(
             dependencies,
             spec,
@@ -478,7 +480,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             return Ok(PreparedNativeAgentTurnExecution::Finished(error_result(
                 &context.turn_id,
                 &context.session_id,
-                "max_iterations",
+                AgentStopReason::MaxIterations,
                 "Rust agent runtime reached max iterations before provider call.",
             )));
         }
@@ -631,7 +633,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             return Ok(PreparedNativeAgentTurnExecution::Finished(error_result(
                 &context.turn_id,
                 &context.session_id,
-                "invalid_request",
+                AgentStopReason::InvalidRequest,
                 "Rust agent runtime requires at least one user input or chat message.",
             )));
         }
@@ -717,7 +719,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         })
     }
 
-    async fn run_loop(mut self, start_iteration: i64) -> Result<Value, String> {
+    async fn run_loop(mut self, start_iteration: i64) -> Result<AgentTurnResult, String> {
         for iteration in start_iteration..self.context.max_iterations {
             match self.advance_iteration(iteration).await? {
                 IterationOutcome::Continue => {}
@@ -821,7 +823,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         &self.context,
                         &mut self.state,
                         iteration,
-                        "context_compaction_commit_failed",
+                        AgentStopReason::ContextCompactionCommitFailed,
                         &message,
                     )?;
                     return Ok(ExecutionStage::Finished(agent_failure_result(
@@ -829,7 +831,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         &self.context,
                         &mut self.state,
                         iteration,
-                        "context_compaction_commit_failed",
+                        AgentStopReason::ContextCompactionCommitFailed,
                         message,
                     )?));
                 }
@@ -892,7 +894,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 &self.context,
                 &mut self.state,
                 iteration,
-                "context_compaction_not_needed",
+                AgentStopReason::ContextCompactionNotNeeded,
                 message,
             )?;
             return Ok(ExecutionStage::Finished(agent_failure_result(
@@ -900,7 +902,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 &self.context,
                 &mut self.state,
                 iteration,
-                "context_compaction_not_needed",
+                AgentStopReason::ContextCompactionNotNeeded,
                 message.to_string(),
             )?));
         }
@@ -1264,7 +1266,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     fn finish_final_response(
         &mut self,
         completed: CompletedProviderIteration,
-    ) -> Result<Value, String> {
+    ) -> Result<AgentTurnResult, String> {
         let CompletedProviderIteration {
             response,
             attempt,
@@ -1303,7 +1305,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }),
         ))?;
         self.state.set_stop_reason(
-            "final_response",
+            AgentStopReason::FinalResponse,
             attempt.iteration,
             AgentEventKind::Done.wire_name(),
         )?;
@@ -1319,24 +1321,25 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let context_checkpoint = self
             .state
             .finalized_context_checkpoint(Some(final_message.clone()));
-        let mut result = serde_json::json!({
-            "runtime": "rust",
-            "turnId": self.context.turn_id,
-            "sessionId": self.context.session_id,
-            "finalContent": final_message["content"],
-            "stopReason": "final_response",
-            "messages": [final_message.clone()],
-            "toolsUsed": self.state.tools_used,
-            "completedToolResults": self.state.completed_tool_results,
-            "runtimeEvents": runtime_events,
-        });
+        let mut result = AgentTurnResult {
+            final_content,
+            messages: vec![final_message],
+            tools_used: self.state.tools_used.clone(),
+            completed_tool_results: Some(self.state.completed_tool_results.clone()),
+            runtime_events: Some(runtime_events),
+            ..AgentTurnResult::new(
+                &self.context.turn_id,
+                &self.context.session_id,
+                AgentStopReason::FinalResponse,
+            )
+        };
         if let Some(context_checkpoint) = context_checkpoint {
-            result["contextCheckpoint"] = context_checkpoint;
+            result.context_checkpoint = Some(context_checkpoint);
         }
         Ok(result)
     }
 
-    fn finish_cancelled(&mut self, iteration: i64) -> Result<Value, String> {
+    fn finish_cancelled(&mut self, iteration: i64) -> Result<AgentTurnResult, String> {
         self.state.transition_phase(
             AgentRuntimePhase::Cancelled,
             iteration,
@@ -1345,7 +1348,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         cancelled_turn_result(self.dependencies, &self.context, &mut self.state, iteration)
     }
 
-    fn finish_context_compaction(&mut self, iteration: i64) -> Result<Value, String> {
+    fn finish_context_compaction(&mut self, iteration: i64) -> Result<AgentTurnResult, String> {
         self.state.transition_phase(
             AgentRuntimePhase::Finalizing,
             iteration,
@@ -1355,7 +1358,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .checkpoints
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
         self.state.set_stop_reason(
-            "context_compacted",
+            AgentStopReason::ContextCompacted,
             iteration,
             AgentEventKind::Done.wire_name(),
         )?;
@@ -1365,27 +1368,26 @@ impl<'a> NativeAgentTurnExecution<'a> {
         })))?;
         let runtime_events = self.state.runtime_events();
         let context_checkpoint = self.state.finalized_context_checkpoint(None);
-        let mut result = serde_json::json!({
-            "runtime": "rust",
-            "turnId": self.context.turn_id,
-            "sessionId": self.context.session_id,
-            "finalContent": "",
-            "stopReason": "context_compacted",
-            "messages": [],
-            "toolsUsed": self.state.tools_used,
-            "completedToolResults": self.state.completed_tool_results,
-            "runtimeEvents": runtime_events,
-        });
+        let mut result = AgentTurnResult {
+            tools_used: self.state.tools_used.clone(),
+            completed_tool_results: Some(self.state.completed_tool_results.clone()),
+            runtime_events: Some(runtime_events),
+            ..AgentTurnResult::new(
+                &self.context.turn_id,
+                &self.context.session_id,
+                AgentStopReason::ContextCompacted,
+            )
+        };
         if let Some(context_checkpoint) = context_checkpoint {
-            result["contextCheckpoint"] = context_checkpoint;
+            result.context_checkpoint = Some(context_checkpoint);
         }
         Ok(result)
     }
 
-    fn finish_max_iterations(&mut self) -> Result<Value, String> {
+    fn finish_max_iterations(&mut self) -> Result<AgentTurnResult, String> {
         let error = "Rust agent runtime reached max iterations before final response.";
         self.state.set_stop_reason(
-            "max_iterations",
+            AgentStopReason::MaxIterations,
             self.state.iteration,
             AgentEventKind::Error.wire_name(),
         )?;
@@ -1398,20 +1400,19 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
         let runtime_events = self.state.runtime_events();
         let context_checkpoint = self.state.finalized_context_checkpoint(None);
-        let mut result = serde_json::json!({
-            "runtime": "rust",
-            "turnId": self.context.turn_id,
-            "sessionId": self.context.session_id,
-            "finalContent": "",
-            "stopReason": "max_iterations",
-            "messages": [],
-            "toolsUsed": self.state.tools_used,
-            "completedToolResults": self.state.completed_tool_results,
-            "error": error,
-            "runtimeEvents": runtime_events,
-        });
+        let mut result = AgentTurnResult {
+            tools_used: self.state.tools_used.clone(),
+            completed_tool_results: Some(self.state.completed_tool_results.clone()),
+            error: Some(AgentResultError::Message(error.to_string())),
+            runtime_events: Some(runtime_events),
+            ..AgentTurnResult::new(
+                &self.context.turn_id,
+                &self.context.session_id,
+                AgentStopReason::MaxIterations,
+            )
+        };
         if let Some(context_checkpoint) = context_checkpoint {
-            result["contextCheckpoint"] = context_checkpoint;
+            result.context_checkpoint = Some(context_checkpoint);
         }
         Ok(result)
     }
@@ -1453,7 +1454,7 @@ async fn run_native_agent_turn_with_instructions_async(
     config_snapshot: Value,
     instructions: Option<ComposedInstructions>,
     workspace_root: Option<&Path>,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     NativeAgentTurnExecution::execute(
         services,
         spec,
@@ -1488,7 +1489,7 @@ fn provider_failure_result(
     state: &mut AgentTurnState,
     iteration: i64,
     error: NativeAgentProviderFailure,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     agent_failure_result(
         services,
         context,
@@ -1504,9 +1505,9 @@ fn agent_failure_result(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    stop_reason: &str,
+    stop_reason: AgentStopReason,
     message: String,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, String> {
     state.set_stop_reason(stop_reason, iteration, AgentEventKind::Error.wire_name())?;
     state.emit(TerminalEvent::Error(serde_json::json!({
         "iteration": iteration,
@@ -1518,18 +1519,13 @@ fn agent_failure_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let mut result = serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": stop_reason,
-        "messages": [],
-        "toolsUsed": std::mem::take(&mut state.tools_used),
-        "completedToolResults": std::mem::take(&mut state.completed_tool_results),
-        "error": message,
-        "runtimeEvents": runtime_events,
-    });
+    let mut result = AgentTurnResult {
+        tools_used: std::mem::take(&mut state.tools_used),
+        completed_tool_results: Some(std::mem::take(&mut state.completed_tool_results)),
+        error: Some(AgentResultError::Message(message)),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(&context.turn_id, &context.session_id, stop_reason)
+    };
     state.attach_context_checkpoint(&mut result, None);
     Ok(result)
 }
@@ -1538,7 +1534,7 @@ fn emit_context_compaction_failure(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    failure_stop_reason: &str,
+    failure_stop_reason: AgentStopReason,
     message: &str,
 ) -> Result<(), String> {
     context.metrics().increment("compaction.failed");
@@ -1577,8 +1573,12 @@ fn hook_denied_result(
     state: &mut AgentTurnState,
     iteration: i64,
     reason: String,
-) -> Result<Value, String> {
-    state.set_stop_reason("hook_denied", iteration, AgentEventKind::Error.wire_name())?;
+) -> Result<AgentTurnResult, String> {
+    state.set_stop_reason(
+        AgentStopReason::HookDenied,
+        iteration,
+        AgentEventKind::Error.wire_name(),
+    )?;
     state.emit(TerminalEvent::Error(serde_json::json!({
         "iteration": iteration,
         "stopReason": "hook_denied",
@@ -1589,24 +1589,23 @@ fn hook_denied_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let mut result = serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "hook_denied",
-        "messages": [],
-        "toolsUsed": std::mem::take(&mut state.tools_used),
-        "completedToolResults": std::mem::take(&mut state.completed_tool_results),
-        "error": reason,
-        "runtimeEvents": runtime_events,
-    });
+    let mut result = AgentTurnResult {
+        tools_used: std::mem::take(&mut state.tools_used),
+        completed_tool_results: Some(std::mem::take(&mut state.completed_tool_results)),
+        error: Some(AgentResultError::Message(reason)),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::HookDenied,
+        )
+    };
     state.attach_context_checkpoint(&mut result, None);
     Ok(result)
 }
 
 fn append_hook_evaluation_to_result(
-    result: &mut Value,
+    result: &mut AgentTurnResult,
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     invocation: &AgentHookInvocation,
@@ -1615,42 +1614,26 @@ fn append_hook_evaluation_to_result(
     if evaluation.decisions.is_empty() {
         return Ok(());
     }
-    let existing = result
-        .get("runtimeEvents")
-        .filter(|events| events.is_array())
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let existing: Vec<AgentRuntimeEventEnvelope> = serde_json::from_value(existing)
-        .map_err(|error| format!("failed to read runtime events for lifecycle hook: {error}"))?;
+    let existing = result.runtime_events.as_deref().unwrap_or_default();
     let phase = match invocation.stage {
         AgentHookStage::TurnComplete => AgentRuntimePhase::Completed,
         AgentHookStage::TurnAbort => AgentRuntimePhase::Failed,
         _ => AgentRuntimePhase::Planning,
     };
     let mut state =
-        AgentTurnState::new_for_result_append(context, services.trace_sink.clone(), &existing)?;
+        AgentTurnState::new_for_result_append(context, services.trace_sink.clone(), existing)?;
     state.phase = phase;
     state.emit_hook_evaluation(invocation, evaluation)?;
     let appended = state.take_runtime_events();
-    let events = result
-        .as_object_mut()
-        .ok_or_else(|| "agent result must be a JSON object".to_string())?
-        .entry("runtimeEvents".to_string())
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .ok_or_else(|| "agent result runtimeEvents must be an array".to_string())?;
-    events.extend(
-        appended
-            .into_iter()
-            .map(serde_json::to_value)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("failed to serialize lifecycle hook event: {error}"))?,
-    );
+    result
+        .runtime_events
+        .get_or_insert_with(Vec::new)
+        .extend(appended);
     Ok(())
 }
 
 enum PreparedContinuation {
-    Finished(Value),
+    Finished(AgentTurnResult),
     Continue {
         context: AgentTurnContext,
         resume: Option<UserInputResume>,

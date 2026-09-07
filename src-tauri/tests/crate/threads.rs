@@ -2,6 +2,7 @@ use super::support::*;
 use crate::agent::bridge::persist_native_agent_turn_start;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
+use crate::agent::runtime::{AgentStopReason, AgentTurnResult};
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
@@ -1094,12 +1095,13 @@ fn worker_thread_commands_expose_thread_service_surface() {
                 release_receiver
                     .recv()
                     .expect("owned thread command task release should arrive");
-                Ok(serde_json::json!({
-                    "runtime": "rust",
-                    "turnId": "turn-command-surface",
-                    "sessionId": "session-command-surface",
-                    "stopReason": "final_response"
-                }))
+                Ok(AgentTurnResult {
+                    ..AgentTurnResult::new(
+                        &("turn-command-surface"),
+                        &("session-command-surface"),
+                        AgentStopReason::FinalResponse,
+                    )
+                })
             },
         )
         .expect("thread command run should have an active owner");
@@ -1130,7 +1132,9 @@ fn worker_thread_commands_expose_thread_service_surface() {
     assert_eq!(
         owned_handle
             .wait()
-            .expect("thread interrupt should complete the owned handle")["stopReason"],
+            .expect("thread interrupt should complete the owned handle")
+            .stop_reason
+            .as_str(),
         "interrupted"
     );
     release_sender

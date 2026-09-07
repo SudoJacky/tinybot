@@ -1,4 +1,7 @@
 use crate::agent::runtime::standalone_runtime_event;
+use crate::agent::runtime::{
+    AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult,
+};
 use crate::agent::runtime_protocol::AgentEventKind;
 use futures_util::FutureExt;
 use serde::Serialize;
@@ -115,7 +118,7 @@ struct TurnExecutionRuntimeState {
     active: HashMap<String, OwnedTurnExecution>,
     draining: HashMap<TurnExecutionKey, OwnedTurnExecution>,
     statuses: HashMap<String, TurnExecutionStatus>,
-    terminal_results: HashMap<String, Result<Value, String>>,
+    terminal_results: HashMap<String, Result<AgentTurnResult, String>>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -192,7 +195,7 @@ impl OwnedExecutionHandle {
 }
 
 struct TurnExecutionCompletion {
-    result: Mutex<Option<Result<Value, String>>>,
+    result: Mutex<Option<Result<AgentTurnResult, String>>>,
     #[cfg(test)]
     ready: Condvar,
     async_ready: Notify,
@@ -208,7 +211,7 @@ impl TurnExecutionCompletion {
         }
     }
 
-    fn complete(&self, result: Result<Value, String>) -> bool {
+    fn complete(&self, result: Result<AgentTurnResult, String>) -> bool {
         let mut completion = self
             .result
             .lock()
@@ -224,7 +227,7 @@ impl TurnExecutionCompletion {
     }
 
     #[cfg(test)]
-    fn wait(&self) -> Result<Value, String> {
+    fn wait(&self) -> Result<AgentTurnResult, String> {
         let mut completion = self
             .result
             .lock()
@@ -241,7 +244,7 @@ impl TurnExecutionCompletion {
             .clone()
     }
 
-    async fn wait_async(&self) -> Result<Value, String> {
+    async fn wait_async(&self) -> Result<AgentTurnResult, String> {
         loop {
             let notified = self.async_ready.notified();
             if let Some(result) = self
@@ -286,7 +289,7 @@ impl TurnExecutionRuntime {
         operation: F,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        F: FnOnce() -> Result<Value, String> + Send + 'static,
+        F: FnOnce() -> Result<AgentTurnResult, String> + Send + 'static,
     {
         let mut state = self
             .inner
@@ -352,7 +355,7 @@ impl TurnExecutionRuntime {
         operation: Fut,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+        Fut: Future<Output = Result<AgentTurnResult, String>> + Send + 'static,
     {
         self.start_async_with_cancellation(request, operation, AsyncTaskCancellation::Immediate)
     }
@@ -364,7 +367,7 @@ impl TurnExecutionRuntime {
         operation: Fut,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+        Fut: Future<Output = Result<AgentTurnResult, String>> + Send + 'static,
     {
         self.start_async_with_cancellation(
             request,
@@ -382,7 +385,7 @@ impl TurnExecutionRuntime {
         cancellation_mode: AsyncTaskCancellation,
     ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
-        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+        Fut: Future<Output = Result<AgentTurnResult, String>> + Send + 'static,
     {
         let mut state = self
             .inner
@@ -588,7 +591,7 @@ impl TurnExecutionRuntime {
             .cloned()
     }
 
-    pub(crate) fn terminal_result(&self, turn_id: &str) -> Option<Result<Value, String>> {
+    pub(crate) fn terminal_result(&self, turn_id: &str) -> Option<Result<AgentTurnResult, String>> {
         self.inner
             .state
             .lock()
@@ -756,11 +759,11 @@ impl fmt::Debug for AgentTurnHandle {
 
 impl AgentTurnHandle {
     #[cfg(test)]
-    pub(crate) fn wait(self) -> Result<Value, String> {
+    pub(crate) fn wait(self) -> Result<AgentTurnResult, String> {
         self.completion.wait()
     }
 
-    pub(crate) async fn wait_async(self) -> Result<Value, String> {
+    pub(crate) async fn wait_async(self) -> Result<AgentTurnResult, String> {
         self.completion.wait_async().await
     }
 
@@ -885,11 +888,11 @@ fn turn_execution_thread_name(turn_id: &str) -> String {
     format!("tinybot-agent-{suffix}")
 }
 
-fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
+fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> AgentTurnResult {
     let stop_reason = if reason == AgentCancelReason::UserRequested.as_str() {
-        "interrupted"
+        AgentStopReason::Interrupted
     } else {
-        "cancelled"
+        AgentStopReason::Cancelled
     };
     let runtime_event = standalone_runtime_event(
         &request.turn_id,
@@ -903,14 +906,9 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
             "reason": reason
         }),
     );
-    serde_json::json!({
-        "runtime": "rust",
-        "turnId": request.turn_id,
-        "sessionId": request.session_id,
-        "finalContent": "",
-        "stopReason": stop_reason,
-        "cancellationReason": reason,
-        "checkpoint": {
+    AgentTurnResult {
+        cancellation_reason: Some(reason.to_string()),
+        checkpoint: Some(serde_json::json!({
             "schemaVersion": 1,
             "runtime": "rust",
             "turnId": request.turn_id,
@@ -921,11 +919,10 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
                 "cancelled": true,
                 "reason": reason
             }
-        },
-        "messages": [],
-        "toolsUsed": [],
-        "runtimeEvents": [runtime_event]
-    })
+        })),
+        runtime_events: Some(vec![runtime_event]),
+        ..AgentTurnResult::new(&request.turn_id, &request.session_id, stop_reason)
+    }
 }
 
 fn cancellation_terminal_outcome(reason: &AgentCancelReason) -> &'static str {
@@ -938,7 +935,7 @@ fn cancellation_terminal_outcome(reason: &AgentCancelReason) -> &'static str {
 fn owned_cancellation_stop_reason(
     inner: &TurnExecutionRuntimeInner,
     turn_id: &str,
-) -> &'static str {
+) -> AgentStopReason {
     let is_user_requested = inner
         .state
         .lock()
@@ -948,17 +945,17 @@ fn owned_cancellation_stop_reason(
         .and_then(|status| status.cancellation_reason.as_deref())
         == Some(AgentCancelReason::UserRequested.as_str());
     if is_user_requested {
-        "interrupted"
+        AgentStopReason::Interrupted
     } else {
-        "cancelled"
+        AgentStopReason::Cancelled
     }
 }
 
 fn cancellation_cleanup_timeout_result(
     request: &StartAgentTurn,
     grace: Duration,
-    stop_reason: &str,
-) -> Value {
+    stop_reason: AgentStopReason,
+) -> AgentTurnResult {
     let runtime_event = standalone_runtime_event(
         &request.turn_id,
         &request.session_id,
@@ -971,29 +968,24 @@ fn cancellation_cleanup_timeout_result(
             "timeoutMs": grace.as_millis(),
         }),
     );
-    serde_json::json!({
-        "runtime": "rust",
-        "turnId": request.turn_id,
-        "sessionId": request.session_id,
-        "finalContent": "",
-        "stopReason": stop_reason,
-        "cancellationCleanup": {
+    AgentTurnResult {
+        cancellation_cleanup: Some(serde_json::json!({
             "outcome": "timeout",
             "timeoutMs": grace.as_millis(),
-        },
-        "error": format!(
+        })),
+        error: Some(AgentResultError::Message(format!(
             "agent cancellation cleanup exceeded {} ms",
             grace.as_millis()
-        ),
-        "messages": [],
-        "toolsUsed": [],
-        "runtimeEvents": [runtime_event]
-    })
+        ))),
+
+        runtime_events: Some(vec![runtime_event]),
+        ..AgentTurnResult::new(&request.turn_id, &request.session_id, stop_reason)
+    }
 }
 
 fn async_operation_result(
-    result: Result<Result<Value, String>, Box<dyn std::any::Any + Send>>,
-) -> Result<Value, String> {
+    result: Result<Result<AgentTurnResult, String>, Box<dyn std::any::Any + Send>>,
+) -> Result<AgentTurnResult, String> {
     match result {
         Ok(result) => result,
         Err(_) => Err("agent task panicked during async execution".to_string()),
@@ -1003,7 +995,7 @@ fn async_operation_result(
 fn finish_turn_execution(
     inner: &TurnExecutionRuntimeInner,
     task: &OwnedTurnExecution,
-    result: Result<Value, String>,
+    result: Result<AgentTurnResult, String>,
 ) {
     let key = TurnExecutionKey {
         turn_id: task.request.turn_id.clone(),
@@ -1063,7 +1055,7 @@ fn finish_cancelled_turn_execution(inner: &TurnExecutionRuntimeInner, task: &Own
 fn apply_completion_status(
     task: &OwnedTurnExecution,
     status: &mut TurnExecutionStatus,
-    result: &Result<Value, String>,
+    result: &Result<AgentTurnResult, String>,
 ) {
     status.active = false;
     status.checkpoint_ref = None;
@@ -1077,36 +1069,26 @@ fn apply_completion_status(
             status.terminal_outcome = None;
         }
         Ok(result) => {
-            let stop_reason = result
-                .get("stopReason")
-                .or_else(|| result.get("stop_reason"))
-                .and_then(Value::as_str);
-            match stop_reason {
-                Some("final_response" | "context_compacted") => {
-                    status.phase = "completed".to_string();
-                    status.terminal_outcome = Some("completed".to_string());
+            let reason = result.stop_reason;
+            match reason.status() {
+                AgentExecutionStatus::Completed | AgentExecutionStatus::Failed => {
+                    status.phase = reason.phase().to_string();
+                    status.terminal_outcome = Some(reason.status().as_str().to_string());
                 }
-                Some("cancelled") => {
-                    status.phase = "cancelled".to_string();
+                AgentExecutionStatus::Cancelled | AgentExecutionStatus::Interrupted => {
+                    status.phase = reason.phase().to_string();
                     status.cancellation_requested = true;
-                    status.terminal_outcome = Some("cancelled".to_string());
+                    status.terminal_outcome = Some(reason.status().as_str().to_string());
                 }
-                Some("interrupted") => {
-                    status.phase = "interrupted".to_string();
-                    status.cancellation_requested = true;
-                    status.terminal_outcome = Some("interrupted".to_string());
-                }
-                Some(phase @ ("awaiting_form" | "awaiting_tool" | "awaiting_subagent")) => {
-                    status.phase = phase.to_string();
+                AgentExecutionStatus::Waiting => {
+                    status.phase = reason.as_str().to_string();
                     status.checkpoint_ref = result
-                        .pointer("/checkpoint/resumeToken")
+                        .checkpoint
+                        .as_ref()
+                        .and_then(|checkpoint| checkpoint.get("resumeToken"))
                         .and_then(Value::as_str)
                         .map(str::to_string);
                     status.terminal_outcome = None;
-                }
-                Some(_) | None => {
-                    status.phase = "failed".to_string();
-                    status.terminal_outcome = Some("failed".to_string());
                 }
             }
         }

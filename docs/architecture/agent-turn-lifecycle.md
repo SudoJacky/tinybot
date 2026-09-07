@@ -6,12 +6,14 @@ src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/provider_loop.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
+src-tauri/src/agent/runtime/turn_result.rs
+src-tauri/src/runtime/turn_execution.rs
 src-tauri/src/agent/runtime_protocol/README.md
 src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:cf8a692a4800f17bc225998aa62b38345b95554b29bd713f5690edeb62321cd3 -->
+<!-- tinybot-doc-fingerprint: sha256:51b280aa340df7a52155299d4307fb3686e55251bf9e516c75160e9bfcc74a85 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -25,6 +27,17 @@ outcome that follow. Resolving a form continues the same Turn identity.
 - `TurnExecutionRuntime` owns the current live generation, cancellation, and
   terminal-result publication for a Turn ID.
 - `threads::rollout::store` owns canonical durability and reconstruction.
+
+The provider loop, task owner, bridge, and Graph/workspace-thread callers share
+`AgentTurnResult`. Its required `AgentStopReason` replaces string lookup for
+execution decisions. Exhaustive mappings distinguish completion, cancellation,
+interruption, failure, and resumable waiting; tool and subagent waits retain
+their waiting phase instead of falling through to failure. Lifecycle hooks
+append typed runtime events directly. Complete-result JSON serialization occurs
+at the desktop, Thread-response, or WebUI boundary and preserves the wire schema.
+Turn input/configuration and checkpoint payloads still have dynamic fields,
+and infrastructure errors still use `String`; those migrations are independent
+of the result contract.
 
 ## Execution flow
 

@@ -324,6 +324,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
             "native Agent UI form checkpoint clear",
         )?;
     }
+    let mut continuation = continuation.into_value()?;
     continuation["form_id"] = serde_json::Value::String(form_id.clone());
     continuation["source"] = serde_json::Value::String("rust".to_string());
     continuation["continuation"] = serde_json::json!({

@@ -1,10 +1,20 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1a390eb303c74ef3bf3b2cc6fa38a5e2f7fadd43a6fcdda626528c868936343f -->
+<!-- tinybot-module-fingerprint: sha256:2296f0ebd0dd5f76d6f8de4f9b46e293c71a62814b787ab83192a015d7049316 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
 instructions into typed agent items, runtime events, checkpoints, usage, and a
 terminal result.
+
+Execution results stay as `AgentTurnResult` through provider/tool iterations,
+task ownership, lifecycle hooks, bridge persistence, and Graph/workspace-thread
+consumers. `AgentStopReason` exhaustively maps each stop to an
+`AgentExecutionStatus` and runtime phase; waiting stops remain resumable.
+Runtime events and instruction diagnostics are retained as Rust types and the
+complete result is serialized only at a command or WebUI response boundary.
+The input spec, configuration, legacy messages/checkpoints, and infrastructure
+`String` errors are separate migration work; this result contract does not
+claim to type those paths or remove internal state-service RPC calls.
 
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong

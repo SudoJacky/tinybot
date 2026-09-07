@@ -13,6 +13,7 @@ use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
     NativeAgentToolCall, NativeToolOutcome, NativeToolRetry, PreparedToolCall,
 };
+use super::{AgentResultError, AgentStopReason, AgentTurnResult};
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
 };
@@ -30,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 
 pub(super) enum NativeAgentToolExecutionOutcome {
     Continue,
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 #[derive(Debug, Deserialize)]
@@ -1307,7 +1308,11 @@ fn finish_tool_error_result(
     tool_call: &NativeAgentToolCall,
     error: String,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    state.set_stop_reason("tool_error", iteration, AgentEventKind::Error.wire_name())?;
+    state.set_stop_reason(
+        AgentStopReason::ToolError,
+        iteration,
+        AgentEventKind::Error.wire_name(),
+    )?;
     state.emit(TerminalEvent::Error(serde_json::json!({
         "iteration": iteration,
         "stopReason": "tool_error",
@@ -1320,20 +1325,17 @@ fn finish_tool_error_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    Ok(NativeAgentToolExecutionOutcome::Finished(
-        serde_json::json!({
-            "runtime": "rust",
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "finalContent": "",
-            "stopReason": "tool_error",
-            "messages": [],
-            "toolsUsed": state.tools_used,
-            "completedToolResults": state.completed_tool_results,
-            "error": error,
-            "runtimeEvents": runtime_events,
-        }),
-    ))
+    Ok(NativeAgentToolExecutionOutcome::Finished(AgentTurnResult {
+        tools_used: state.tools_used.clone(),
+        completed_tool_results: Some(state.completed_tool_results.clone()),
+        error: Some(AgentResultError::Message(error.to_string())),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::ToolError,
+        )
+    }))
 }
 
 fn tool_cleanup_timeout_result(
@@ -1353,7 +1355,7 @@ fn tool_cleanup_timeout_result(
     );
     record_tool_failure(context, state, iteration, tool_call, &error)?;
     state.set_stop_reason(
-        "tool_cleanup_timeout",
+        AgentStopReason::ToolCleanupTimeout,
         iteration,
         AgentEventKind::ToolCleanupTimeout.wire_name(),
     )?;
@@ -1374,20 +1376,17 @@ fn tool_cleanup_timeout_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    Ok(NativeAgentToolExecutionOutcome::Finished(
-        serde_json::json!({
-            "runtime": "rust",
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "finalContent": "",
-            "stopReason": "tool_cleanup_timeout",
-            "messages": [],
-            "toolsUsed": state.tools_used,
-            "completedToolResults": state.completed_tool_results,
-            "error": error,
-            "runtimeEvents": runtime_events,
-        }),
-    ))
+    Ok(NativeAgentToolExecutionOutcome::Finished(AgentTurnResult {
+        tools_used: state.tools_used.clone(),
+        completed_tool_results: Some(state.completed_tool_results.clone()),
+        error: Some(AgentResultError::Message(error.to_string())),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::ToolCleanupTimeout,
+        )
+    }))
 }
 
 fn cancelled_result(
