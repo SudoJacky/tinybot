@@ -99,6 +99,32 @@ describe("AssistantMarkdown", () => {
     expect(screen.getByRole("link", { name: "Outside" })).toBeTruthy();
   });
 
+  it("preserves Windows separators before dot-directories when opening persisted Markdown", () => {
+    const onOpenFileLink = vi.fn();
+    const path = String.raw`C:\Users\scrcnj\.tinybot\workspace\月度销售统计表.xlsx`;
+    render(<AssistantMarkdown streaming={false} onOpenFileLink={onOpenFileLink} text={`[月度销售统计表.xlsx](${path})`} />);
+    fireEvent.click(screen.getByRole("link", { name: "月度销售统计表.xlsx" }));
+    expect(onOpenFileLink).toHaveBeenCalledWith({ href: path });
+  });
+
+  it.each([
+    [String.raw`[file](<C:\Users\viewer\.tinybot\my folder\report.xlsx>)`, String.raw`C:\Users\viewer\.tinybot\my folder\report.xlsx`],
+    [String.raw`[file](C:\\Users\\viewer\\.tinybot\\report.xlsx)`, String.raw`C:\Users\viewer\.tinybot\report.xlsx`],
+    ['[file](.\\docs\\_drafts\\report.md)', String.raw`.\docs\_drafts\report.md`],
+  ])("preserves Windows destinations in alternate link syntax: %s", (text, href) => {
+    const onOpenFileLink = vi.fn();
+    render(<AssistantMarkdown streaming={false} text={text} onOpenFileLink={onOpenFileLink} />);
+    fireEvent.click(screen.getByRole("link", { name: "file" }));
+    expect(onOpenFileLink).toHaveBeenCalledWith({ href });
+  });
+
+  it("keeps ordinary Markdown escaping in prose and web destinations", () => {
+    render(<AssistantMarkdown streaming={false} text={String.raw`Escaped \*stars\*. [web](https://example.com/a\_b)`} />);
+    expect(screen.getByText(/Escaped \*stars\*/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "web" }));
+    expect(mocks.openUrl).toHaveBeenCalledWith("https://example.com/a_b");
+  });
+
   it("adds quiet source icons without changing link names", () => {
     const { container } = render(
       <AssistantMarkdown

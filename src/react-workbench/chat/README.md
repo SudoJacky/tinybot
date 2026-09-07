@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e61917d06c3889783c3d1c34f910f6aff046a5a73ae61ff6862922d83b04d7e5 -->
+<!-- tinybot-module-fingerprint: sha256:77960357c1793a49fbf6bc1d991cd88b3b0f3cbe6ea02cb7952fbf1e396ddb49 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -333,3 +333,9 @@ Word and PowerPoint selections enter the existing Artifact reference composer
 with their displayed revision, location and change instruction. Multiple
 selection requests can coexist. Actual dispatch uses the same baseline capture
 and source-revision checks as Excel; adding a request does not send it.
+
+Windows file-link destinations retain their literal separators at the Markdown
+destination compilation step, before CommonMark consumes punctuation escapes
+such as `\.`. Ordinary prose and external URLs keep standard escaping. Link
+activation logs both the decoded href and resolved workspace path for diagnosis;
+the native workspace path guard remains authoritative.

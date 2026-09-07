@@ -1963,6 +1963,9 @@ export function ChatPage({
     let artifact: ArtifactRef;
     try {
       artifact = assistantFileArtifact(resolveAssistantFileLink(link.href, activeSession.workingDirectory));
+      logRendererEvent("info", "artifact.file_link.resolved", {
+        href: link.href, path: artifact.fetchPath, sessionId: activeSession.id,
+      });
     } catch (error) {
       artifact = assistantFileArtifact({ path: link.href, title: assistantFileLinkTitle(link.href) });
       const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);

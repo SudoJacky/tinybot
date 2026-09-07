@@ -126,7 +126,9 @@ empty resource offered by the Sidecar add menu. The renderer recognizes
 workspace-relative paths, `file:` URLs, absolute paths inside the active
 workspace, and optional line suffixes. It sends the Thread ID and normalized
 path to the thread-scoped workspace commands, never a renderer-selected
-workspace root.
+workspace root. Windows destination separators are preserved before Markdown
+punctuation unescaping, so hidden directories such as `\.tinybot` survive
+rendering and link activation.
 
 The backend resolves the canonical Thread projection and uses its recorded
 `workingDirectory`, falling back to the configured default workspace only when
