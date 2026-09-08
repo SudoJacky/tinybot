@@ -3,6 +3,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   LogicalSize,
   PhysicalPosition,
+  currentMonitor,
   getCurrentWindow,
   monitorFromPoint,
   primaryMonitor,
@@ -253,10 +254,24 @@ async function applyDesktopPetGeometry(
   const desiredCenter = positionChanged
     ? snapshot.preferences.position
     : currentCenter ?? snapshot.preferences.position;
-  const monitor = await resolveDesktopPetMonitor(desiredCenter);
-  const desiredTopLeft = desiredCenter
-    ? desktopPetWindowTopLeft(desiredCenter, windowSize)
-    : defaultDesktopPetWindowTopLeft(windowSize, monitor.workArea);
+  let monitor: Monitor;
+  let desiredTopLeft: DesktopPetPosition;
+  if (desiredCenter) {
+    monitor = await resolveDesktopPetMonitor(desiredCenter);
+    desiredTopLeft = desktopPetWindowTopLeft(desiredCenter, windowSize);
+  } else {
+    // The host runs in main. Read its client bounds in physical desktop pixels,
+    // matching the pet's outer size, including when main is on another display.
+    const mainWindow = getCurrentWindow();
+    const [position, size, mainMonitor] = await Promise.all([
+      mainWindow.innerPosition(),
+      mainWindow.innerSize(),
+      currentMonitor(),
+    ]);
+    if (!mainMonitor) throw new Error("No Windows monitor is available for the Tinybot main window.");
+    monitor = mainMonitor;
+    desiredTopLeft = defaultDesktopPetWindowTopLeft(windowSize, { position, size });
+  }
   const topLeft = clampDesktopPetWindowTopLeft(desiredTopLeft, windowSize, monitor.workArea);
   await petWindow.setPosition(new PhysicalPosition(topLeft.x, topLeft.y));
 }

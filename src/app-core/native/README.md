@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:5460b323d3eb8c85553fe4687f05e2ff85b9425be0809fcb8a1ad96e71402d49 -->
+<!-- tinybot-module-fingerprint: sha256:8f082b9d7fb54042b397a8bdec0b2e18324586ddabc5e76146db9e36a9b3b210 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -21,7 +21,10 @@ labels, including windows with multiple WebViews; older snapshots remain readabl
 
 `desktopNativeFilePicker` preserves the optional content hash returned for a
 managed image. The native backend owns content detection and storage; the
-renderer receives metadata and a managed path, never image bytes.
+picker returns metadata and a managed path. Its browser File importer sends
+one raw binary IPC body at a time, with a base64 UTF-8 filename header, and
+receives the same metadata contract. Browser imports are limited to 32 MiB per
+file before bytes are read; native errors retain their filename and detail.
 
 `desktopNativeAgentGraphs` implements the Graph store Interface through three
 workspace-aware commands. The backend owns path validation, schema validation,
@@ -62,9 +65,10 @@ subset while leaving the pet webview without application-command access.
 `desktopNativePet` is the seam between the main renderer and the Windows-only
 `desktop-pet` webview. Its host synchronizes one state snapshot, owns the
 ready/probe handshake, native size and monitor placement, and settled move
-events. Its explicit position-reset command always recalculates the safe
-primary-monitor placement, even when the persisted preference is already
-unset. The lightweight pet renderer client exposes only state listening,
+events. First placement and explicit position reset use the bottom-right of
+the main window client area, with a 12-physical-pixel inset, then clamp to its
+monitor work area. Reset recalculates current bounds even when the persisted
+preference is already unset; ordinary startup preserves manually saved positions. The lightweight pet renderer client exposes only state listening,
 native window dragging, keyboard movement, and size or visibility requests.
 Neither side creates a second application service graph.
 

@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:9e3edc47a4090e6f8949f0cfe1d6de40f3539aa13d10a35145632cf65216031d -->
+<!-- tinybot-doc-fingerprint: sha256:294981c3a9d48a63e3ca4b2b9f64dfa230ac08b2b7a167e2a7cb58b5c2fce19c -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -80,6 +80,10 @@ Tauri events, uses the native `startDragging` operation for pointer movement,
 and reports settled native window moves back to `main`. Monitor work areas are
 used when restoring or resizing the pet, including monitors with negative
 coordinates.
+Initial placement without a saved position and the Appearance position-reset
+action use the bottom-right of the main window's current client area, inset by
+12 physical pixels. The resulting pet bounds are clamped to the main window's
+monitor work area. Manually saved positions still restore independently.
 
 Closing `desktop-pet` prevents destruction, hides the window, and notifies
 `main` to persist `visible: false`; closing `desktop-pet-chat` hides it without
@@ -161,6 +165,7 @@ therefore fail preflight if stale.
 | --- | --- | --- |
 | `pick_upload_file` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `null` when cancelled, or `{ name, path, mime_type, size_bytes, bytes }` |
 | `pick_chat_files` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `[]` when cancelled, or `{ name, path, mimeType, sizeBytes, contentHash? }[]`; non-files fail, supported images are copied into Tinybot-managed storage and identified by `contentHash`, while other files keep their selected path; file bytes are not returned |
+| `import_chat_file` | Raw binary body; `x-tinybot-file-name` header contains the base64-encoded UTF-8 filename | `{ name, path, mimeType, sizeBytes, contentHash? }`; 32 MiB limit, content-detected images and documents saved into managed storage on a blocking worker; available to main and quick-chat windows |
 | `pick_workspace_directory` | `{ options: { title?: string } }` | `null` when cancelled, or the selected absolute UTF-8 path |
 | `save_export_file` | `{ options: { title?: string, defaultPath?: string, filters?: Filter[], contents: string } }` | `null` when cancelled, or `{ path }` |
 | `reveal_workspace_file` | `{ path: string }` | `void` |

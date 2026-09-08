@@ -1,8 +1,18 @@
 name: CI
 
 on:
+  push:
+    branches: [master]
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   desktop:
@@ -26,6 +36,9 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Test release tooling
+        run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs
 
       - name: Test README freshness tooling
         run: node --test .github/scripts/readme-freshness.test.mjs
@@ -52,7 +65,9 @@ jobs:
           retention-days: 7
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/setup-rust
+        with:
+          target: x86_64-unknown-linux-gnu
 
       - name: Install Tauri Linux dependencies
         run: |
@@ -73,13 +88,41 @@ jobs:
         shell: bash
         run: |
           for attempt in 1 2 3; do
-            if cargo fetch; then
+            if cargo fetch --locked; then
               exit 0
             fi
             sleep $((attempt * 10))
           done
-          cargo fetch
+          cargo fetch --locked
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test --lib -- --test-threads=1
+        run: cargo test --locked --lib -- --test-threads=1
+
+  windows-release-cache:
+    # Default-branch caches are readable by release tags; PR caches are not.
+    # Keep the release profile warm without signing or publishing a release.
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CARGO_HTTP_TIMEOUT: "120"
+      CARGO_NET_RETRY: "10"
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: ./.github/actions/setup-rust
+        with:
+          target: x86_64-pc-windows-msvc
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Run updater tests
+        working-directory: src-tauri
+        run: cargo test --locked --lib desktop::update::tests -- --test-threads=1
+      - name: Build Windows release executable
+        run: npm run tauri -- build --ci --no-bundle --target x86_64-pc-windows-msvc -- --locked

@@ -16,6 +16,8 @@ export type SettingsNavigationRequest = {
 type ChatRouteProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   createSessionSignal: number;
+  quickStartRequest?: number | null;
+  onQuickStartHandled?: () => void;
   now?: () => number;
   sessionSidebarCollapsed: boolean;
   onActiveWorkspaceChange?: (workingDirectory?: string) => void;
@@ -65,6 +67,8 @@ export function RouteSurface({
           activateSessionRequest={chat.activateSessionRequest ?? null}
           chatStore={services.chatStore}
           createSessionSignal={chat.createSessionSignal}
+          quickStartRequest={chat.quickStartRequest}
+          onQuickStartHandled={chat.onQuickStartHandled}
           now={chat.now}
           projectGroupStore={services.projectGroupStore}
           workspaceRegistryStore={services.workspaceRegistryStore}

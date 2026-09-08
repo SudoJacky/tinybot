@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:151c6833dd2fc353721afcd10fc54b17a309ade988c3da6d7d608de5871ff23f -->
+<!-- tinybot-module-fingerprint: sha256:643502c3066870e26a8d258984a9253f60afcb3eed906d0cef0ff794c4daa7a9 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -7,8 +7,11 @@ shared desktop state, logging, file helpers, menus, and application updates.
 `files` is the shared chat-attachment importer for picker and desktop-pet
 drops. It rejects non-files, detects supported images by content, copies images
 into content-addressed application storage, and returns their hash with the
-managed path. Other files retain their original path, and no file bytes cross
-the Tauri command boundary.
+managed path. Picker and pet-drop documents retain their original path.
+`import_chat_file` accepts raw bytes plus a base64 UTF-8 filename header for
+composer drops and clipboard files without native paths. Imports are bounded
+to 32 MiB and stored on a blocking worker; document bytes use managed
+content-addressed storage too. Import success and failure are logged.
 
 `bootstrap` creates the Windows-only `desktop-pet` transparent webview through
 `pet`. The main renderer invokes `desktop_ensure_pet_quick_chat_window` only

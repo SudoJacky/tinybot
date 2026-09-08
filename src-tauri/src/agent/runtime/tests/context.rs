@@ -416,7 +416,7 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 800,
+                    "contextWindowTokens": 1600,
                     "contextWindowStrategy": "compact",
                     "compactTriggerPercent": 50,
                     "compactSummaryMaxTokens": 32
@@ -555,7 +555,7 @@ fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() 
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 800,
+                    "contextWindowTokens": 1600,
                     "contextWindowStrategy": "compact",
                     "compactTriggerPercent": 50,
                     "compactSummaryMaxTokens": 32
@@ -588,7 +588,7 @@ fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() 
     assert_eq!(compact_event["payload"]["droppedUserMessageCount"], 1);
     assert_eq!(compact_event["payload"]["droppedAssistantMessageCount"], 1);
     assert_eq!(compact_event["payload"]["droppedToolMessageCount"], 0);
-    assert_eq!(compact_event["payload"]["contextWindowTokens"], 800);
+    assert_eq!(compact_event["payload"]["contextWindowTokens"], 1600);
     assert_eq!(
         compact_event["payload"]["agentItem"]["type"],
         "context_compaction"
@@ -965,7 +965,7 @@ fn context_compaction_commit_failure_keeps_live_context_unmodified() {
             "agents": { "defaults": {
                 "provider": "fixture",
                 "model": "fixture-model",
-                "contextWindowTokens": 800,
+                "contextWindowTokens": 1600,
                 "contextWindowStrategy": "compact",
                 "compactTriggerPercent": 50,
                 "compactSummaryMaxTokens": 32
@@ -1041,7 +1041,7 @@ fn context_compaction_summarizes_oversized_history_in_bounded_layers() {
             "agents": { "defaults": {
                 "provider": "fixture",
                 "model": "fixture-model",
-                "contextWindowTokens": 1000,
+                "contextWindowTokens": 1600,
                 "contextWindowStrategy": "compact",
                 "compactTriggerPercent": 50,
                 "compactSummaryMaxTokens": 250
@@ -1106,7 +1106,7 @@ fn context_compaction_masks_large_tool_output_without_splitting_its_call() {
             "agents": { "defaults": {
                 "provider": "fixture",
                 "model": "fixture-model",
-                "contextWindowTokens": 1400,
+                "contextWindowTokens": 2000,
                 "contextWindowStrategy": "compact",
                 "compactTriggerPercent": 50,
                 "compactSummaryMaxTokens": 64
@@ -1235,7 +1235,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
             "agents": { "defaults": {
                 "provider": "fixture",
                 "model": "fixture-model",
-                "contextWindowTokens": 1200,
+                "contextWindowTokens": 2000,
                 "contextWindowStrategy": "compact",
                 "compactTriggerPercent": 80,
                 "compactSummaryMaxTokens": 64

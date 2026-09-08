@@ -31,7 +31,7 @@ import {
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
-import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
+import { importDesktopChatFiles, pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import type { ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { ChatTimeline } from "../chat/ChatTimeline";
 import {
@@ -460,6 +460,8 @@ export function DesktopPetQuickChatWindow({
           writeCurrentChatReasoningEffort(effort);
         }}
         onSelectFiles={pickDesktopChatFiles}
+          onImportFiles={importDesktopChatFiles}
+          attachmentContextKey={session?.id}
         onSendMessage={handleSend}
         onStopResponding={handleStop}
         onValueChange={setDraft}

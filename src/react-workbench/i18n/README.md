@@ -1,8 +1,19 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:8fcfc27a26f57ad83ead1acc43739e9e945194b09f4e4bf67ede759f3dda975c -->
+<!-- tinybot-module-fingerprint: sha256:beb5b8514e409a43990d5358e9064e1aaabdef2fa3718d63d28efe0d341b7aee -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
-and Chinese resource bundles.
+and Chinese resource bundles. Composer drag targets and attachment preparation
+status are localized in both languages.
+Quick start localizes welcome and model setup, catalog-validation feedback,
+task examples, dismissal, and the Help reentry action in both languages.
+
+Desktop-pet position reset describes placement inside the main window in both
+languages.
+
+Sidebar resizing includes localized separator labels, width values, and hints
+for dragging, collapse, keyboard adjustment, and reset.
+
+Workspace session lists localize their Show more action in both languages.
 
 The standalone Agent Graph route keeps node kinds, the transient Run input,
 workspace, Agent instructions, Provider/model/effort configuration, catalog

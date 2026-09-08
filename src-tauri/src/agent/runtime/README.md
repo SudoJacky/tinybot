@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:39d549fbdc1193d78f5b69ae61a1927bc343db880972231c21d50eba2c43f038 -->
+<!-- tinybot-module-fingerprint: sha256:ca63629781c2a8f333090e2c0f4a0332c8c24f39bad270b6c0684021bb701117 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -88,6 +88,12 @@ decide which durable conversation store a caller uses.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.
+   Source summaries and partial-summary merges share a seven-part continuation
+   handoff: goal, constraints/corrections, decisions, state, evidence, working
+   references, and next actions. The prompts distinguish plans from completed
+   work and observations from claims or hypotheses, preserve unresolved work,
+   and prioritize continuation-critical facts within the existing output budget.
+   Merge instructions retain unique facts and expose unresolved conflicts.
 3. `context.rs` and `instructions.rs` build the request context and record
    instruction provenance and diagnostics.
 4. `provider.rs` selects one adapter through `provider_protocol.rs`.

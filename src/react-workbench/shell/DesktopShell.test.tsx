@@ -332,6 +332,29 @@ function createUpdateClient(
 }
 
 describe("DesktopShell", () => {
+  it("reopens dismissed quick start from Help across route changes without creating a native session", async () => {
+    const user = userEvent.setup();
+    const services = createServices();
+    services.settingsStore.loadChatModels = vi.fn(async () => [{ id: "example", label: "Example", providerId: "deepseek" }]);
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings({}));
+    services.settingsStore.saveProviderSettings = vi.fn(async () => buildProviderModelsSettings({}));
+    localStorage.setItem("tinybot.quick-start.v1", "dismissed");
+    render(<DesktopShell services={services} />);
+    await screen.findByRole("textbox", { name: /message/i });
+    expect(screen.queryByText("What would you like to try first?")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    await screen.findByRole("heading", { name: "Keyboard shortcuts" });
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Quick start" }));
+    await screen.findByRole("heading", { name: "What would you like to try first?" });
+    await user.click(screen.getByRole("button", { name: "Dismiss quick start" }));
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Quick start" }));
+    await screen.findByRole("heading", { name: "What would you like to try first?" });
+    expect(services.sessionStore.create).not.toHaveBeenCalled();
+  });
+
   it("starts with an uncreated conversation even when a previous tab was saved", async () => {
     const services = createServices({
       sessions: [{
@@ -446,11 +469,11 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
     expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
     expect(css).toMatch(/\.react-route-surface\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
-    expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
+    expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*42px minmax\(0,\s*1fr\) auto;/s);
     expect(css).toMatch(/\.react-popover-item\[aria-current="page"\][^{]*\{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
     expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s);
-    expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
+    expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*42px;/s);
     expect(css).not.toMatch(/\.react-session-list__new/);
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-default-model-picker\s*{[^}]*grid-template-columns:\s*minmax\(170px,\s*0\.72fr\) minmax\(300px,\s*1\.45fr\);/s);
@@ -515,7 +538,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     const helpMenu = screen.getByRole("menu", { name: "Help menu" });
-    for (const item of ["Documentation (F1)", "Keyboard shortcuts", "Report an issue", "Tinybot repository"]) {
+    for (const item of ["Documentation (F1)", "Keyboard shortcuts", "Quick start", "Report an issue", "Tinybot repository"]) {
       expect(within(helpMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(helpMenu).getAllByRole("separator")).toHaveLength(1);

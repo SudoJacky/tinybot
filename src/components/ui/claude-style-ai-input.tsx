@@ -1,6 +1,6 @@
 "use client";
 
-import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -130,6 +130,8 @@ export interface ClaudeStyleAiInputProps {
   files?: ComposerFileReference[];
   onFilesChange?: (files: ComposerFileReference[]) => void;
   onSelectFiles?: () => Promise<ComposerFileSelection[]>;
+  onImportFiles?: (files: File[]) => Promise<ComposerFileSelection[]>;
+  attachmentContextKey?: string;
   models?: ModelOption[];
   defaultModel?: string;
   defaultReasoningEffort?: ReasoningEffort;
@@ -221,6 +223,8 @@ export function ClaudeStyleAiInput({
   onRemoveSessionMention,
   onRemoveSkill,
   onSelectFiles,
+  onImportFiles,
+  attachmentContextKey,
   onSendMessage,
   onStopResponding,
   onValueChange,
@@ -264,6 +268,9 @@ export function ClaudeStyleAiInput({
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [selectingFiles, setSelectingFiles] = useState(false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const fileRequestRef = useRef<object | null>(null);
+  const dragDepthRef = useRef(0);
   const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
   const [activeSlashStart, setActiveSlashStart] = useState<number | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
@@ -341,7 +348,7 @@ export function ClaudeStyleAiInput({
     }
     return placements;
   }, [currentMessage, inlineSkillPlacements, selectedSkillIdSet, selectedSkillIds]);
-  const canSend = !disabled && !sendDisabled && !sending && !selectedModelRejectsImages && Boolean(
+  const canSend = !disabled && !sendDisabled && !sending && !selectingFiles && !selectedModelRejectsImages && Boolean(
     currentMessage.trim()
       || files.length
       || pastedContent.length
@@ -413,6 +420,13 @@ export function ClaudeStyleAiInput({
   useEffect(() => {
     filesRef.current = files;
   }, [files]);
+
+  useLayoutEffect(() => {
+    setSelectingFiles(false);
+    setDraggingFiles(false);
+    dragDepthRef.current = 0;
+    return () => { fileRequestRef.current = null; };
+  }, [attachmentContextKey]);
 
   useEffect(() => {
     const nextModelId = defaultModel || models[0]?.id || "";
@@ -519,7 +533,7 @@ export function ClaudeStyleAiInput({
   }, [modelMenuOpen]);
 
   async function sendMessage() {
-    if (!canSend) {
+    if (!canSend || fileRequestRef.current) {
       return;
     }
     setSending(true);
@@ -749,6 +763,12 @@ export function ClaudeStyleAiInput({
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement | HTMLDivElement>) {
+    const clipboardFiles = Array.from(event.clipboardData.files);
+    if (clipboardFiles.length) {
+      event.preventDefault();
+      void handleImportFiles(clipboardFiles);
+      return;
+    }
     const text = event.clipboardData.getData("text");
     if (text.length < PASTE_THRESHOLD) {
       if (event.currentTarget instanceof HTMLDivElement) {
@@ -770,11 +790,15 @@ export function ClaudeStyleAiInput({
     ]);
   }
 
-  async function handleSelectFiles() {
+  async function selectFiles(load: () => Promise<ComposerFileSelection[]>) {
+    if (disabled || sending || fileRequestRef.current) return;
+    const request = {};
+    fileRequestRef.current = request;
     setError("");
     setSelectingFiles(true);
     try {
-      const selectedFiles = await onSelectFiles?.() ?? [];
+      const selectedFiles = await load();
+      if (fileRequestRef.current !== request) return;
       if (!selectedFiles.length) {
         return;
       }
@@ -798,10 +822,58 @@ export function ClaudeStyleAiInput({
         ];
       });
     } catch (error) {
-      setError(error instanceof Error ? error.message : t("composer.filesFailed"));
+      if (fileRequestRef.current === request) {
+        setError(error instanceof Error ? error.message : typeof error === "string" ? error : t("composer.filesFailed"));
+      }
     } finally {
-      setSelectingFiles(false);
+      if (fileRequestRef.current === request) {
+        fileRequestRef.current = null;
+        setSelectingFiles(false);
+      }
     }
+  }
+
+  function handleSelectFiles() {
+    if (onSelectFiles) return selectFiles(onSelectFiles);
+  }
+
+  function handleImportFiles(incoming: File[]) {
+    if (!onImportFiles || disabled || sending || fileRequestRef.current) return;
+    const remainingSlots = Math.max(0, maxFiles - filesRef.current.length);
+    // Reject an oversized batch before reading bytes; no files disappear silently.
+    if (incoming.length > remainingSlots) {
+      setError(t("composer.fileLimit", { count: maxFiles }));
+      return;
+    }
+    return selectFiles(() => onImportFiles(incoming));
+  }
+
+  function handleDragOver(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = onImportFiles && !disabled && !sending && !selectingFiles ? "copy" : "none";
+  }
+
+  function handleDragEnter(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    if (onImportFiles && !disabled && !sending && !selectingFiles) setDraggingFiles(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLFormElement>) {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDraggingFiles(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLFormElement>) {
+    dragDepthRef.current = 0;
+    setDraggingFiles(false);
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void handleImportFiles(Array.from(event.dataTransfer.files));
   }
 
   function removeFile(id: string) {
@@ -868,6 +940,12 @@ export function ClaudeStyleAiInput({
     <form
       aria-label={t("composer.label")}
       className={["claude-ai-input", className].filter(Boolean).join(" ")}
+      data-dragging-files={draggingFiles || undefined}
+      aria-busy={selectingFiles}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onSubmit={(event) => void handleSubmit(event)}
     >
       {composerError ? (
@@ -935,6 +1013,12 @@ export function ClaudeStyleAiInput({
         onPointerLeave={handlePanelPointerLeave}
         onPointerMove={handlePanelPointerMove}
       >
+        {draggingFiles || selectingFiles ? (
+          <div className="claude-ai-input__file-status" role="status">
+            <FileText aria-hidden="true" size={18} />
+            {t(selectingFiles ? "composer.importingFiles" : "composer.dropFiles")}
+          </div>
+        ) : null}
         {sessionMentionMenuOpen ? (
           <div
             aria-label={t("composer.sessionMention.menu")}

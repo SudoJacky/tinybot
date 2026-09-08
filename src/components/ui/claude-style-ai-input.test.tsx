@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,6 +41,87 @@ const skillOptions = [
 ] as const satisfies readonly ComposerSkillOption[];
 
 afterEach(cleanup);
+
+describe("composer file drop and paste", () => {
+  const file = new File(["image"], "diagram.png", { type: "image/png" });
+  const attachment = { name: file.name, path: "managed/diagram.png", mimeType: file.type, sizeBytes: file.size };
+  const transfer = { types: ["Files"], files: [file] };
+
+  it("keeps the drop cue across child elements and blocks sending until attachments are ready", async () => {
+    let finish!: (files: typeof attachment[]) => void;
+    const onImportFiles = vi.fn(() => new Promise<typeof attachment[]>((resolve) => { finish = resolve; }));
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput onImportFiles={onImportFiles} onSendMessage={onSendMessage} value="Draft" />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    const form = input.closest("form")!;
+    fireEvent.dragEnter(form, { dataTransfer: transfer });
+    fireEvent.dragEnter(input, { dataTransfer: transfer });
+    fireEvent.dragLeave(input, { dataTransfer: transfer });
+    expect(screen.getByText("Drop to attach files")).toBeTruthy();
+    fireEvent.drop(input, { dataTransfer: transfer });
+    expect(onImportFiles).toHaveBeenCalledWith([file]);
+    expect(screen.queryByText("Drop to attach files")).toBeNull();
+    expect(screen.getByText("Preparing attachments…")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.submit(form);
+    expect(onSendMessage).not.toHaveBeenCalled();
+    await act(async () => finish([attachment]));
+    expect(screen.getByText(file.name)).toBeTruthy();
+    expect(onSendMessage).not.toHaveBeenCalled();
+    fireEvent.submit(form);
+    await act(async () => {});
+    expect(onSendMessage.mock.calls[0][1]).toEqual([expect.objectContaining(attachment)]);
+  });
+
+  it.each([false, true])("imports pasted images in the inline editor: %s without inserting accompanying clipboard text", async (inline) => {
+    const onImportFiles = vi.fn(async () => [attachment]);
+    render(<ClaudeStyleAiInput onImportFiles={onImportFiles} {...(inline ? { skillOptions, onAddSkill: vi.fn() } : {})} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    const getData = vi.fn(() => "clipboard image fallback");
+    fireEvent.paste(input, { clipboardData: { files: [file], getData } });
+    expect(await screen.findByText(file.name)).toBeTruthy();
+    expect(getData).not.toHaveBeenCalled();
+    expect(onImportFiles).toHaveBeenCalledOnce();
+  });
+
+  it("keeps ordinary text paste working", async () => {
+    const user = userEvent.setup();
+    const onImportFiles = vi.fn();
+    render(<ClaudeStyleAiInput onImportFiles={onImportFiles} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    await user.click(input);
+    await user.paste("Text stays editable");
+    expect((input as HTMLTextAreaElement).value).toBe("Text stays editable");
+    expect(onImportFiles).not.toHaveBeenCalled();
+  });
+
+  it("rejects excess files before import, ignores disabled drops, and reports import failures", async () => {
+    const onImportFiles = vi.fn().mockRejectedValue(new Error("disk full"));
+    const { rerender } = render(<ClaudeStyleAiInput maxFiles={1} onImportFiles={onImportFiles} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.drop(input, { dataTransfer: { ...transfer, files: [file, file] } });
+    expect(screen.getByRole("alert").textContent).toContain("Only 1 files");
+    expect(onImportFiles).not.toHaveBeenCalled();
+    rerender(<ClaudeStyleAiInput disabled onImportFiles={onImportFiles} />);
+    fireEvent.drop(input, { dataTransfer: transfer });
+    expect(onImportFiles).not.toHaveBeenCalled();
+    rerender(<ClaudeStyleAiInput onImportFiles={onImportFiles} />);
+    fireEvent.drop(input, { dataTransfer: transfer });
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toBe("disk full");
+  });
+
+  it("does not attach a late import to a different conversation", async () => {
+    let finish!: (files: typeof attachment[]) => void;
+    const onImportFiles = vi.fn(() => new Promise<typeof attachment[]>((resolve) => { finish = resolve; }));
+    const { rerender } = render(<ClaudeStyleAiInput attachmentContextKey="first" onImportFiles={onImportFiles} />);
+    fireEvent.drop(screen.getByRole("textbox", { name: "Message" }), { dataTransfer: transfer });
+    rerender(<ClaudeStyleAiInput attachmentContextKey="second" onImportFiles={onImportFiles} />);
+    await act(async () => finish([attachment]));
+    expect(screen.queryByText(file.name)).toBeNull();
+    expect(screen.queryByText("Preparing attachments…")).toBeNull();
+  });
+});
 
 it("moves the panel glow with the pointer and clears it on leave", () => {
   render(<ClaudeStyleAiInput onSendMessage={vi.fn()} />);

@@ -41,7 +41,6 @@ type Props = {
   workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
   artifactReviewEpoch: number;
   sessionResponding: boolean;
-  presentDrawer: boolean;
   onLayoutChange(layout: SidecarLayout): void;
   onHide(): void;
   onReference(reference: AgentInputReference & { id: string }): void;
@@ -68,7 +67,7 @@ const LazySidecarTerminal = lazy(async () => {
 });
 
 export function SidecarResources({ ref, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
-  sessionResponding, presentDrawer, onLayoutChange, onHide, onReference, onAskForSpreadsheetChange: handleSpreadsheetAskForChange,
+  sessionResponding, onLayoutChange, onHide, onReference, onAskForSpreadsheetChange: handleSpreadsheetAskForChange,
   onHandoff, onError: reportTimelineError }: Props) {
   const { t } = useTranslation("chat");
   const browser = useSidecarBrowserState(chatStore, activeSession?.id ?? "");
@@ -448,7 +447,7 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
         browserRuntime={chatStore.browserRuntime}
         externalError={browserProvisionErrors[tab.id] || browserError}
         snapshot={browserSnapshot?.data.sessionId === tab.threadId ? browserSnapshot : undefined}
-        surfaceVisible={surfaceVisible && !presentDrawer}
+        surfaceVisible={surfaceVisible}
         tab={tab}
         onHandoffComplete={() => handleBrowserHandoffComplete(tab)}
         onRetryProvision={() => {

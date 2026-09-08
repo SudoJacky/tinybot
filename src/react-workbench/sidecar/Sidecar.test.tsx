@@ -150,13 +150,14 @@ describe("Sidecar", () => {
     expect(props.onCreateTerminal).toHaveBeenCalledWith("cmd");
   });
 
-  it("marks the native browser surface obscured while the New Tab menu is open", async () => {
+  it("keeps browser resources presented while their surface coordinates menu occlusion", async () => {
     const user = userEvent.setup();
     renderSidecar({ activeTabId: "browser-1" });
 
     expect(screen.getByText("Browser surface visible")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "New Sidecar tab" }));
-    expect(screen.getByText("Browser surface hidden")).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Choose a resource" })).toBeTruthy();
+    expect(screen.getByText("Browser surface visible")).toBeTruthy();
   });
 
   it("supports arrow-key tab navigation and Delete to close", async () => {

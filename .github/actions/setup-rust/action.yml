@@ -1,0 +1,19 @@
+name: Set up cached Rust
+description: Use the same Rust toolchain and dependency cache for CI and releases
+inputs:
+  target:
+    description: Rust target triple
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: 1.98.1
+        targets: ${{ inputs.target }}
+        components: rustfmt
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri -> target
+        shared-key: ${{ runner.os }}-${{ inputs.target }}
+        cache-on-failure: true

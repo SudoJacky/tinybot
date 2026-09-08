@@ -11,7 +11,6 @@ import {
   FolderOpen,
   Loader2,
   MoreHorizontal,
-  PanelRightClose,
   PanelRightOpen,
   X,
 } from "lucide-react";
@@ -40,7 +39,7 @@ import {
   readCurrentChatReasoningEffort,
   writeCurrentChatReasoningEffort,
 } from "../../app-core/chat/reasoningEffort";
-import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
+import { importDesktopChatFiles, pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -87,6 +86,8 @@ import {
 import { ChatTimeline } from "./ChatTimeline";
 import { captureConversationView, restoreConversationView, type ConversationViewState } from "./conversationViewport";
 import { EmptyChatStart } from "./EmptyChatStart";
+import { QuickStart } from "./QuickStart";
+import { useQuickStart } from "./useQuickStart";
 import { FloatingPlanStatus } from "./FloatingPlanStatus";
 import type { AssistantFileLink } from "./assistantFileLinks";
 import {
@@ -107,6 +108,8 @@ export type ChatPageProps = {
   toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
   workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
   createSessionSignal?: number;
+  quickStartRequest?: number | null;
+  onQuickStartHandled?: () => void;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
@@ -247,6 +250,8 @@ export function ChatPage({
   activateSessionRequest = null,
   chatStore,
   createSessionSignal = 0,
+  quickStartRequest = null,
+  onQuickStartHandled,
   now = Date.now,
   onActiveWorkspaceChange,
   onMascotMoodChange,
@@ -273,8 +278,9 @@ export function ChatPage({
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [composerModel, setComposerModel] = useState("");
+  const quickStart = useQuickStart(settingsStore);
+  const composerModels = useMemo(() => quickStart.models.map((model) => toComposerModelOption(model, t)), [quickStart.models, t]);
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [composerSkills, setComposerSkills] = useState<SkillSummary[]>([]);
   const [composerTools, setComposerTools] = useState<ToolSummary[]>([]);
@@ -286,8 +292,15 @@ export function ChatPage({
   const drawerElementRef = useRef<HTMLElement>(null);
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const sidecarToggleRef = useRef<HTMLButtonElement>(null);
+  const restoreSidecarFocusRef = useRef(false);
   const sidecarResources = useRef<SidecarResourcesHandle>(null);
   const [sidecar, setSidecar] = useState<SidecarLayout>(initialSidecarLayout);
+  useLayoutEffect(() => {
+    if (sidecar.presentation === "closed" && restoreSidecarFocusRef.current) {
+      restoreSidecarFocusRef.current = false;
+      sidecarToggleRef.current?.focus();
+    }
+  }, [sidecar.presentation]);
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
@@ -354,6 +367,9 @@ export function ChatPage({
   } = chatState;
   const { reportError: reportTimelineError } = chatActions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
+  const completedTask = timeline?.source === "canonical" && timeline.turns.some((turn) => turn.status === "completed" && Boolean(turn.userMessage.text.trim()));
+  const { completeTask } = quickStart;
+  useEffect(() => { if (completedTask) completeTask(); }, [completedTask, completeTask]);
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const composerSkillOptions = useMemo(
@@ -449,6 +465,15 @@ export function ChatPage({
   );
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
+  const showQuickStart = emptyActiveSession && quickStart.visible;
+  const openQuickStart = useEffectEvent(() => {
+    quickStart.open();
+    if (!emptyActiveSession) void handleCreateSession();
+    onQuickStartHandled?.();
+  });
+  useEffect(() => {
+    if (sessionsLoaded && quickStartRequest !== null) openQuickStart();
+  }, [sessionsLoaded, quickStartRequest]);
   const sessionRunning = activeSession?.status === "running";
   const activeTurn = useMemo(() => timelineLoaded
     ? [...(timeline?.turns ?? [])].reverse().find((turn) => (
@@ -550,32 +575,7 @@ export function ChatPage({
   }, [activateSessionRequest, reportTimelineError, sessionsLoaded]);
 
   useEffect(() => {
-    if (!settingsStore?.loadChatModels) {
-      setComposerModels([]);
-      setComposerModel("");
-      return;
-    }
-    let cancelled = false;
-    void settingsStore.loadChatModels().then((models) => {
-      if (cancelled) {
-        return;
-      }
-      const nextModels = models.map((model) => toComposerModelOption(model, t));
-      setComposerModels(nextModels);
-      setComposerModel(resolveComposerModel(nextModels));
-    }).catch(() => {
-      if (!cancelled) {
-        setComposerModels([]);
-        setComposerModel("");
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [settingsStore, t]);
-
-  useEffect(() => {
-    if (!composerModels.length) return;
+    if (!composerModels.length) { setComposerModel(""); return; }
     const model = resolveComposerModel(
       composerModels,
       activeSession?.model,
@@ -791,6 +791,7 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
+    if (quickStart.visible) quickStart.beginTask();
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
     await chatActions.send({
       availableSessionIds: availableMentionIds,
@@ -1032,7 +1033,7 @@ export function ChatPage({
         data-sidecar-layout-motion={sidecar.layoutMotion}
         style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
       >
-      <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
+      <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined} data-quick-start={showQuickStart || undefined}>
         <header className="react-chat-header">
           <h1 className="react-chat-header__title">{headerTitle}</h1>
           <SessionTabStrip
@@ -1042,18 +1043,17 @@ export function ChatPage({
             onClose={handleCloseSessionTab}
           />
           <div className="react-chat-header__actions">
-            <button
-              aria-label={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
-              aria-pressed={sidecar.presentation !== "closed"}
-              ref={sidecarToggleRef}
-              title={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
-              type="button"
-              onClick={() => sidecarResources.current?.toggle()}
-            >
-              {sidecar.presentation === "closed"
-                ? <PanelRightOpen aria-hidden="true" size={17} />
-                : <PanelRightClose aria-hidden="true" size={17} />}
-            </button>
+            {sidecar.presentation === "closed" ? (
+              <button
+                aria-label={t("sidecar.show")}
+                ref={sidecarToggleRef}
+                title={t("sidecar.show")}
+                type="button"
+                onClick={() => sidecarResources.current?.toggle()}
+              >
+                <PanelRightOpen aria-hidden="true" size={17} />
+              </button>
+            ) : null}
             <button
               aria-label={t("shell.conversationMenu")}
               title={t("shell.conversationMenu")}
@@ -1113,7 +1113,23 @@ export function ChatPage({
             turns={activeSession ? timeline?.turns ?? [] : []}
           />
           {activeSession && timeline?.turns.length ? null : emptyActiveSession ? (
-            <EmptyChatStart
+            showQuickStart && settingsStore ? <QuickStart
+              ready={quickStart.models.length > 0}
+              settingsStore={settingsStore}
+              onConfigured={() => { quickStart.reloadModels(); setComposerFocusRequestId((current) => current + 1); }}
+              onDismiss={() => { quickStart.dismiss(); setComposerFocusRequestId((current) => current + 1); }}
+              onExample={(text) => {
+                handleComposerDraftChange(composerDraft.trim() ? `${composerDraft}\n\n${text}` : text);
+                setComposerFocusRequestId((current) => current + 1);
+              }}
+              onAddWorkspace={async () => {
+                const path = await chooseWorkspace();
+                if (path) handleDraftWorkspaceChange(path);
+                return path;
+              }}
+              workspaceEnabled={Boolean(draftNewSession && !activeDraft?.createInput.projectCoordinator && !activeDraft?.createInput.projectGroupId)}
+              pending={workspacePickerPending}
+            /> : <EmptyChatStart
               availableWorkspaces={availableWorkspaces}
               selectedWorkspacePath={activeDraft?.createInput.workingDirectory}
               workspaceError={workspaceError}
@@ -1163,6 +1179,7 @@ export function ChatPage({
               ) : null}
             </section>
           ) : null}
+          {quickStart.error ? <p role="alert">{t("quickStart.modelsLoadFailed", { message: quickStart.error })} <button type="button" onClick={quickStart.reloadModels}>{t("quickStart.retry")}</button></p> : null}
           {visibleAgentUiForms.length ? (
             <div className="react-agent-ui-forms" aria-label={t("turn.agentForms")}>
               {visibleAgentUiForms.map((form) => (
@@ -1265,6 +1282,8 @@ export function ChatPage({
           placeholder={emptyActiveSession ? t("shell.taskPlaceholder") : t("shell.messagePlaceholder")}
           value={composerDraft}
           onSelectFiles={pickDesktopChatFiles}
+          onImportFiles={importDesktopChatFiles}
+          attachmentContextKey={activeSessionId}
           onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
@@ -1281,9 +1300,8 @@ export function ChatPage({
         workspaceStore={workspaceStore}
         artifactReviewEpoch={artifactReviewEpoch}
         sessionResponding={sessionResponding}
-        presentDrawer={Boolean(presentDrawer)}
         onLayoutChange={setSidecar}
-        onHide={() => sidecarToggleRef.current?.focus()}
+        onHide={() => { restoreSidecarFocusRef.current = true; }}
         onReference={(reference) => {
           setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
           setComposerFocusRequestId((current) => current + 1);
@@ -1297,6 +1315,7 @@ export function ChatPage({
         <aside
           ref={drawerElementRef}
           className="react-right-drawer"
+          data-native-overlay="modal"
           aria-label={t("shell.detailsDrawer")}
           aria-hidden={!currentDrawer || undefined}
           inert={!currentDrawer || undefined}

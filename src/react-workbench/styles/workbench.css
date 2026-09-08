@@ -800,9 +800,10 @@ button:disabled {
 }
 
 .react-session-list {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: clamp(220px, 25vw, 280px);
+  width: var(--session-sidebar-width, 280px);
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--color-hairline);
@@ -812,7 +813,54 @@ button:disabled {
 }
 
 .react-session-list[data-collapsed="true"] {
-  width: 64px;
+  width: 42px;
+}
+
+.react-session-list[data-resizing="true"][data-collapsed="false"] {
+  transition: none;
+}
+
+.react-session-list:not([data-collapsed="true"]) > .react-session-list__rows {
+  margin-right: 8px;
+}
+
+.react-session-sidebar-resize {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.react-session-sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-accent);
+  opacity: 0;
+}
+
+.react-session-sidebar-resize:focus {
+  outline: none;
+}
+
+.react-session-sidebar-resize:hover::after,
+.react-session-sidebar-resize:focus-visible::after {
+  opacity: 0.45;
+}
+
+.react-session-list[data-resizing="true"] .react-session-sidebar-resize::after {
+  opacity: calc(0.45 + var(--collapse-progress, 0) * 0.55);
+}
+
+.react-session-list[data-collapsed="true"]:not([data-resizing="true"]) .react-session-sidebar-resize {
+  display: none;
 }
 
 .react-session-list__header {
@@ -822,10 +870,22 @@ button:disabled {
 }
 
 .react-session-list__title-row {
+  position: relative;
+  height: 32px;
+}
+
+.react-session-list__title-default {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  height: 100%;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-session-list__title-row[data-search-open="true"] .react-session-list__title-default {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .react-session-list__title-actions {
@@ -916,21 +976,34 @@ button:disabled {
 }
 
 .react-session-list__inline-search {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 4px;
   width: 100%;
   min-width: 0;
-  height: 34px;
+  height: 32px;
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
   background: var(--color-panel);
   padding: 0 3px 0 9px;
   color: var(--color-muted);
-  transform-origin: right center;
-  animation: react-session-search-expand var(--motion-duration-fast) var(--motion-ease-standard) both;
+  clip-path: inset(0 36px 0 calc(100% - 68px) round 9px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    clip-path var(--motion-duration-fast) var(--motion-ease-standard),
+    opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-session-list__title-row[data-search-open="true"] .react-session-list__inline-search {
+  clip-path: inset(0 round 9px);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .react-session-list__inline-search:focus-within {
@@ -941,6 +1014,8 @@ button:disabled {
 .react-session-list__inline-search input {
   width: 100%;
   min-width: 0;
+  height: 28px;
+  min-height: 0;
   border: 0;
   outline: 0;
   background: transparent;
@@ -968,19 +1043,24 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
+  gap: 6px;
+  padding: 5px 4px;
 }
 
 .react-session-list__collapsed-nav > button {
   display: inline-grid;
   place-items: center;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  min-height: 40px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
   padding: 0;
   color: var(--color-muted);
+}
+
+.react-session-list__collapsed-nav > button > svg {
+  width: 16px;
+  height: 16px;
 }
 
 .react-session-list__collapsed-nav > button:hover,
@@ -1003,7 +1083,7 @@ button:disabled {
 }
 
 .react-session-list__collapsed-mascot .react-tinybot-mascot {
-  --tinybot-mascot-size: 30px;
+  --tinybot-mascot-size: 24px;
 }
 
 .react-session-list__collapsed-expand {
@@ -1026,18 +1106,6 @@ button:disabled {
 .react-session-list__search-close:hover,
 .react-session-list__search-close:focus-visible {
   color: var(--color-ink);
-}
-
-@keyframes react-session-search-expand {
-  from {
-    clip-path: inset(0 0 0 calc(100% - 32px) round 9px);
-    opacity: .65;
-  }
-
-  to {
-    clip-path: inset(0 round 9px);
-    opacity: 1;
-  }
 }
 
 .react-session-list__add-workspace:disabled {
@@ -1574,6 +1642,25 @@ button:disabled {
   background: transparent;
 }
 
+.react-session-show-more {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 6px 0 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.react-session-show-more:hover,
+.react-session-show-more:focus-visible {
+  background: var(--color-cream-strong);
+  color: var(--color-ink);
+}
+
 .react-session-row__title,
 .react-session-row__select small {
   overflow: hidden;
@@ -1718,7 +1805,8 @@ button:disabled {
   align-items: center;
   gap: 7px;
   min-width: 0;
-  min-height: 44px;
+  height: 100%;
+  min-height: 0;
   flex: 1;
   overflow: hidden;
   border-radius: 0;
@@ -1777,10 +1865,10 @@ button:disabled {
 .react-session-tab__close {
   display: inline-grid;
   place-items: center;
-  width: 40px;
-  min-width: 40px;
-  height: 44px;
-  min-height: 44px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
   border-radius: 0;
   padding: 0;
   color: var(--color-muted-soft);
@@ -1811,10 +1899,10 @@ button:disabled {
 .react-session-tabs__overflow > button {
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
   padding: 0;
   color: var(--color-muted);
 }
@@ -2032,6 +2120,8 @@ button:disabled {
   }
 
   .react-session-list,
+.react-session-list__inline-search,
+.react-session-list__title-default,
 .react-session-list__collapsed-home > * {
     transition-duration: 0ms;
   }

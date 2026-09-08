@@ -74,7 +74,20 @@ pub(crate) fn store_image_attachment(
             source.display()
         ));
     }
-    let content_hash = sha256_hex(&bytes);
+    store_image_attachment_bytes(&bytes, data_root)
+}
+
+pub(crate) fn store_image_attachment_bytes(
+    bytes: &[u8],
+    data_root: &Path,
+) -> Result<Option<ManagedImageAttachment>, String> {
+    let Some(mime_type) = detect_supported_image_mime(bytes) else {
+        return Ok(None);
+    };
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("image attachment exceeds the 32 MiB size limit".to_string());
+    }
+    let content_hash = sha256_hex(bytes);
     let directory = data_root.join(MANAGED_IMAGE_DIRECTORY);
     fs::create_dir_all(&directory).map_err(|error| {
         format!(
@@ -83,13 +96,39 @@ pub(crate) fn store_image_attachment(
         )
     })?;
     let target = directory.join(format!("{content_hash}.{}", extension_for_mime(mime_type)));
-    write_content_addressed_file(&target, &bytes)?;
+    write_content_addressed_file(&target, bytes)?;
     Ok(Some(ManagedImageAttachment {
         content_hash,
         mime_type: mime_type.to_string(),
         path: target.display().to_string(),
         size_bytes: bytes.len() as u64,
     }))
+}
+
+pub(crate) fn store_document_attachment_bytes(
+    name: &str,
+    bytes: &[u8],
+    data_root: &Path,
+) -> Result<String, String> {
+    // The filename is display metadata too, but must never select a storage directory.
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name
+            .chars()
+            .any(|c| c.is_control() || "<>:\"/\\|?*".contains(c))
+        || name.ends_with(['.', ' '])
+    {
+        return Err("attachment filename is invalid".to_string());
+    }
+    let directory = data_root
+        .join("chat-attachments/files")
+        .join(sha256_hex(bytes));
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("failed to create managed file directory: {error}"))?;
+    let target = directory.join(name);
+    write_content_addressed_file(&target, bytes)?;
+    Ok(target.display().to_string())
 }
 
 pub(crate) fn managed_image_data_url(

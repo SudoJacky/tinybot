@@ -829,6 +829,10 @@ fn native_config_defaults_to_schema_v2_deepseek_profile_without_config_file() {
         native_config_snapshot_from_path(&fixture.root.join("missing-config.json")),
         serde_json::json!({
             "schemaVersion": 2,
+            "tools": {
+                "web": { "enable": true },
+                "exec": { "enable": true }
+            },
             "agents": {
                 "defaults": {
                     "activeProfile": "deepseek-default",

@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:ddb52df5d393ece1afacf1022f2a94861379a6247fd568308b406775ee57b3a5 -->
+<!-- tinybot-module-fingerprint: sha256:c6087b0f65c474508965db38f167c2035e0c7ef658a802502f94b56d64a27a14 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -7,6 +7,9 @@ semantics, validation, pane models, and persistence patch construction.
 It is the source of truth for secret handling, defaults, commit behavior, and
 dirty-state semantics. React pages present these models, while the desktop
 Settings adapter performs native reads and writes.
+
+Web/browser tools and Exec tools default to enabled when their configuration
+flags are absent; explicit disabled values remain disabled in the settings form.
 
 Agent context-window defaults must remain aligned with the Rust runtime.
 Provider model settings persist `modelContextWindows` per profile and model;

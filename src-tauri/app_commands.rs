@@ -100,6 +100,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "apply_config_patch_result",
     "apply_config_operations",
     "pick_chat_files",
+    "import_chat_file",
     "desktop_pet_drop_signal",
     "pick_workspace_directory",
     "pick_upload_file",

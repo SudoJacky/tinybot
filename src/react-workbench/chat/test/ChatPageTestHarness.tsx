@@ -78,6 +78,7 @@ function testWorkspaceEntry(path: string, updatedAtMs: number): WorkspaceRegistr
 
 const nativeFilePickerMockState = vi.hoisted(() => ({
   pickDesktopChatFiles: vi.fn(),
+  importDesktopChatFiles: vi.fn(),
 }));
 
 const nativeWorkspacePickerMockState = vi.hoisted(() => ({
@@ -86,6 +87,7 @@ const nativeWorkspacePickerMockState = vi.hoisted(() => ({
 
 export const nativeFilePickerMocks = {
   pickDesktopChatFiles: nativeFilePickerMockState.pickDesktopChatFiles,
+  importDesktopChatFiles: nativeFilePickerMockState.importDesktopChatFiles,
 };
 
 export const nativeWorkspacePickerMocks = {
@@ -94,6 +96,7 @@ export const nativeWorkspacePickerMocks = {
 
 vi.mock("../../../app-core/native/desktopNativeFilePicker", () => ({
   pickDesktopChatFiles: nativeFilePickerMockState.pickDesktopChatFiles,
+  importDesktopChatFiles: nativeFilePickerMockState.importDesktopChatFiles,
 }));
 
 vi.mock("../../../app-core/native/desktopNativeWorkspacePicker", () => ({
@@ -107,6 +110,7 @@ vi.mock("../../sidecar/SidecarTerminal", () => ({
 afterEach(() => {
   cleanup();
   nativeFilePickerMocks.pickDesktopChatFiles.mockReset();
+  nativeFilePickerMocks.importDesktopChatFiles.mockReset();
   nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockReset();
   window.localStorage.clear();
   document.head.querySelectorAll("[data-test-style='workbench']").forEach((element) => element.remove());

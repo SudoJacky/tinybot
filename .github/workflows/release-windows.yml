@@ -20,7 +20,12 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
+
+# Serialize releases, including updates to the shared latest release pointer.
+concurrency:
+  group: release-windows-x64
+  cancel-in-progress: false
 
 jobs:
   release-windows-x64:
@@ -31,6 +36,8 @@ jobs:
       CARGO_NET_RETRY: "10"
       CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
 
     steps:
       - name: Checkout code
@@ -39,14 +46,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || github.ref }}
 
-      - name: Verify release source
-        shell: pwsh
-        run: |
-          git merge-base --is-ancestor HEAD origin/master
-          if ($LASTEXITCODE -ne 0) {
-            throw "Release tags must point to a commit on master"
-          }
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -54,19 +53,43 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Verify release version
+        run: node .github/scripts/check-release-version.mjs "$env:RELEASE_TAG"
+
+      - name: Verify release source and tag
+        id: source
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor HEAD origin/master
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tags must point to a commit on master"
+          }
+          $headCommit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw "Could not resolve release commit" }
+          git show-ref --verify --quiet "refs/tags/$env:RELEASE_TAG"
+          $tagStatus = $LASTEXITCODE
+          if ($tagStatus -eq 0) {
+            $tagCommit = git rev-parse "refs/tags/${env:RELEASE_TAG}^{commit}"
+            if ($LASTEXITCODE -ne 0) { throw "Could not resolve release tag" }
+            if ($tagCommit -ne $headCommit) {
+              throw "Release tag $env:RELEASE_TAG already points to a different commit"
+            }
+          } elseif ($tagStatus -ne 1) {
+            throw "Could not check release tag"
+          }
+          "commit=$headCommit" >> $env:GITHUB_OUTPUT
+          exit 0
+
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/setup-rust
         with:
-          targets: x86_64-pc-windows-msvc
+          target: x86_64-pc-windows-msvc
 
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify release version
-        run: node .github/scripts/check-release-version.mjs "$env:RELEASE_TAG"
-
-      - name: Test updater manifest customization
-        run: node --test .github/scripts/customize-updater-manifest.test.mjs
+      - name: Test release tooling
+        run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs
 
       - name: Run frontend tests
         run: npm test
@@ -74,64 +97,73 @@ jobs:
       - name: Test frontend build tooling
         run: npm run test:frontend-analysis
 
-      - name: Build frontend
-        run: npm run build
-
       - name: Check Rust formatting
         working-directory: src-tauri
         run: cargo fmt --check
 
       - name: Run updater tests
         working-directory: src-tauri
-        run: cargo test --lib desktop::update::tests -- --test-threads=1
+        run: cargo test --locked --lib desktop::update::tests -- --test-threads=1
 
-      - name: Ensure manual release tag
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        shell: pwsh
-        run: |
-          $headCommit = git rev-parse HEAD
-          $tagCommit = git rev-list -n 1 "$env:RELEASE_TAG" 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            if ($tagCommit -ne $headCommit) {
-              throw "Release tag $env:RELEASE_TAG already points to a different commit"
-            }
-            Write-Host "Release tag $env:RELEASE_TAG already points to $headCommit"
-          } else {
-            git tag "$env:RELEASE_TAG" HEAD
-            git push origin "refs/tags/$env:RELEASE_TAG"
-          }
-
-      - name: Build and upload signed updater artifacts
-        uses: tauri-apps/tauri-action@v1
+      - name: Build signed Windows installer
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri -- build --ci --bundles nsis --target x86_64-pc-windows-msvc -- --locked
+
+      - name: Prepare and validate updater artifacts
+        run: node .github/scripts/windows-release.mjs prepare src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis release-artifacts
+
+      - name: Save signed release artifacts
+        uses: actions/upload-artifact@v4
         with:
-          tagName: v__VERSION__
-          releaseName: Tinybot Desktop v__VERSION__
-          releaseBody: ${{ inputs.release_notes || '' }}
-          releaseDraft: true
-          prerelease: false
-          generateReleaseNotes: ${{ inputs.release_notes == '' }}
-          updaterJsonPreferNsis: true
-          args: --bundles nsis --target x86_64-pc-windows-msvc
+          name: windows-x64-release
+          path: release-artifacts/
+          if-no-files-found: error
+          overwrite: true
+          compression-level: 0
+          retention-days: 14
 
-      - name: Apply custom updater notes
-        if: ${{ inputs.release_notes != '' || inputs.display_notes != '' }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPDATE_DISPLAY_NOTES: ${{ inputs.display_notes }}
-          UPDATE_RELEASE_NOTES: ${{ inputs.release_notes }}
+  publish:
+    needs: release-windows-x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      RELEASE_COMMIT: ${{ needs.release-windows-x64.outputs.commit }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPDATE_DISPLAY_NOTES: ${{ inputs.display_notes }}
+      UPDATE_RELEASE_NOTES: ${{ inputs.release_notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-windows-x64.outputs.commit }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-release
+          path: release-artifacts
+
+      - name: Ensure release tag matches the built commit
+        shell: bash
         run: |
-          $manifestDirectory = Join-Path $env:RUNNER_TEMP "tinybot-updater-manifest"
-          New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
-          gh release download "$env:RELEASE_TAG" --pattern "latest.json" --dir $manifestDirectory --clobber
-          node .github/scripts/customize-updater-manifest.mjs (Join-Path $manifestDirectory "latest.json")
-          gh release upload "$env:RELEASE_TAG" (Join-Path $manifestDirectory "latest.json") --clobber
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            tag_commit=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+            if [ "$tag_commit" != "$RELEASE_COMMIT" ]; then
+              echo "Release tag $RELEASE_TAG points to $tag_commit, expected $RELEASE_COMMIT" >&2
+              exit 1
+            fi
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then exit "$status"; fi
+            git tag "$RELEASE_TAG" "$RELEASE_COMMIT"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
 
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$env:RELEASE_TAG" --draft=false --latest
+      - name: Publish validated updater artifacts
+        run: node .github/scripts/windows-release.mjs publish release-artifacts

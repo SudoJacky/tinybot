@@ -1043,7 +1043,7 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
         "agents": { "defaults": {
             "provider": "fixture",
             "model": "fixture-model",
-            "contextWindowTokens": 800,
+            "contextWindowTokens": 1600,
             "contextWindowStrategy": "compact",
             "compactTriggerPercent": 50,
             "compactSummaryMaxTokens": 32
@@ -1071,7 +1071,10 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
     )
     .expect("session compaction should commit through thread-log authority");
 
-    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(
+        result["stopReason"], "final_response",
+        "session compaction should complete successfully: {result:#}"
+    );
     assert_eq!(result["contextCheckpoint"]["checkpointStage"], "finalized");
     assert_eq!(result["contextCheckpoint"]["windowNumber"], 1);
     assert_eq!(

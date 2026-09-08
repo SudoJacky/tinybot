@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:8fd16e7f2266fa9bd187583d9a912cb01dd070d589a8bf409e0d93e83215687e -->
+<!-- tinybot-module-fingerprint: sha256:e1b0e1938512b83adffa3dfef0ef579c98a4d9772bb207da3560719bbf48f810 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -9,6 +9,10 @@ interaction independent from native storage. The composer supports internal
 attachment state for ordinary Chat and controlled attachment state for native
 entry points such as desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
+File drops and clipboard files use the injected `onImportFiles` adapter; plain
+text paste keeps its existing editor behavior. A nested-safe drop cue and import
+status share the panel. Pending imports block sending and cannot attach to a
+different `attachmentContextKey` after navigation.
 Route-owned context references can opt into an expanded annotation card with a
 header, body value, and note while preserving the same remove and successful-send
 clearing callbacks as compact references.
@@ -42,3 +46,15 @@ Route orchestration and domain-specific state stay in `react-workbench` and
 `useModalDialog` is the shared seam for modal focus, keyboard navigation,
 background dismissal, focus restoration, and body scroll locking. Route-owned
 dialogs keep their visual structure and domain actions local.
+
+`useNativeSurfaceOcclusion` coordinates native child surfaces with shared overlay
+semantics across routes and portals. Rendered modal dialogs block native surfaces
+for their entire presence, including retained exit animation and nested dialogs.
+Local menus, listboxes, dialogs, and `react-popover-surface` elements block only
+intersecting surfaces. Hidden ancestors and inactive aria-hidden layers do not
+block. Custom retained overlays declare `data-native-overlay="modal"` or `"local"`.
+An exit layer keeps its marker until unmount and may use `data-state="closing"`
+while already inert. No route-specific dialog flags enter native resource owners.
+Mutation and resize observers track relevant overlay changes; finite overlay
+motion is measured per frame, while unrelated streaming text does not trigger
+geometry reads. Native hosts expose `data-occlusion` for inspection.

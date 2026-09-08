@@ -1,10 +1,13 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:e5a85df4cde69db91832c8019c647c55117d3af00f8e4b8e7d9bd8ac764e1462 -->
+<!-- tinybot-module-fingerprint: sha256:3a5a1e3b8aa64ab94f9b621957ac05c7c1fda9a914b8183a0970cce5279ec468 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 
 It separates application settings, registry entries, runtime configuration,
 secret handling, and the underlying configuration store.
+
+New native configuration snapshots explicitly enable Web/browser and Exec tools.
+Existing configuration values are preserved when loading user settings.
 
 The Rust store is the schema migration boundary. Schema v1 files are backed up
 once as `config.json.v1.bak` and migrated atomically to schema v2. Provider Auto

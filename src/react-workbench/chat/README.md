@@ -1,9 +1,45 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:4d87fc632d93d5696af9a45470600a7dea03f37ceea596c49a86013634965b37 -->
+<!-- tinybot-module-fingerprint: sha256:105e8e2fad2562b81fe57c7a0a8a5b878888fa7b5efd91896ccf71c91654b4e0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
-`ChatPage.tsx` is the route-level composition module.
+`ChatPage.tsx` is the route-level composition module. Its composer receives
+the native file importer for drag-and-drop and clipboard attachments, plus
+the active session identity to invalidate imports after navigation.
+`useQuickStart` owns model catalog loading and local onboarding progress. New
+users without usable models see an inline welcome card; configured users are
+left alone. Dismissal and completion persist, and Help can explicitly reopen
+the guide in an empty draft without creating a native Thread. `QuickStart`
+connects providers through the existing Settings store and patch builders.
+Model discovery saves the connection and checks only the catalog endpoint;
+successful canonical user Turns establish task completion. Errors remain
+visible with retry. Examples append to the composer without sending, and
+project examples use the existing workspace picker. The model dialog uses the
+shared modal focus and native-surface occlusion conventions.
+`SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
+width defaults to 280 px and ranges from 220 to 420 px, with the maximum reduced
+to reserve 480 px for the chat workspace where possible. Pointer movement updates
+only sidebar geometry and the separator, without rerendering Chat content.
+Dragging 48 px beyond the minimum invokes the existing collapse operation while
+retaining pointer capture and focus. Dragging back to the minimum expanded width
+reopens the sidebar and continues the same gesture, with a 48 px gap between the
+two thresholds to prevent toggling near the boundary. Release while collapsed
+retains the last saved expanded width. Completed expanded resize gestures persist
+width in localStorage, while window constraints never overwrite the preference.
+Escape, pointer cancellation, capture loss, blur, and unmount release the drag.
+The separator supports arrow keys (8 px, or 32 px with Shift), Home/End, and
+double-click reset. Tests cover persistence, bounds, cancellation, focus, and
+render isolation.
+Inline session search stays mounted within the expanded sidebar so both opening
+and closing can transition, including rapid reversals. The inactive search or
+title controls are inert and hidden from accessibility APIs. Closing clears the
+query and immediately restores trigger focus; Escape follows the same path.
+Workspace session lists initially show six rows. Each workspace independently
+reveals twelve rows on the first Show more click and all remaining rows on the
+second. General chats and project member workspaces use the same behavior;
+project coordinator rows remain fully visible. Search shows every matching row
+and clearing it restores the previous reveal limit. Ordering uses the full list,
+and keyboard moves across a reveal limit expand it to retain the focused row.
 `useChatApplication.ts` coordinates submission, session data, turn commands,
 active runtime effects, background subscriptions, and effective-capability
 queries. The page supplies the selected session and composer context and receives
@@ -23,6 +59,11 @@ draft creation, ID/title reconciliation, deletion events, and visible failures.
 `SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
 coordination. The page holds only Sidecar layout presentation and invokes its
 open/toggle operations; resource snapshots never enter page state.
+The Chat header offers an open action only while Sidecar is closed. When visible,
+Sidecar owns the single hide action in its toolbar, including expanded mode.
+Hiding restores keyboard focus after the Chat header's open action remounts.
+Chat header icon actions use centered 32px targets matching the Sidecar toolbar;
+the header is 42px tall including its bottom border, aligned with Sidecar.
 `useChatSubmission.ts` owns submission preparation, model-save ordering,
 optimistic message reconciliation, Artifact review capture, and compaction.
 Session operations are supplied through semantic operations; the page supplies
@@ -50,7 +91,9 @@ The ChatPage details drawer retains closing content through a reversible 220 ms
 opacity/transform transition using `lib/useExitPresence`. Closing immediately
 makes the drawer inert and restores trigger focus; reopening cancels pending
 removal. Thread changes clear incompatible details. Native Sidecar browser
-visibility remains suppressed until the details drawer has fully left.
+visibility remains suppressed until the details drawer has fully left through
+the shared overlay coordinator. The retained drawer declares a whole-window
+native overlay marker, without coupling its state to Sidecar resources.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.

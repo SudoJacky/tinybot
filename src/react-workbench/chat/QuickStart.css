@@ -1,0 +1,65 @@
+.react-quick-start {
+  width: min(520px, 100%);
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.react-quick-start header,
+.react-quick-start-dialog header,
+.react-quick-start__actions,
+.react-quick-start__steps,
+.react-quick-start__steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.react-quick-start header,
+.react-quick-start-dialog header { justify-content: space-between; }
+.react-quick-start header > button,
+.react-quick-start-dialog header > button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.react-quick-start__eyebrow { color: var(--color-muted); font-size: 12px; }
+.react-quick-start h2 { margin: 8px 0; font-size: clamp(22px, 2.4vw, 28px); line-height: 1.25; }
+.react-quick-start p,
+.react-quick-start small,
+.react-quick-start-dialog p { color: var(--color-muted); line-height: 1.6; }
+.react-quick-start small { display: block; margin-top: 16px; }
+.react-quick-start__steps { padding: 0; margin: 20px 0; list-style: none; flex-wrap: wrap; color: var(--color-muted); font-size: 12px; }
+.react-quick-start__steps li { gap: 6px; }
+.react-quick-start__steps li > span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--color-hairline); border-radius: 50%; }
+.react-quick-start__steps li[data-complete="true"] { color: var(--color-accent); }
+.react-quick-start__examples { display: grid; gap: 8px; }
+.react-quick-start__examples button { display: flex; align-items: center; gap: 12px; padding: 12px; min-width: 0; text-align: left; border: 1px solid var(--color-hairline); border-radius: 10px; }
+.react-quick-start__examples button span { flex: 1; }
+.react-quick-start__examples svg { flex: 0 0 auto; }
+.react-quick-start__actions { flex-wrap: wrap; }
+.react-quick-start__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 6px 12px; }
+.react-quick-start__actions .react-quick-start__primary { background: var(--color-primary); color: var(--color-on-primary); }
+.react-quick-start-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 24%);
+  backdrop-filter: blur(4px);
+}
+.react-quick-start-dialog { box-sizing: border-box; width: min(440px, 100%); max-height: 100%; overflow: auto; padding: 24px; border: 1px solid var(--color-hairline); border-radius: 16px; background: var(--color-panel); color: var(--color-ink); box-shadow: 0 16px 48px rgb(0 0 0 / 18%); }
+.react-quick-start-dialog h2 { font-size: 20px; margin: 0; }
+.react-quick-start-dialog fieldset { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.react-quick-start-dialog label { display: grid; gap: 6px; font-size: 12px; }
+.react-quick-start-dialog input,
+.react-quick-start-dialog select { box-sizing: border-box; width: 100%; min-width: 0; height: 36px; padding: 6px 10px; border: 1px solid var(--color-hairline); border-radius: 6px; background: var(--color-canvas); color: var(--color-ink); }
+.react-quick-start-dialog__hint { font-size: 12px; margin: 0; }
+.react-quick-start [role="alert"],
+.react-quick-start-dialog [role="alert"] { color: var(--color-error); overflow-wrap: anywhere; }
+.react-chat-surface[data-quick-start="true"] .react-conversation-view { align-content: safe center; overflow: auto; padding: 24px; }
+.react-chat-surface[data-quick-start="true"] .react-composer--raised { padding-bottom: 24px; }

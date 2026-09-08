@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:6c6eb37affad269728bc7ba41acbb71ad127aec4c4d69913f2983ad050ab3305 -->
+<!-- tinybot-module-fingerprint: sha256:455c3b8c49cf4f494d937afa1bcd17f3074047817e70a2129e99ad21e8fad8ac -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -200,6 +200,7 @@ roles:
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/workspaces.json` | `workspace_registry` | Canonical imported-workspace paths, display names, and the one-time legacy-import marker |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
+| `~/.tinybot/chat-attachments/files/<sha256>/<filename>` | `chat_attachments` | Managed document copies imported from composer drops and clipboard files |
 | `~/.tinybot/chat-attachments/images/<sha256>.<ext>` | `chat_attachments` | Content-addressed local image copies referenced by durable chat messages and encoded only while building provider requests |
 | `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
 | `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Runtime input, execution, output, and node-to-Thread status |

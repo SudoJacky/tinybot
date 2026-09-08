@@ -397,7 +397,7 @@ export function Sidecar({
         id="tinybot-sidecar-panel"
         role="tabpanel"
       >
-        {contentPresent && activeTab?.kind === "browser" ? renderBrowser(activeTab, !hidden && !newTabMenuOpen) : null}
+        {contentPresent && activeTab?.kind === "browser" ? renderBrowser(activeTab, !hidden) : null}
         {contentPresent && activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
         {contentPresent && activeTab?.kind === "artifact" ? (
           <div className="react-sidecar__artifact">{renderArtifact(activeTab)}</div>

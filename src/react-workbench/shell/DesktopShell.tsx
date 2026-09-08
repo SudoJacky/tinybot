@@ -88,6 +88,7 @@ type TopMenuCommandId =
   | "open-performance-trace"
   | "open-docs"
   | "open-shortcut-help"
+  | "open-quick-start"
   | "open-report-issue"
   | "open-about"
   | "toggle-theme"
@@ -179,6 +180,7 @@ function createTopMenuItems(
     entries: [
       menuCommand({ id: "open-docs", label: t("menu.documentation"), externalUrl: TINYBOT_DOCUMENTATION_URL, shortcut: shortcuts["open-docs"] ?? undefined }),
       menuCommand({ id: "open-shortcut-help", label: t("menu.shortcutHelp"), settingsModule: "keyboard-shortcuts" }),
+      menuCommand({ id: "open-quick-start", label: t("menu.quickStart") }),
       menuSeparator("help-community-separator"),
       menuCommand({ id: "open-report-issue", label: t("menu.reportIssue"), externalUrl: TINYBOT_NEW_ISSUE_URL }),
       menuCommand({ id: "open-tinybot-repo", label: t("menu.tinybotRepo"), externalUrl: TINYBOT_GITHUB_URL }),
@@ -216,6 +218,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [sidebarMotionSource, setSidebarMotionSource] = useState<MotionSource>("pointer");
   const [createChatSignal, setCreateChatSignal] = useState(0);
+  const [quickStartRequest, setQuickStartRequest] = useState<number | null>(null);
   const [activateChatSessionRequest, setActivateChatSessionRequest] = useState<{
     sessionId: string;
     signal: number;
@@ -516,6 +519,10 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       return;
     }
     switch (command.id) {
+      case "open-quick-start":
+        setQuickStartRequest(Date.now());
+        navigateToRoute("chat");
+        return;
       case "open-about":
         setAboutOpenSignal((current) => current + 1);
         return;
@@ -683,6 +690,8 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
             chat={{
               activateSessionRequest: activateChatSessionRequest,
               createSessionSignal: createChatSignal,
+              quickStartRequest,
+              onQuickStartHandled: () => setQuickStartRequest(null),
               now,
               sessionSidebarCollapsed,
               onActiveWorkspaceChange: setActiveWorkspaceDirectory,
