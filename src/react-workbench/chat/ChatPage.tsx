@@ -13,15 +13,8 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./ChatPage.css";
-import {
-  MAX_QUEUED_INPUTS,
-  deleteQueuedInput,
-  dispatchNextQueuedInput,
-  pauseQueuedInputs,
-  resumeNextQueuedInput,
-  updateInterruptStatus,
-} from "../../app-core/chat/chatInputState";
-import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
+import { ChatQueueNotice, ChatQueuedInputs } from "./ChatQueuedInputs";
+import { useChatTurnApplication } from "./useChatTurnApplication";
 import {
   ClaudeStyleAiInput,
   type ComposerContextReference,
@@ -52,7 +45,6 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { DataViewCard } from "./DataViewCard";
 import {
-  canDispatchQueuedInput,
   projectChatEventEffects,
   projectTimelineSessionStatus,
 } from "./chatEventPolicy";
@@ -99,14 +91,7 @@ import type {
   NativeBrowserSnapshot,
 } from "../../app-core/native/nativeBrowserSnapshot";
 import {
-  THREAD_COMMAND_ACK_TIMEOUT_MS,
-  canonicalThreadCommandAcknowledgement,
-  canonicalThreadCommandCompletion,
-  createThreadAgentCancelCommand,
-  createThreadFormCancelCommand,
-  createThreadFormSubmitCommand,
   isThreadCommandInFlight,
-  reduceThreadCommandLifecycle,
   type ThreadCommandLifecycle,
   type ThreadCommand,
 } from "../../app-core/chat/threadCommand";
@@ -121,7 +106,6 @@ import {
 import {
   MAX_COMPOSER_SESSION_REFERENCES,
   prepareChatSubmission,
-  type QueuedComposerInput,
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
@@ -386,13 +370,7 @@ export function ChatPage({
   const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
   const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
   const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
-  const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
-    reduceThreadCommandLifecycle,
-    { stage: "idle" } as ThreadCommandLifecycle,
-  );
   const [compactingSessionId, setCompactingSessionId] = useState("");
-  const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
-  const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
   const [artifactReviewEpoch, setArtifactReviewEpoch] = useState(0);
@@ -404,11 +382,6 @@ export function ChatPage({
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
   const sessionsRef = useRef<SessionSummary[]>([]);
-  const queuedInputsRef = useRef<Map<string, QueuedComposerInput[]>>(new Map());
-  const queuedInputSequence = useRef(0);
-  const interruptCancellationConfirmedInputIdsRef = useRef(new Set<string>());
-  const interruptDispatchingInputIdsRef = useRef(new Set<string>());
-  const interruptTerminalInputIdsRef = useRef(new Set<string>());
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
@@ -766,20 +739,20 @@ export function ChatPage({
       activeSession?.pluginMigration?.status === "pending"
       && latestTurnStatus === "completed"
     );
-  const cancelCapability = threadCapabilities.capabilities.agent.cancel;
-  const capabilityTargetsActiveTurn = !threadCapabilities.evaluatedTurnId
-    || threadCapabilities.evaluatedTurnId === activeTurn?.id;
-  const canCancelTurn = Boolean(
-    activeSession
-    && activeTurn
-    && threadCapabilities.threadId === activeSession.id
-    && capabilityTargetsActiveTurn
-    && cancelCapability.available
-  );
-  const cancelUnavailableReason = !capabilityTargetsActiveTurn
-    ? t("runtime.staleCapabilities")
-    : cancelCapability.reason || t("runtime.cancelUnavailable");
-  const cancelInFlight = isThreadCommandInFlight(commandLifecycle);
+  const {
+    application: chatApplication,
+    lifecycle: commandLifecycle,
+    canCancel: canCancelTurn,
+    cancelUnavailableReason,
+  } = useChatTurnApplication({
+    dispatch: chatStore.dispatch,
+    submitTurn: dispatchTurn,
+    refreshSessions: handleSessionStoreRefresh,
+    reportError: reportTimelineError,
+    clearError: clearTimelineError,
+    now,
+    t,
+  }, activePersistedSessionId, { timeline, capabilities: threadCapabilities });
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
     && commandLifecycle.command.kind !== "agent.cancel";
@@ -788,15 +761,6 @@ export function ChatPage({
     && isThreadCommandInFlight(commandLifecycle)
     ? commandLifecycle.command.form.formId
     : "";
-  const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
-  const canInterruptQueuedInput = Boolean(
-    activeTurn
-    && activeTurn.status !== "awaiting_user"
-    && !cancelInFlight
-    && !activeQueuedInputs.some((input) => (
-      input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
-    )),
-  );
   const activeContextUsage = useMemo(
     () => projectLatestContextUsage(timeline?.turns ?? [], contextUsageDefaults),
     [contextUsageDefaults, timeline],
@@ -844,59 +808,7 @@ export function ChatPage({
     setComposerSelectedSkillIds([]);
     setComposerSpreadsheetAnnotations([]);
     setComposerArtifactReferences([]);
-    dispatchCommandLifecycle({ type: "reset" });
   }, [activeSessionId]);
-
-  useEffect(() => {
-    if (!timeline || commandLifecycle.stage === "idle" || commandLifecycle.stage === "completed") return;
-    if (commandLifecycle.stage === "acknowledged") {
-      const completion = canonicalThreadCommandCompletion(
-        timeline.turns,
-        commandLifecycle.command,
-      );
-      if (!completion) return;
-      dispatchCommandLifecycle({
-        commandId: commandLifecycle.command.commandId,
-        completion,
-        nowMs: now(),
-        type: "operation_completed",
-      });
-      return;
-    }
-    const acknowledgement = canonicalThreadCommandAcknowledgement(
-      timeline.turns,
-      commandLifecycle.command.commandId,
-    );
-    if (!acknowledgement) return;
-    dispatchCommandLifecycle({
-      acknowledgement,
-      commandId: commandLifecycle.command.commandId,
-      nowMs: now(),
-      type: "canonical_acknowledged",
-    });
-  }, [commandLifecycle, now, timeline]);
-
-  useEffect(() => {
-    if (commandLifecycle.stage !== "sending" && commandLifecycle.stage !== "waiting_for_canonical") return;
-    const elapsed = Math.max(0, now() - commandLifecycle.dispatchedAtMs);
-    const timer = window.setTimeout(() => {
-      dispatchCommandLifecycle({ commandId: commandLifecycle.command.commandId, type: "ack_timeout" });
-    }, Math.max(0, THREAD_COMMAND_ACK_TIMEOUT_MS - elapsed));
-    return () => window.clearTimeout(timer);
-  }, [commandLifecycle, now]);
-
-  useEffect(() => {
-    if (commandLifecycle.stage === "idle") return;
-    if (commandLifecycle.command.kind === "operation.retry"
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`Retry failed: ${commandLifecycle.error}`);
-      return;
-    }
-    if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
-    }
-  }, [commandLifecycle, reportTimelineError]);
 
   useEffect(() => {
     return () => {
@@ -987,7 +899,9 @@ export function ChatPage({
 
   const handleBackgroundChatEvent = useEffectEvent((sessionId: string, event: ChatEvent) => {
     const effects = projectChatEventEffects(event);
+    chatApplication.receiveCommand(sessionId, event);
     if (event.timeline) {
+      chatApplication.receiveTimeline(sessionId, event.timeline);
       updateSessionStatusFromTimeline(sessionId, event.timeline);
       dispatchSessionTabs({ type: "activity", sessionId });
     }
@@ -995,7 +909,7 @@ export function ChatPage({
       dispatchSessionTabs({ type: "activity", sessionId });
     }
     if (effects.reloadSessions) {
-      void handleQueueStateAfterChatEvent(sessionId, event);
+      void chatApplication.receiveSessionEvent(sessionId, event);
     }
   });
   useEffect(() => {
@@ -1312,11 +1226,10 @@ export function ChatPage({
         sessionIdReplacement.previousSessionId,
         sessionIdReplacement.sessionId,
       ));
-      updateQueuedInputsBySession((current) => replaceMapKey(
-        current,
+      chatApplication.replaceSession(
         sessionIdReplacement.previousSessionId,
         sessionIdReplacement.sessionId,
-      ));
+      );
     }
     dispatchSessionTabs({
       type: "reconcile",
@@ -1426,10 +1339,10 @@ export function ChatPage({
       isRunning: activeSession ? sessionResponding : false,
       loadSessionTranscript: chatStore.copyMarkdown,
       message,
-      now: nextQueuedInputTimestamp,
+      now: chatApplication.nextInputTimestamp,
       options,
       pastedContent,
-      queuedInputs: activeQueuedInputs,
+      queuedInputs: chatApplication.queue(activePersistedSessionId).inputs,
       selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
       sessions: sessionsRef.current.map((session) => ({
@@ -1470,7 +1383,7 @@ export function ChatPage({
       return;
     }
     if (prepared.kind === "queue_limit_reached") {
-      setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
+      chatApplication.reportQueueLimit(activePersistedSessionId);
       return;
     }
     await defaultModelSavePromise.current;
@@ -1480,7 +1393,7 @@ export function ChatPage({
       return;
     }
     if (prepared.kind === "queue_input") {
-      handleQueuedComposerResult(sendSession.id, prepared.input);
+      chatApplication.enqueue(sendSession.id, prepared.input);
       return;
     }
     const visibleText = prepared.visibleText;
@@ -1525,62 +1438,6 @@ export function ChatPage({
     });
     setShowBackToLatest(false);
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }
-
-  function handleQueuedComposerResult(
-    sessionId: string,
-    input: QueuedComposerInput,
-  ) {
-    setQueueMessage("");
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      next.set(sessionId, [...(next.get(sessionId) ?? []), input]);
-      return next;
-    });
-  }
-
-  async function handleInterruptComposerResult(
-    sessionId: string,
-    turnId: string,
-    input: QueuedComposerInput,
-  ) {
-    setQueueMessage("");
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      next.set(sessionId, (next.get(sessionId) ?? []).map((candidate) => (
-        candidate.id === input.id ? input : candidate
-      )));
-      return next;
-    });
-    const command = createThreadAgentCancelCommand({
-      sessionId,
-      source: { control: "composer-interrupt", surface: "chat" },
-      turnId,
-    });
-    try {
-      await chatStore.dispatch(command);
-      interruptCancellationConfirmedInputIdsRef.current.add(input.id);
-      await sendPendingInterruptInput(sessionId);
-    } catch (error) {
-      interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
-      interruptTerminalInputIdsRef.current.delete(input.id);
-      updateInterruptForSession(sessionId, input.id, "failed");
-      throw error;
-    }
-  }
-
-  function updateInterruptForSession(
-    sessionId: string,
-    inputId: string,
-    status: "sent" | "failed",
-  ) {
-    updateQueuedInputsBySession((current) => {
-      const inputs = current.get(sessionId) ?? [];
-      if (!inputs.some((input) => input.id === inputId && input.mode === "interrupt")) return current;
-      const next = new Map(current);
-      next.set(sessionId, updateInterruptStatus(inputs, inputId, status) as QueuedComposerInput[]);
-      return next;
-    });
   }
 
   async function createSessionForDraft(): Promise<SessionSummary | null> {
@@ -1631,105 +1488,8 @@ export function ChatPage({
       : { type: "open", sessionId: created.id });
   }
 
-  function handleDeleteQueuedInput(sessionId: string, inputId: string) {
-    setQueueMessage("");
-    removeQueuedInputForSession(sessionId, inputId);
-  }
-
-  async function handleInterruptQueuedInput(sessionId: string, inputId: string) {
-    setQueueMessage("");
-    if (!activeTurn || activeTurn.status === "awaiting_user") {
-      setQueueMessage(t("errors.noInterruptibleTurn"));
-      return;
-    }
-    const inputs = queuedInputsRef.current.get(sessionId) ?? [];
-    if (inputs.some((input) => (
-      input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
-    ))) {
-      setQueueMessage(t("errors.interruptPending"));
-      return;
-    }
-    const queuedInput = inputs.find((input) => (
-      input.id === inputId
-      && input.mode === "queued"
-      && (input.status === "queued" || input.status === "paused")
-    ));
-    try {
-      if (!queuedInput) {
-        throw new Error(`Queued input ${inputId} is no longer available`);
-      }
-      await handleInterruptComposerResult(sessionId, activeTurn.id, {
-        ...queuedInput,
-        mode: "interrupt",
-        status: "queued",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("[chat] queued-input.interrupt.failed", {
-        error: message,
-        inputId,
-        sessionId,
-      });
-      setQueueMessage(t("errors.interruptFailed", { message }));
-    }
-  }
-
-  function removeQueuedInputForSession(sessionId: string, inputId: string) {
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      const remaining = deleteQueuedInput(next.get(sessionId) ?? [], inputId);
-      if (remaining.length) {
-        next.set(sessionId, remaining as QueuedComposerInput[]);
-      } else {
-        next.delete(sessionId);
-      }
-      return next;
-    });
-  }
-
   async function handleStopGeneration(session: SessionSummary) {
-    if (cancelInFlight) return;
-    if (!canCancelTurn) {
-      reportTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t("runtime.cancelActiveTurnUnavailable"));
-      return;
-    }
-    const command = createThreadAgentCancelCommand({
-      sessionId: session.id,
-      source: { control: "stop-response", surface: "chat" },
-      threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-    });
-    pauseQueuedInputsForSession(session.id);
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
-  }
-
-  function updateQueuedInputsBySession(
-    updater: (current: Map<string, QueuedComposerInput[]>) => Map<string, QueuedComposerInput[]>,
-  ) {
-    setQueuedInputsBySession((current) => {
-      const next = updater(current);
-      queuedInputsRef.current = next;
-      return next;
-    });
-  }
-
-  function nextQueuedInputTimestamp(): string {
-    const sequence = queuedInputSequence.current;
-    queuedInputSequence.current += 1;
-    return new Date(now() + sequence).toISOString();
+    await chatApplication.cancel(session.id);
   }
 
   function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
@@ -1759,47 +1519,11 @@ export function ChatPage({
       return;
     }
     if (effect.type === "session_refresh_requested") {
-      void handleQueueStateAfterChatEvent(effect.sessionId, effect.event);
+      void chatApplication.receiveSessionEvent(effect.sessionId, effect.event);
       return;
     }
 
-    const event = effect.event;
-    if (event.command && event.type === "command.dispatched") {
-      pauseQueuedInputsForSession(event.command.target.sessionId);
-      dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
-      return;
-    }
-    if (event.commandId && event.type === "command.accepted") {
-      dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
-      return;
-    }
-    if (event.commandId && event.type === "error") {
-      dispatchCommandLifecycle({
-        commandId: event.commandId,
-        error: event.error || t("runtime.commandRejected"),
-        type: "rejected",
-      });
-    }
-  }
-
-  async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
-    const nextSessions = await handleSessionStoreRefresh();
-    const effects = projectChatEventEffects(event);
-    if (effects.terminalAgentEvent && await sendPendingInterruptInput(sessionId, true)) {
-      return;
-    }
-    if (effects.queuedInputDisposition === "pause") {
-      pauseQueuedInputsForSession(sessionId);
-      return;
-    }
-    if (effects.queuedInputDisposition !== "dispatch_next") {
-      return;
-    }
-    const nextSession = nextSessions.find((session) => session.id === sessionId);
-    if (!canDispatchQueuedInput(nextSession)) {
-      return;
-    }
-    await sendNextQueuedInput(sessionId, "normal_completion");
+    chatApplication.receiveCommand(effect.sessionId, effect.event);
   }
 
   function updateSessionStatusFromTimeline(sessionId: string, nextTimeline: ChatTimelineSnapshot) {
@@ -1810,74 +1534,6 @@ export function ChatPage({
         session.id === sessionId ? { ...session, status } : session
       ));
       sessionsRef.current = next;
-      return next;
-    });
-  }
-
-  async function sendPendingInterruptInput(
-    sessionId: string,
-    terminalEventReceived = false,
-  ): Promise<boolean> {
-    const input = (queuedInputsRef.current.get(sessionId) ?? []).find((candidate) => (
-      candidate.mode === "interrupt" && (candidate.status === "queued" || candidate.status === "sent")
-    ));
-    if (!input) return false;
-    if (terminalEventReceived) {
-      interruptTerminalInputIdsRef.current.add(input.id);
-    }
-    if (!interruptCancellationConfirmedInputIdsRef.current.has(input.id)
-      || !interruptTerminalInputIdsRef.current.has(input.id)) {
-      return true;
-    }
-    if (interruptDispatchingInputIdsRef.current.has(input.id)) return true;
-    interruptDispatchingInputIdsRef.current.add(input.id);
-    updateInterruptForSession(sessionId, input.id, "sent");
-    try {
-      await dispatchTurn(sessionId, toChatInput(input), "interrupt-new-turn");
-      removeQueuedInputForSession(sessionId, input.id);
-      await handleSessionStoreRefresh();
-    } catch (error) {
-      updateInterruptForSession(sessionId, input.id, "failed");
-      setQueueMessage(t("errors.interruptFailed", { message: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
-      interruptDispatchingInputIdsRef.current.delete(input.id);
-      interruptTerminalInputIdsRef.current.delete(input.id);
-    }
-    return true;
-  }
-
-  async function handleResumeQueuedInputs(sessionId: string) {
-    await sendNextQueuedInput(sessionId, "manual_resume");
-  }
-
-  async function sendNextQueuedInput(sessionId: string, mode: "normal_completion" | "manual_resume") {
-    const inputs = queuedInputsRef.current.get(sessionId) ?? [];
-    const result = mode === "manual_resume" ? resumeNextQueuedInput(inputs) : dispatchNextQueuedInput(inputs);
-    if (!result.nextInput) {
-      return;
-    }
-    await dispatchTurn(sessionId, toChatInput(result.nextInput as QueuedComposerInput), `queue-${mode}`);
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      if (result.remainingInputs.length) {
-        next.set(sessionId, result.remainingInputs as QueuedComposerInput[]);
-      } else {
-        next.delete(sessionId);
-      }
-      return next;
-    });
-    await handleSessionStoreRefresh();
-  }
-
-  function pauseQueuedInputsForSession(sessionId: string) {
-    updateQueuedInputsBySession((current) => {
-      const inputs = current.get(sessionId) ?? [];
-      if (!inputs.length) {
-        return current;
-      }
-      const next = new Map(current);
-      next.set(sessionId, pauseQueuedInputs(inputs) as QueuedComposerInput[]);
       return next;
     });
   }
@@ -2132,76 +1788,12 @@ export function ChatPage({
     }
   }
 
-  async function handleSubmitAgentUiForm(
-    form: AgentUiForm,
-    values: Record<string, unknown>,
-  ) {
-    if (!activeSession || isThreadCommandInFlight(commandLifecycle)) {
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t("runtime.submitFormTurnUnavailable"));
-      return;
-    }
-    const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
-    if (formTurnId !== activeTurn.id) {
-      reportTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
-      return;
-    }
-    const command = createThreadFormSubmitCommand({
-      formId: form.form_id,
-      sessionId: activeSession.id,
-      source: { control: "chat-form", surface: "chat" },
-      threadId: agentUiFormCorrelationString(form, "thread_id")
-        || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-      values,
-    });
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
+  async function handleSubmitAgentUiForm(form: AgentUiForm, values: Record<string, unknown>) {
+    await chatApplication.submitForm(activePersistedSessionId, form, values);
   }
 
   async function handleCancelAgentUiForm(form: AgentUiForm) {
-    if (!activeSession || isThreadCommandInFlight(commandLifecycle)) {
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t("runtime.cancelFormTurnUnavailable"));
-      return;
-    }
-    const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
-    if (formTurnId !== activeTurn.id) {
-      reportTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
-      return;
-    }
-    const command = createThreadFormCancelCommand({
-      formId: form.form_id,
-      sessionId: activeSession.id,
-      source: { control: "chat-form", surface: "chat" },
-      threadId: agentUiFormCorrelationString(form, "thread_id")
-        || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-    });
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
+    await chatApplication.submitForm(activePersistedSessionId, form);
   }
 
   function handleSessionSidebarCollapsedChange(collapsed: boolean) {
@@ -2488,7 +2080,7 @@ export function ChatPage({
           <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>{t("shell.backToLatest")}</button>
         ) : null}
 
-        {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
+        <ChatQueueNotice application={chatApplication} sessionId={activePersistedSessionId} />
         {compactingActiveSession ? (
           <p aria-live="polite" className="react-context-compaction-status" role="status">
             <Loader2 aria-hidden="true" />
@@ -2506,15 +2098,7 @@ export function ChatPage({
           </p>
         ) : null}
         <div className="react-composer-drop-target">
-          {activeSession && activeQueuedInputs.length ? (
-            <QueuedInputsPanel
-              canInterrupt={canInterruptQueuedInput}
-              inputs={activeQueuedInputs}
-              onDelete={(inputId) => handleDeleteQueuedInput(activeSession.id, inputId)}
-              onInterrupt={(inputId) => void handleInterruptQueuedInput(activeSession.id, inputId)}
-              onResume={() => void handleResumeQueuedInputs(activeSession.id)}
-            />
-          ) : null}
+          <ChatQueuedInputs application={chatApplication} sessionId={activePersistedSessionId} />
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
             contextReferences={composerArtifactContextReferences}
@@ -2665,10 +2249,6 @@ function EmptyStateText({ text }: { text: string }) {
   return <p className="react-empty-state">{text}</p>;
 }
 
-function toChatInput(input: QueuedComposerInput): ChatInput {
-  return input.turnInput;
-}
-
 function threadCommandLifecycleLabel(lifecycle: ThreadCommandLifecycle, t: TFunction<"chat">): string {
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
   const operation = ({
@@ -2693,11 +2273,6 @@ function threadCommandLifecycleLabel(lifecycle: ThreadCommandLifecycle, t: TFunc
     case "timed_out":
       return lifecycle.error;
   }
-}
-
-function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
-  const value = form.correlation[key];
-  return typeof value === "string" ? value : "";
 }
 
 function isVisibleAgentUiForm(form: AgentUiForm): boolean {
@@ -2764,83 +2339,6 @@ function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): Mo
     ...(model.supportsImageInput ? { badge: t("composer.imageInput") } : {}),
   };
 }
-
-function QueuedInputsPanel({
-  canInterrupt,
-  inputs,
-  onDelete,
-  onInterrupt,
-  onResume,
-}: {
-  canInterrupt: boolean;
-  inputs: QueuedInput[];
-  onDelete: (inputId: string) => void;
-  onInterrupt: (inputId: string) => void;
-  onResume: () => void;
-}) {
-  const { t } = useTranslation("chat");
-  const hasPausedInput = inputs.some((input) => input.status === "paused");
-  const pendingCount = inputs.filter((input) => input.status === "queued" || input.status === "paused").length;
-  return (
-    <section aria-label={t("queue.label")} aria-live="polite" className="react-queued-inputs">
-      <div className="react-queued-inputs__header">
-        <h2>{t("queue.title")}</h2>
-        <div>
-          <span>{t("queue.pending", { max: MAX_QUEUED_INPUTS, pending: pendingCount })}</span>
-          {hasPausedInput ? <button type="button" onClick={onResume}>{t("queue.resume")}</button> : null}
-        </div>
-      </div>
-      <ol>
-        {inputs.map((input) => (
-          <li className="react-queued-input" data-status={input.status} key={input.id}>
-            <span>{queuedInputStatusLabel(input, t)}</span>
-            <p>{input.content}</p>
-            {(input.mode === "queued" && (input.status === "queued" || input.status === "paused")) || (input.mode === "interrupt" && input.status !== "queued") ? (
-              <div className="react-queued-input__actions">
-                {input.mode === "queued" && canInterrupt ? (
-                  <button
-                    className="react-queued-input__interrupt"
-                    title={t("queue.interruptHelp")}
-                    type="button"
-                    onClick={() => onInterrupt(input.id)}
-                  >
-                    {t("queue.interrupt")}
-                  </button>
-                ) : null}
-                <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? t("queue.clearInterrupt") : t("queue.delete")}</button>
-              </div>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-function queuedInputStatusLabel(input: QueuedInput, t: TFunction<"chat">): string {
-  if (input.mode === "interrupt") {
-    switch (input.status) {
-      case "sent":
-        return t("queue.sending");
-      case "failed":
-        return t("queue.interruptFailed");
-      default:
-        return t("queue.interrupting");
-    }
-  }
-  switch (input.status) {
-    case "paused":
-      return t("queue.paused");
-    case "sent":
-      return t("queue.sent");
-    case "failed":
-      return t("queue.failed");
-    default:
-      return t("queue.waiting");
-  }
-}
-
-
 
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallSummary }) {
   const { t } = useTranslation("chat");

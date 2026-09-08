@@ -1,10 +1,25 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:77960357c1793a49fbf6bc1d991cd88b3b0f3cbe6ea02cb7952fbf1e396ddb49 -->
+<!-- tinybot-module-fingerprint: sha256:ba256b557a5e416c54b19ca90975ea3c80c049fc6b9e8549ec51448657332c9f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
-Its details drawer retains closing content through a reversible 220 ms
+`chatTurnApplication.ts` owns per-session input queues, cancellation and
+interrupt continuation, form commands, and transport/canonical command
+confirmation with acknowledgement timeouts. It consumes Timeline snapshots;
+the existing Timeline model remains authoritative for server state. Queue
+submissions reserve their input before awaiting transport and remove only that
+input on success, preserving concurrent queue edits. Failed submissions remain
+visible and paused for manual retry.
+`useChatTurnApplication.ts` adapts the application to React and keeps background
+command errors scoped to their session. `ChatQueuedInputs.tsx` subscribes directly
+to queue snapshots, so queue-only changes do not rerender the route's Timeline.
+`chatTurnApplication.test.ts` verifies event ordering, duplicate delivery,
+concurrent queue edits, failure handling, and per-session command confirmation
+without mounting Chat or provisioning Sidecar resources.
+`ChatPage.queue-rendering.test.tsx` verifies that deleting a queued input adds
+neither a Timeline render nor a session-list request.
+The ChatPage details drawer retains closing content through a reversible 220 ms
 opacity/transform transition using `lib/useExitPresence`. Closing immediately
 makes the drawer inert and restores trigger focus; reopening cancels pending
 removal. Thread changes clear incompatible details. Native Sidecar browser
