@@ -1,3 +1,4 @@
+import { useChatSubmission } from "./useChatSubmission";
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
@@ -28,8 +29,7 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
-import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import type { ChatEvent, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
 import {
   clearDefaultChatModel,
   readDefaultChatModelPreference,
@@ -40,7 +40,7 @@ import {
 } from "../../app-core/chat/reasoningEffort";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
-import type { ReactChatMessage, ToolCallSummary } from "./messageActions";
+import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { DataViewCard } from "./DataViewCard";
@@ -81,7 +81,6 @@ import {
 } from "../../app-core/chat/officeArtifact";
 import { officeContentReference } from "../../app-core/chat/officeContentReference";
 import { ArtifactReviewPanel } from "../sidecar/ArtifactReviewPanel";
-import { prepareArtifactReviews } from "./prepareArtifactReviews";
 import { useArtifactFile } from "./useArtifactFile";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
@@ -105,7 +104,6 @@ import {
 } from "./useChatSessionRuntime";
 import {
   MAX_COMPOSER_SESSION_REFERENCES,
-  prepareChatSubmission,
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
@@ -125,7 +123,6 @@ import {
   type ProjectSessionContext,
 } from "./ChatSessionWorkspace";
 import {
-  deriveSessionTitle,
   displaySessionTitle,
   isDefaultSessionTitle,
 } from "./sessionTitle";
@@ -294,7 +291,6 @@ function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOp
 }
 
 const SESSION_DELETE_DISSOLVE_MS = 180;
-const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 function latestTurnPlan(timeline: ChatTimelineSnapshot | null | undefined) {
   const turns = timeline?.turns ?? [];
@@ -339,9 +335,6 @@ export function ChatPage({
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Map<string, ReactChatMessage[]>>(
-    () => new Map(),
-  );
   const [threadCapabilities, setThreadCapabilities] = useState<ThreadEffectiveCapabilities>(() => (
     unavailableThreadEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
@@ -370,10 +363,8 @@ export function ChatPage({
   const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
   const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
   const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
-  const [compactingSessionId, setCompactingSessionId] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
-  const [artifactReviewEpoch, setArtifactReviewEpoch] = useState(0);
   const [composerArtifactReferences, setComposerArtifactReferences] = useState<(AgentInputReference & { id: string })[]>([]);
   const [composerSpreadsheetAnnotations, setComposerSpreadsheetAnnotations] = useState<SpreadsheetComposerAnnotation[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
@@ -386,7 +377,6 @@ export function ChatPage({
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
   const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
-  const defaultModelSavePromise = useRef<Promise<void>>(Promise.resolve());
   const draftSessionSequence = useRef(0);
   const sessionTabsRef = useRef(sessionTabs);
   const sessionsLoadedRef = useRef(sessionsLoaded);
@@ -454,7 +444,17 @@ export function ChatPage({
     reportError: reportTimelineError,
   } = sessionRuntime.actions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
-  const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
+  const submission = useChatSubmission({
+    chatStore, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
+    sessionId: activeSessionId, now, t, reload: reloadSessionRuntime,
+    refreshSessions: handleSessionStoreRefresh, materializeDraft: createSessionForDraft,
+    previewSession(session) {
+      optimisticSessionTitlesRef.current.set(session.id, session.title);
+      setSessions((current) => current.map((candidate) => candidate.id === session.id ? session : candidate));
+    },
+    consumeDraft(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
+  });
+  const { optimisticMessages, compactingSessionId, artifactReviewEpoch } = submission;
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const composerSkillOptions = useMemo(
@@ -746,7 +746,7 @@ export function ChatPage({
     cancelUnavailableReason,
   } = useChatTurnApplication({
     dispatch: chatStore.dispatch,
-    submitTurn: dispatchTurn,
+    submitTurn: submission.submitTurn,
     refreshSessions: handleSessionStoreRefresh,
     reportError: reportTimelineError,
     clearError: clearTimelineError,
@@ -1147,12 +1147,7 @@ export function ChatPage({
         setSessions(remaining);
         dispatchSessionTabs({ type: "remove", sessionId: session.id });
         conversationViewBySessionRef.current.delete(session.id);
-        setOptimisticMessagesBySession((current) => {
-          if (!current.has(session.id)) return current;
-          const next = new Map(current);
-          next.delete(session.id);
-          return next;
-        });
+        submission.forgetSession(session.id);
         setDissolvingSessionIds((current) => {
           const nextIds = new Set(current);
           nextIds.delete(session.id);
@@ -1221,11 +1216,7 @@ export function ChatPage({
         sessionIdReplacement.previousSessionId,
         sessionIdReplacement.sessionId,
       );
-      setOptimisticMessagesBySession((current) => replaceMapKey(
-        current,
-        sessionIdReplacement.previousSessionId,
-        sessionIdReplacement.sessionId,
-      ));
+      submission.replaceSession(sessionIdReplacement.previousSessionId, sessionIdReplacement.sessionId);
       chatApplication.replaceSession(
         sessionIdReplacement.previousSessionId,
         sessionIdReplacement.sessionId,
@@ -1278,52 +1269,11 @@ export function ChatPage({
   }
 
   async function handleBranchFromMessage(session: SessionSummary, messageId: string) {
-    const branched = await chatStore.branchFromMessage(session.id, messageId);
+    const branched = await submission.fork(session.id, messageId);
     const nextSessions = [branched, ...sessionsRef.current.filter((item) => item.id !== branched.id)];
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     dispatchSessionTabs({ type: "open", sessionId: branched.id });
-  }
-
-  async function dispatchTurn(
-    sessionId: string,
-    input: ChatInput,
-    control: string,
-    optimisticText?: string,
-  ): Promise<void> {
-    const command = createDesktopTurnSubmitCommand({
-      message: input,
-      sessionId,
-      source: { control, surface: "chat" },
-    });
-    if (await prepareArtifactReviews(input.references, workspaceStore?.artifactReviews, sessionId, command.commandId)) {
-      setArtifactReviewEpoch((value) => value + 1);
-    }
-    if (optimisticText) {
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        sessionId,
-        (messages) => [...messages, {
-          createdAtMs: now(),
-          id: command.commandId,
-          role: "user",
-          status: "complete",
-          text: optimisticText,
-        }],
-      ));
-    }
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      if (optimisticText) {
-        setOptimisticMessagesBySession((current) => updateSessionMessages(
-          current,
-          sessionId,
-          (messages) => messages.filter((message) => message.id !== command.commandId),
-        ));
-      }
-      throw error;
-    }
   }
 
   async function handleComposerSend(
@@ -1333,16 +1283,13 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
-    const prepared = await prepareChatSubmission({
+    await submission.send({
       availableSessionIds: availableMentionIds,
       files,
       isRunning: activeSession ? sessionResponding : false,
-      loadSessionTranscript: chatStore.copyMarkdown,
       message,
-      now: chatApplication.nextInputTimestamp,
       options,
       pastedContent,
-      queuedInputs: chatApplication.queue(activePersistedSessionId).inputs,
       selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
       sessions: sessionsRef.current.map((session) => ({
@@ -1352,68 +1299,7 @@ export function ChatPage({
       })),
       artifactReferences: composerArtifactReferences.map(({ id: _id, ...reference }) => reference),
       spreadsheetAnnotations: composerSpreadsheetAnnotations,
-      t,
-    });
-    if (prepared.kind === "compact") {
-      if (!activeSession) {
-        throw new Error(t("errors.compactNeedsSession"));
-      }
-      const compactSession = activeSession;
-      handleComposerDraftChange("");
-      setCompactingSessionId(compactSession.id);
-      try {
-        await chatStore.dispatch(createDesktopCompactCommand({
-          sessionId: compactSession.id,
-          source: { control: "slash-compact", surface: "chat" },
-        }));
-        await reloadSessionRuntime();
-        await handleSessionStoreRefresh(compactSession);
-      } catch (error) {
-        console.error("[chat] context.compact.failed", {
-          error: error instanceof Error ? error.message : String(error),
-          sessionId: compactSession.id,
-        });
-        throw error;
-      } finally {
-        setCompactingSessionId((current) => current === compactSession.id ? "" : current);
-      }
-      return;
-    }
-    if (prepared.kind === "empty") {
-      return;
-    }
-    if (prepared.kind === "queue_limit_reached") {
-      chatApplication.reportQueueLimit(activePersistedSessionId);
-      return;
-    }
-    await defaultModelSavePromise.current;
-    const materializingDraft = !activeSession;
-    const sendSession = activeSession ?? await createSessionForDraft();
-    if (!sendSession) {
-      return;
-    }
-    if (prepared.kind === "queue_input") {
-      chatApplication.enqueue(sendSession.id, prepared.input);
-      return;
-    }
-    const visibleText = prepared.visibleText;
-    const optimisticSession = isDefaultSessionTitle(sendSession.title)
-      ? { ...sendSession, title: deriveSessionTitle(visibleText, t) }
-      : sendSession;
-    if (optimisticSession !== sendSession) {
-      optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
-      setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
-    }
-    await dispatchTurn(
-      sendSession.id,
-      prepared.turnInput,
-      "composer-send",
-      materializingDraft ? visibleText : undefined,
-    );
-    await handleSessionStoreRefresh(optimisticSession);
-    if (materializingDraft) {
-      dispatchSessionTabs({ type: "draft.changed", sessionId: sendSession.id, value: "" });
-    }
+    }, activeSession, chatApplication);
   }
 
   function handleConversationScroll(): void {
@@ -1495,27 +1381,11 @@ export function ChatPage({
   function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
     if (effect.type === "timeline_applied") {
       updateSessionStatusFromTimeline(effect.sessionId, effect.timeline);
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        effect.sessionId,
-        (messages) => messages.filter((message) => !effect.timeline.turns.some((turn) => (
-          turn.userMessage.clientEventId === message.id
-        ))),
-      ));
+      submission.receiveTimeline(effect.sessionId, effect.timeline);
       return;
     }
     if (effect.type === "message_received") {
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        effect.sessionId,
-        (messages) => (
-          messages.some((message) => message.id === effect.message.id)
-            ? messages.map((message) => (
-              message.id === effect.message.id ? { ...message, ...effect.message } : message
-            ))
-            : [...messages, effect.message]
-        ),
-      ));
+      submission.receiveMessage(effect.sessionId, effect.message);
       return;
     }
     if (effect.type === "session_refresh_requested") {
@@ -1781,7 +1651,7 @@ export function ChatPage({
   async function handleBrowserHandoffComplete(tab: SidecarBrowserTab) {
     if (!activeSession || activeSession.id !== tab.threadId) return;
     try {
-      await dispatchTurn(activeSession.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
+      await submission.submitTurn(activeSession.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
       await handleSessionStoreRefresh(activeSession);
     } catch (error) {
       reportTimelineError(t("sidecar.browserHandoffFailed", { message: errorMessage(error) }));
@@ -2117,19 +1987,7 @@ export function ChatPage({
             const selectedModelId = selected.modelId || selected.id;
             setComposerModel(modelId);
             if (emptyActiveSession) {
-              const saveDefault = settingsStore?.saveDefaultChatModel;
-              const persistence = defaultModelSavePromise.current
-                .catch(() => undefined)
-                .then(() => {
-                  if (!saveDefault || !selected.providerId) {
-                    throw new Error("Native default Provider/model persistence is unavailable.");
-                  }
-                  return saveDefault({
-                    modelId: selectedModelId,
-                    providerId: selected.providerId,
-                  });
-                });
-              defaultModelSavePromise.current = persistence;
+              const persistence = submission.saveDefaultModel(selectedModelId, selected.providerId);
               void persistence.catch((error) => {
                 reportTimelineError(t("errors.modelSaveFailed", {
                   message: error instanceof Error ? error.message : String(error),
@@ -2281,36 +2139,6 @@ function isVisibleAgentUiForm(form: AgentUiForm): boolean {
 
 async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
-}
-
-function updateSessionMessages(
-  current: Map<string, ReactChatMessage[]>,
-  sessionId: string,
-  update: (messages: ReactChatMessage[]) => ReactChatMessage[],
-): Map<string, ReactChatMessage[]> {
-  const nextMessages = update(current.get(sessionId) ?? EMPTY_OPTIMISTIC_MESSAGES);
-  const next = new Map(current);
-  if (nextMessages.length) {
-    next.set(sessionId, nextMessages);
-  } else {
-    next.delete(sessionId);
-  }
-  return next;
-}
-
-function replaceMapKey<T>(
-  current: Map<string, T>,
-  previousSessionId: string,
-  sessionId: string,
-): Map<string, T> {
-  if (!current.has(previousSessionId) || previousSessionId === sessionId) {
-    return current;
-  }
-  const next = new Map(current);
-  const value = next.get(previousSessionId) as T;
-  next.delete(previousSessionId);
-  next.set(sessionId, value);
-  return next;
 }
 
 function moveMapValue<T>(

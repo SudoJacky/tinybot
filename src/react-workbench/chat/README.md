@@ -1,9 +1,16 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:ba256b557a5e416c54b19ca90975ea3c80c049fc6b9e8549ec51448657332c9f -->
+<!-- tinybot-module-fingerprint: sha256:fbaafe00613a05a97e7191e010a1e8e3f03cc5aa676fbca70ed327236429539c -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`useChatSubmission.ts` owns submission preparation, model-save ordering,
+optimistic message reconciliation, Artifact review capture, and compaction.
+Session operations are supplied through semantic operations; the page supplies
+composer selections and responds to consumed drafts. `desktopChatCommands.ts`
+implements native Chat dispatch, model resolution, and canonical fork lookup,
+leaving `defaultServices.ts` to wire its dependencies. Submission tests exercise
+failure rollback and draft-ID reconciliation without mounting the page.
 `chatTurnApplication.ts` owns per-session input queues, cancellation and
 interrupt continuation, form commands, and transport/canonical command
 confirmation with acknowledgement timeouts. It consumes Timeline snapshots;
