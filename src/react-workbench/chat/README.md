@@ -1,10 +1,52 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:77960357c1793a49fbf6bc1d991cd88b3b0f3cbe6ea02cb7952fbf1e396ddb49 -->
+<!-- tinybot-module-fingerprint: sha256:4d87fc632d93d5696af9a45470600a7dea03f37ceea596c49a86013634965b37 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
-Its details drawer retains closing content through a reversible 220 ms
+`useChatApplication.ts` coordinates submission, session data, turn commands,
+active runtime effects, background subscriptions, and effective-capability
+queries. The page supplies the selected session and composer context and receives
+draft-consumed and background-activity notifications. Session replacement and
+removal reconcile client state inside the application, independently of tab
+animations. Background canonical updates load command acknowledgements without
+replacing the active Timeline; obsolete loads and capability responses are
+discarded when their session changes. Its tests exercise these workflows without
+mounting page layout or Sidecar resources.
+`chatSessionApplication.ts` owns session data, optimistic titles, per-draft
+creation promises, persisted-ID reconciliation, metadata operations, and
+Timeline-derived session status. `useChatSessions.ts` connects its snapshot and
+semantic changes to React. The page owns tab selection, composer draft
+persistence, scroll restoration, and temporary deleted-row animation snapshots;
+it does not mutate the application's session data. Module tests cover concurrent
+draft creation, ID/title reconciliation, deletion events, and visible failures.
+`SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
+coordination. The page holds only Sidecar layout presentation and invokes its
+open/toggle operations; resource snapshots never enter page state.
+`useChatSubmission.ts` owns submission preparation, model-save ordering,
+optimistic message reconciliation, Artifact review capture, and compaction.
+Session operations are supplied through semantic operations; the page supplies
+composer selections and responds to consumed drafts. `desktopChatCommands.ts`
+implements native Chat dispatch, model resolution, and canonical fork lookup,
+leaving `defaultServices.ts` to wire its dependencies. Submission tests exercise
+failure rollback and draft-ID reconciliation without mounting the page.
+`chatTurnApplication.ts` owns per-session input queues, cancellation and
+interrupt continuation, form commands, and transport/canonical command
+confirmation with acknowledgement timeouts. It consumes Timeline snapshots;
+the existing Timeline model remains authoritative for server state. Queue
+submissions reserve their input before awaiting transport and remove only that
+input on success, preserving concurrent queue edits. Failed submissions remain
+visible and paused for manual retry.
+`useChatTurnApplication.ts` adapts the application to React and keeps background
+command errors scoped to their session. `ChatQueuedInputs.tsx` subscribes directly
+to queue snapshots, so queue-only changes do not rerender the route's Timeline.
+`chatTurnApplication.test.ts` verifies event ordering, duplicate delivery,
+concurrent queue edits, failure handling, and per-session command confirmation
+without mounting Chat or provisioning Sidecar resources.
+`ChatPage.queue-rendering.test.tsx` verifies that deleting a queued input adds
+neither a Timeline render nor a session-list request, and that browser snapshots
+add no Timeline render while Chat and Sidecar share one native subscription.
+The ChatPage details drawer retains closing content through a reversible 220 ms
 opacity/transform transition using `lib/useExitPresence`. Closing immediately
 makes the drawer inert and restores trigger focus; reopening cancels pending
 removal. Thread changes clear incompatible details. Native Sidecar browser
@@ -179,7 +221,7 @@ the native Provider Profile/model pair before updating that renderer preference;
 the first send waits for that persistence to complete.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
-maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
+maps to one native WebView2 tab in the Thread-scoped shared Browser Session, so user
 input and Agent browser tools operate on the same tabs, profile, and navigation
 state without a nested browser tab strip. Sidecar owns the user's selected
 resource while native snapshots synchronize tab identity and content; the selected

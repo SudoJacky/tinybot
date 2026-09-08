@@ -16,12 +16,17 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b5d25ac18a2a9db2bb7f63911a64e093157d9b1c8f9e176662c1b02a3511a9b0 -->
+<!-- tinybot-doc-fingerprint: sha256:b29d7888dc52c3bffe867ed03b6923e26283d0a4be129b0b1d64184661eafbc6 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
 and the Rust backend owns native capabilities, Agent execution, durable
 conversation state, and process lifecycle.
+
+The Chat application owns client submission preparation, optimistic messages,
+queue and command coordination. Native Chat command orchestration is injected
+by the renderer composition root; canonical conversation projection remains
+owned by the existing Timeline model.
 
 Chat can release offscreen Markdown and chart renderers while retaining message
 interaction owners and semantic scroll anchors. The native browser owns idle
@@ -69,7 +74,7 @@ Desktop Commands / Desktop Host
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state, and shared menu-popover primitives | Native transport or durable domain state |
 | `react-workbench/agent-graph` | Standalone Agent Graph library and unbounded spatial canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
-| `react-workbench/sidecar` | Resource tabs, scope filtering, and Browser, Terminal, or contextual Artifact presentation | Native Browser or Terminal lifecycle, Artifact domain state, or workspace file authorization |
+| `react-workbench/sidecar` | Resource lifecycle coordination, native Browser snapshot consumption, scope filtering, and Browser, Terminal, or contextual Artifact presentation | Native Browser or Terminal lifecycle, Artifact domain state, or workspace file authorization |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
 | `app-core/desktop-pet` | Pet preferences plus monitor-aware pet and quick-chat window geometry | React rendering or native window calls |

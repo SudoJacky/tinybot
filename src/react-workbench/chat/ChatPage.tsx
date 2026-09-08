@@ -1,4 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useChatSessions } from "./useChatSessions";
+import type { ChatSessionChange } from "./chatSessionApplication";
+import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
+import { useChatApplication } from "./useChatApplication";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
 import {
@@ -13,15 +17,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./ChatPage.css";
-import {
-  MAX_QUEUED_INPUTS,
-  deleteQueuedInput,
-  dispatchNextQueuedInput,
-  pauseQueuedInputs,
-  resumeNextQueuedInput,
-  updateInterruptStatus,
-} from "../../app-core/chat/chatInputState";
-import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
+import { ChatQueueNotice, ChatQueuedInputs } from "./ChatQueuedInputs";
 import {
   ClaudeStyleAiInput,
   type ComposerContextReference,
@@ -35,8 +31,7 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
-import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import type { ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
 import {
   clearDefaultChatModel,
   readDefaultChatModelPreference,
@@ -47,15 +42,9 @@ import {
 } from "../../app-core/chat/reasoningEffort";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
-import type { ReactChatMessage, ToolCallSummary } from "./messageActions";
+import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
-import { DataViewCard } from "./DataViewCard";
-import {
-  canDispatchQueuedInput,
-  projectChatEventEffects,
-  projectTimelineSessionStatus,
-} from "./chatEventPolicy";
 import {
   projectLatestContextUsage,
   type ContextUsageDefaults,
@@ -72,97 +61,42 @@ import {
 } from "./sessionTabWorkspace";
 import {
   groupSessionsByWorkspace,
-  sessionWorkspaceName,
 } from "./sessionWorkspaces";
 import {
   applyLoadedDelegatedAgentTrace,
-  projectLoadedArtifactDetail,
 } from "../../app-core/chat/chatProjection";
 import type {
   ArtifactRef,
   DelegatedAgentState,
-  LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
 import {
-  type OfficeArtifactSource,
   type SpreadsheetCellChangeRequest,
 } from "../../app-core/chat/officeArtifact";
-import { officeContentReference } from "../../app-core/chat/officeContentReference";
-import { ArtifactReviewPanel } from "../sidecar/ArtifactReviewPanel";
-import { prepareArtifactReviews } from "./prepareArtifactReviews";
-import { useArtifactFile } from "./useArtifactFile";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type {
-  NativeBrowserSession,
-  NativeBrowserSnapshot,
-} from "../../app-core/native/nativeBrowserSnapshot";
 import {
-  THREAD_COMMAND_ACK_TIMEOUT_MS,
-  canonicalThreadCommandAcknowledgement,
-  canonicalThreadCommandCompletion,
-  createThreadAgentCancelCommand,
-  createThreadFormCancelCommand,
-  createThreadFormSubmitCommand,
   isThreadCommandInFlight,
-  reduceThreadCommandLifecycle,
   type ThreadCommandLifecycle,
   type ThreadCommand,
 } from "../../app-core/chat/threadCommand";
 import {
-  unavailableThreadEffectiveCapabilities,
-  type ThreadEffectiveCapabilities,
-} from "../../app-core/chat/threadCapabilities";
-import {
-  useChatSessionRuntime,
-  type ChatSessionRuntimeEffect,
-} from "./useChatSessionRuntime";
-import {
   MAX_COMPOSER_SESSION_REFERENCES,
-  prepareChatSubmission,
-  type QueuedComposerInput,
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
 import { captureConversationView, restoreConversationView, type ConversationViewState } from "./conversationViewport";
 import { EmptyChatStart } from "./EmptyChatStart";
 import { FloatingPlanStatus } from "./FloatingPlanStatus";
-import { AssistantMarkdown } from "./AssistantMarkdown";
-import {
-  AssistantFileLinkError,
-  assistantFileArtifact,
-  assistantFileLinkTitle,
-  resolveAssistantFileLink,
-  type AssistantFileLink,
-} from "./assistantFileLinks";
+import type { AssistantFileLink } from "./assistantFileLinks";
 import {
   ChatSessionWorkspace,
   type ProjectSessionContext,
 } from "./ChatSessionWorkspace";
 import {
-  deriveSessionTitle,
   displaySessionTitle,
-  isDefaultSessionTitle,
 } from "./sessionTitle";
 import { projectTinybotMascotMood, type TinybotMascotMood } from "./TinybotMascot";
-import { Sidecar } from "../sidecar/Sidecar";
-import { SidecarBrowser } from "../sidecar/SidecarBrowser";
-import { OfficeArtifactPreview } from "../sidecar/OfficeArtifactPreview";
-import {
-  activeSidecarTab,
-  createInitialSidecarState,
-  DEFAULT_SIDECAR_WORKSPACE_ID,
-  readPersistedSidecarWidth,
-  reduceSidecarState,
-  sidecarArtifactTabId,
-  visibleSidecarTabs,
-  writePersistedSidecarWidth,
-  type SidecarArtifactTab,
-  type SidecarBrowserTab,
-  type SidecarTab,
-  type SidecarTerminalTab,
-} from "../sidecar/sidecarModel";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -201,23 +135,6 @@ type DrawerState =
   | { kind: "tool"; title: string; toolCall: ToolCallSummary }
   | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
   | null;
-
-type ArtifactSidecarContent = {
-  localFile?: boolean;
-  artifact: ArtifactRef;
-  detail?: LoadedArtifactDetail;
-  error?: string;
-  loading: boolean;
-  notice?: string;
-  office?: OfficeArtifactSource;
-};
-
-type BrowserSnapshot = NativeBrowserSnapshot<NativeBrowserSession>;
-
-const LazySidecarTerminal = lazy(async () => {
-  const module = await import("../sidecar/SidecarTerminal");
-  return { default: module.SidecarTerminal };
-});
 
 function resolveComposerModel(
   models: readonly ModelOption[],
@@ -310,7 +227,6 @@ function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOp
 }
 
 const SESSION_DELETE_DISSOLVE_MS = 180;
-const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 function latestTurnPlan(timeline: ChatTimelineSnapshot | null | undefined) {
   const turns = timeline?.turns ?? [];
@@ -348,19 +264,15 @@ export function ChatPage({
 }: ChatPageProps) {
   const { i18n, t } = useTranslation("chat");
   const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [retainedDeletingSessions, setRetainedDeletingSessions] = useState<SessionSummary[]>([]);
+  const sessionData = useChatSessions(sessionStore, now, handleSessionChange);
+  const { application: sessionApplication, loaded: sessionsLoaded, error: sessionWorkspaceError, creating: sessionCreatePending } = sessionData;
+  const sessions = useMemo(() => [...sessionData.sessions, ...retainedDeletingSessions], [sessionData.sessions, retainedDeletingSessions]);
   const [startInNewSessionOnMount] = useState(startInNewSession);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Map<string, ReactChatMessage[]>>(
-    () => new Map(),
-  );
-  const [threadCapabilities, setThreadCapabilities] = useState<ThreadEffectiveCapabilities>(() => (
-    unavailableThreadEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
-  ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [composerModel, setComposerModel] = useState("");
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
@@ -368,34 +280,17 @@ export function ChatPage({
   const [composerTools, setComposerTools] = useState<ToolSummary[]>([]);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
-  const [sessionCreatePending, setSessionCreatePending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [drawerSessionId, setDrawerSessionId] = useState("");
   const drawerElementRef = useRef<HTMLElement>(null);
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const sidecarToggleRef = useRef<HTMLButtonElement>(null);
-  const [sidecar, dispatchSidecar] = useReducer(
-    reduceSidecarState,
-    undefined,
-    () => createInitialSidecarState(readPersistedSidecarWidth(window.localStorage)),
-  );
-  const [artifactSidecarContent, setArtifactSidecarContent] = useState<Record<string, ArtifactSidecarContent>>({});
+  const sidecarResources = useRef<SidecarResourcesHandle>(null);
+  const [sidecar, setSidecar] = useState<SidecarLayout>(initialSidecarLayout);
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
-  const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
-  const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
-  const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
-  const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
-    reduceThreadCommandLifecycle,
-    { stage: "idle" } as ThreadCommandLifecycle,
-  );
-  const [compactingSessionId, setCompactingSessionId] = useState("");
-  const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
-  const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
-  const [artifactReviewEpoch, setArtifactReviewEpoch] = useState(0);
   const [composerArtifactReferences, setComposerArtifactReferences] = useState<(AgentInputReference & { id: string })[]>([]);
   const [composerSpreadsheetAnnotations, setComposerSpreadsheetAnnotations] = useState<SpreadsheetComposerAnnotation[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
@@ -403,31 +298,17 @@ export function ChatPage({
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
-  const sessionsRef = useRef<SessionSummary[]>([]);
-  const queuedInputsRef = useRef<Map<string, QueuedComposerInput[]>>(new Map());
-  const queuedInputSequence = useRef(0);
-  const interruptCancellationConfirmedInputIdsRef = useRef(new Set<string>());
-  const interruptDispatchingInputIdsRef = useRef(new Set<string>());
-  const interruptTerminalInputIdsRef = useRef(new Set<string>());
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
-  const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
-  const defaultModelSavePromise = useRef<Promise<void>>(Promise.resolve());
-  const draftSessionSequence = useRef(0);
   const sessionTabsRef = useRef(sessionTabs);
   const sessionsLoadedRef = useRef(sessionsLoaded);
-  const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const conversationViewBySessionRef = useRef<Map<string, ConversationViewState>>(new Map());
   const pendingConversationRestoreRef = useRef("");
   const hasActivatedSessionRef = useRef(false);
   const stickToLatestRef = useRef(true);
-  const sidecarRef = useRef(sidecar);
-  const browserProvisioningResourceIdRef = useRef("");
-  const browserActivationTargetRef = useRef("");
-  sidecarRef.current = sidecar;
   sessionTabsRef.current = sessionTabs;
   sessionsLoadedRef.current = sessionsLoaded;
   const activeSessionId = sessionTabs.activeSessionId;
@@ -459,29 +340,20 @@ export function ChatPage({
     onActiveWorkspaceChange?.(workingDirectory);
   }, [activeDisplaySession?.pluginMigration, activeDisplaySession?.workingDirectory, onActiveWorkspaceChange]);
   const activePersistedSessionId = activeSession?.id ?? "";
-  const sessionRuntime = useChatSessionRuntime({
-    chatStore,
-    onEffect: handleChatSessionRuntimeEffect,
-    sessionId: activePersistedSessionId,
+  const { state: chatState, actions: chatActions, turns: chatApplication } = useChatApplication({
+    chatStore, sessions: sessionApplication, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
+    sessionId: activeSessionId, session: activeSession, openSessionIds: sessionTabs.openSessionIds,
+    drafts: sessionTabs.draftSessionsById, model: composerSessionModelInput(composerModels, composerModel), now, t,
+    onDraftConsumed(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
+    onBackgroundActivity(sessionId) { dispatchSessionTabs({ type: "activity", sessionId }); },
   });
   const {
-    agentUiForms,
-    browserError,
-    browserSnapshot,
-    error: timelineError,
-    hookResults,
-    timeline,
-  } = sessionRuntime.state;
-  const {
-    acceptBrowserSnapshot,
-    clearBrowserError,
-    clearBrowserSnapshot,
-    clearError: clearTimelineError,
-    reload: reloadSessionRuntime,
-    reportError: reportTimelineError,
-  } = sessionRuntime.actions;
+    agentUiForms, error: timelineError, hookResults, timeline,
+    optimisticMessages, compactingSessionId, artifactReviewEpoch,
+    lifecycle: commandLifecycle, canCancel: canCancelTurn, cancelUnavailableReason,
+  } = chatState;
+  const { reportError: reportTimelineError } = chatActions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
-  const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const composerSkillOptions = useMemo(
@@ -510,16 +382,6 @@ export function ChatPage({
       label: annotation.fileTitle,
     }))]
   ), [composerArtifactReferences, composerSpreadsheetAnnotations, t]);
-  const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
-  const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
-  const explicitWorkspaceId = activeDisplaySession?.workingDirectory?.trim() ?? "";
-  const activeWorkspaceId = activeDisplaySession
-    ? explicitWorkspaceId || DEFAULT_SIDECAR_WORKSPACE_ID
-    : "";
-  const activeWorkspaceLabel = explicitWorkspaceId
-    ? sessionWorkspaceName(explicitWorkspaceId)
-    : activeDisplaySession ? t("shell.generalSessions") : "";
-
   useEffect(() => {
     if (!toolsStore?.loadCatalog) {
       setComposerSkills([]);
@@ -550,166 +412,6 @@ export function ChatPage({
       cancelled = true;
     };
   }, [activeDisplaySession?.pluginMigration, activeDisplaySession?.workingDirectory, toolsStore]);
-  const unboundBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
-    tab.kind === "browser"
-      && tab.threadId === activeSession?.id
-      && !tab.nativeTabId
-  )), [activeSession?.id, sidecar.tabs]);
-  const retainedBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
-    tab.kind === "browser"
-      && tab.threadId === activeSession?.id
-      && Boolean(tab.browserSessionId)
-      && Boolean(tab.nativeTabId)
-  )), [activeSession?.id, sidecar.tabs]);
-
-  const synchronizeBrowserSnapshot = useCallback((snapshot: BrowserSnapshot, acceptForActiveThread = true) => {
-    if (acceptForActiveThread && snapshot.data.sessionId === activeSessionId) {
-      acceptBrowserSnapshot(snapshot);
-    }
-    dispatchSidecar({
-      browserSessionId: snapshot.data.browserSessionId,
-      tabs: snapshot.data.tabs.map((tab) => ({
-        nativeTabId: tab.tabId,
-        title: browserResourceTitle(tab.title, tab.url, t("sidecar.browser")),
-      })),
-      threadId: snapshot.data.sessionId,
-      type: "tab.syncBrowserSession",
-    });
-  }, [acceptBrowserSnapshot, activeSessionId, t]);
-
-  useEffect(() => {
-    dispatchSidecar({
-      threadId: activeSession?.id ?? "",
-      type: "scope.changed",
-      workspaceId: activeWorkspaceId,
-    });
-  }, [activeSession?.id, activeWorkspaceId]);
-
-  useEffect(() => {
-    if (browserSnapshot) synchronizeBrowserSnapshot(browserSnapshot, false);
-  }, [browserSnapshot, synchronizeBrowserSnapshot]);
-
-  useEffect(() => {
-    const resource = retainedBrowserResource;
-    const browserRuntime = chatStore.browserRuntime;
-    if (!resource?.browserSessionId
-      || !browserRuntime
-      || browserSnapshot?.data.browserSessionId === resource.browserSessionId) return;
-    let cancelled = false;
-    void browserRuntime.snapshot(resource.browserSessionId)
-      .then((snapshot) => {
-        if (cancelled) return;
-        if (snapshot.data.sessionId !== resource.threadId) {
-          throw new Error(
-            `Browser snapshot session ${snapshot.data.sessionId} does not match resource thread ${resource.threadId}.`,
-          );
-        }
-        synchronizeBrowserSnapshot(snapshot);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    browserProvisionEpoch,
-    browserSnapshot?.data.browserSessionId,
-    chatStore.browserRuntime,
-    retainedBrowserResource,
-    synchronizeBrowserSnapshot,
-  ]);
-
-  useEffect(() => {
-    const resource = unboundBrowserResource;
-    const browserRuntime = chatStore.browserRuntime;
-    if (!resource
-      || browserProvisionErrors[resource.id]
-      || browserProvisioningResourceIdRef.current) return;
-    browserProvisioningResourceIdRef.current = resource.id;
-    void (async () => {
-      try {
-        if (!browserRuntime) throw new Error(t("sidecar.browserBuildUnavailable"));
-        let snapshot = await browserRuntime.createSession({ ownerSessionId: resource.threadId });
-
-        const currentResources = sidecarRef.current.tabs.filter((tab): tab is SidecarBrowserTab => (
-          tab.kind === "browser" && tab.threadId === resource.threadId
-        ));
-        const currentResource = currentResources.find((tab) => tab.id === resource.id);
-        const resourceStillExists = Boolean(currentResource);
-        const resourceAlreadyBound = Boolean(
-          currentResource?.browserSessionId === snapshot.data.browserSessionId
-            && currentResource.nativeTabId
-            && snapshot.data.tabs.some((tab) => tab.tabId === currentResource.nativeTabId),
-        );
-        const boundNativeTabIds = new Set(currentResources.flatMap((tab) => tab.nativeTabId ? [tab.nativeTabId] : []));
-        const hasUnboundNativeTab = snapshot.data.tabs.some((tab) => !boundNativeTabIds.has(tab.tabId));
-        let createdNativeTabId = "";
-        if (resourceStillExists && !resourceAlreadyBound && !hasUnboundNativeTab) {
-          const previousNativeTabIds = new Set(snapshot.data.tabs.map((tab) => tab.tabId));
-          snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
-          createdNativeTabId = snapshot.data.tabs.find((tab) => !previousNativeTabIds.has(tab.tabId))?.tabId ?? "";
-        }
-
-        if (!sidecarRef.current.tabs.some((tab) => tab.id === resource.id)) {
-          if (createdNativeTabId && snapshot.data.tabs.length > 1) {
-            await browserRuntime.closeTab(snapshot.data.browserSessionId, createdNativeTabId);
-          }
-          return;
-        }
-        synchronizeBrowserSnapshot(snapshot);
-      } catch (error) {
-        if (sidecarRef.current.tabs.some((tab) => tab.id === resource.id)) {
-          setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
-        }
-      } finally {
-        if (browserProvisioningResourceIdRef.current === resource.id) {
-          browserProvisioningResourceIdRef.current = "";
-        }
-        setBrowserProvisionEpoch((current) => current + 1);
-      }
-    })();
-  }, [
-    browserProvisionEpoch,
-    browserProvisionErrors,
-    chatStore.browserRuntime,
-    synchronizeBrowserSnapshot,
-    t,
-    unboundBrowserResource,
-  ]);
-
-  useEffect(() => {
-    const resource = sidecarActiveTab?.kind === "browser" ? sidecarActiveTab : undefined;
-    const browserRuntime = chatStore.browserRuntime;
-    if (!resource?.browserSessionId
-      || !resource.nativeTabId
-      || !browserRuntime
-      || browserSnapshot?.data.browserSessionId !== resource.browserSessionId) return;
-    const activationTarget = `${resource.browserSessionId}:${resource.nativeTabId}`;
-    if (browserSnapshot.data.activeTabId === resource.nativeTabId) {
-      if (browserActivationTargetRef.current === activationTarget) {
-        browserActivationTargetRef.current = "";
-      }
-      return;
-    }
-    if (browserActivationTargetRef.current === activationTarget) return;
-    browserActivationTargetRef.current = activationTarget;
-    void browserRuntime.activateTab(resource.browserSessionId, resource.nativeTabId)
-      .then((snapshot) => synchronizeBrowserSnapshot(snapshot))
-      .catch((error) => {
-        if (browserActivationTargetRef.current === activationTarget) {
-          browserActivationTargetRef.current = "";
-        }
-        setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
-      });
-  }, [browserSnapshot, chatStore.browserRuntime, sidecarActiveTab, synchronizeBrowserSnapshot]);
-
-  useEffect(() => {
-    writePersistedSidecarWidth(window.localStorage, sidecar.width);
-  }, [sidecar.width]);
-
   useEffect(() => {
     setMigrationInstallError("");
   }, [activeSessionId]);
@@ -766,20 +468,6 @@ export function ChatPage({
       activeSession?.pluginMigration?.status === "pending"
       && latestTurnStatus === "completed"
     );
-  const cancelCapability = threadCapabilities.capabilities.agent.cancel;
-  const capabilityTargetsActiveTurn = !threadCapabilities.evaluatedTurnId
-    || threadCapabilities.evaluatedTurnId === activeTurn?.id;
-  const canCancelTurn = Boolean(
-    activeSession
-    && activeTurn
-    && threadCapabilities.threadId === activeSession.id
-    && capabilityTargetsActiveTurn
-    && cancelCapability.available
-  );
-  const cancelUnavailableReason = !capabilityTargetsActiveTurn
-    ? t("runtime.staleCapabilities")
-    : cancelCapability.reason || t("runtime.cancelUnavailable");
-  const cancelInFlight = isThreadCommandInFlight(commandLifecycle);
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
     && commandLifecycle.command.kind !== "agent.cancel";
@@ -788,15 +476,6 @@ export function ChatPage({
     && isThreadCommandInFlight(commandLifecycle)
     ? commandLifecycle.command.form.formId
     : "";
-  const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
-  const canInterruptQueuedInput = Boolean(
-    activeTurn
-    && activeTurn.status !== "awaiting_user"
-    && !cancelInFlight
-    && !activeQueuedInputs.some((input) => (
-      input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
-    )),
-  );
   const activeContextUsage = useMemo(
     () => projectLatestContextUsage(timeline?.turns ?? [], contextUsageDefaults),
     [contextUsageDefaults, timeline],
@@ -809,94 +488,11 @@ export function ChatPage({
     [activeSession, timeline, timelineLoaded],
   );
   useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
-
-  useEffect(() => {
-    if (!activePersistedSessionId) {
-      setThreadCapabilities(unavailableThreadEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
-      return;
-    }
-    let cancelled = false;
-    setThreadCapabilities(unavailableThreadEffectiveCapabilities(
-      activePersistedSessionId,
-      "loading",
-      t("runtime.loadingCapabilities"),
-    ));
-    void chatStore.loadEffectiveCapabilities(activePersistedSessionId).then((capabilities) => {
-      if (!cancelled) setThreadCapabilities(capabilities);
-    }).catch((error) => {
-      if (!cancelled) {
-        setThreadCapabilities(unavailableThreadEffectiveCapabilities(
-          activePersistedSessionId,
-          "capability_query_failed",
-          error instanceof Error ? error.message : String(error),
-        ));
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTurn?.id, activeTurn?.status, activePersistedSessionId, chatStore, t]);
-
-  useEffect(() => {
     setComposerSessionMentionIds([]);
     setComposerSelectedSkillIds([]);
     setComposerSpreadsheetAnnotations([]);
     setComposerArtifactReferences([]);
-    dispatchCommandLifecycle({ type: "reset" });
   }, [activeSessionId]);
-
-  useEffect(() => {
-    if (!timeline || commandLifecycle.stage === "idle" || commandLifecycle.stage === "completed") return;
-    if (commandLifecycle.stage === "acknowledged") {
-      const completion = canonicalThreadCommandCompletion(
-        timeline.turns,
-        commandLifecycle.command,
-      );
-      if (!completion) return;
-      dispatchCommandLifecycle({
-        commandId: commandLifecycle.command.commandId,
-        completion,
-        nowMs: now(),
-        type: "operation_completed",
-      });
-      return;
-    }
-    const acknowledgement = canonicalThreadCommandAcknowledgement(
-      timeline.turns,
-      commandLifecycle.command.commandId,
-    );
-    if (!acknowledgement) return;
-    dispatchCommandLifecycle({
-      acknowledgement,
-      commandId: commandLifecycle.command.commandId,
-      nowMs: now(),
-      type: "canonical_acknowledged",
-    });
-  }, [commandLifecycle, now, timeline]);
-
-  useEffect(() => {
-    if (commandLifecycle.stage !== "sending" && commandLifecycle.stage !== "waiting_for_canonical") return;
-    const elapsed = Math.max(0, now() - commandLifecycle.dispatchedAtMs);
-    const timer = window.setTimeout(() => {
-      dispatchCommandLifecycle({ commandId: commandLifecycle.command.commandId, type: "ack_timeout" });
-    }, Math.max(0, THREAD_COMMAND_ACK_TIMEOUT_MS - elapsed));
-    return () => window.clearTimeout(timer);
-  }, [commandLifecycle, now]);
-
-  useEffect(() => {
-    if (commandLifecycle.stage === "idle") return;
-    if (commandLifecycle.command.kind === "operation.retry"
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`Retry failed: ${commandLifecycle.error}`);
-      return;
-    }
-    if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
-    }
-  }, [commandLifecycle, reportTimelineError]);
 
   useEffect(() => {
     return () => {
@@ -904,32 +500,6 @@ export function ChatPage({
       deleteDissolveTimers.current = [];
     };
   }, []);
-
-  const notifyStartupSessionHydrated = useEffectEvent(() => {
-    onStartupSessionHydrated?.();
-  });
-  useEffect(() => {
-    let cancelled = false;
-    void sessionStore.list().then((nextSessions) => {
-      if (cancelled) {
-        return;
-      }
-      sessionsRef.current = nextSessions;
-      setSessions(nextSessions);
-      setSessionsLoaded(true);
-      dispatchSessionTabs({
-        type: "hydrate",
-        availableSessionIds: nextSessions.map((session) => session.id),
-        persisted: startInNewSessionOnMount
-          ? { activeSessionId: "", draftsBySession: {}, openSessionIds: [] }
-          : readPersistedSessionTabWorkspace(window.localStorage),
-      });
-      notifyStartupSessionHydrated();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionStore, startInNewSessionOnMount]);
 
   useEffect(() => {
     if (!sessionsLoaded) {
@@ -959,13 +529,7 @@ export function ChatPage({
   }, [createSessionSignal]);
 
   const activateRequestedSession = useEffectEvent(async (sessionId: string) => {
-    const nextSessions = sessionStore.refresh
-      ? await sessionStore.refresh()
-      : await sessionStore.list();
-    const target = nextSessions.find((session) => session.id === sessionId);
-    if (!target) throw new Error(`Cannot activate unknown Thread ${sessionId}`);
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
+    await sessionApplication.activateExternal(sessionId);
     dispatchDelete({ type: "session-selected", sessionId });
     dispatchSessionTabs({ type: "open", sessionId });
   });
@@ -984,30 +548,6 @@ export function ChatPage({
       });
     });
   }, [activateSessionRequest, reportTimelineError, sessionsLoaded]);
-
-  const handleBackgroundChatEvent = useEffectEvent((sessionId: string, event: ChatEvent) => {
-    const effects = projectChatEventEffects(event);
-    if (event.timeline) {
-      updateSessionStatusFromTimeline(sessionId, event.timeline);
-      dispatchSessionTabs({ type: "activity", sessionId });
-    }
-    if (effects.backgroundTabActivity) {
-      dispatchSessionTabs({ type: "activity", sessionId });
-    }
-    if (effects.reloadSessions) {
-      void handleQueueStateAfterChatEvent(sessionId, event);
-    }
-  });
-  useEffect(() => {
-    const unsubscribes = sessionTabs.openSessionIds
-      .filter((sessionId) => (
-        sessionId !== activeSessionId && !(sessionId in sessionTabs.draftSessionsById)
-      ))
-      .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
-        handleBackgroundChatEvent(sessionId, event);
-      }));
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [activeSessionId, chatStore, sessionTabs.draftSessionsById, sessionTabs.openSessionIds]);
 
   useEffect(() => {
     if (!settingsStore?.loadChatModels) {
@@ -1112,20 +652,10 @@ export function ChatPage({
     }
   }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
-  function createLocalDraft(input: DraftSessionCreateInput): DraftSession {
-    const createdAtMs = now();
-    return {
-      id: `draft:${createdAtMs}:${++draftSessionSequence.current}`,
-      createdAtMs,
-      createInput: input,
-    };
-  }
-
   async function handleCreateSession(
     workingDirectory?: string,
     projectContext?: ProjectSessionContext,
   ): Promise<SessionSummary | null> {
-    setSessionWorkspaceError("");
     const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined
       && activeDisplaySession?.projectGroupId
       && !activeDisplaySession.projectCoordinator
@@ -1147,10 +677,10 @@ export function ChatPage({
     if (!activeSessionId && composerDraft.trim()) {
       dispatchSessionTabs({
         type: "startup-draft.materialize",
-        draft: createLocalDraft({}),
+        draft: sessionApplication.createDraft({}),
       });
     }
-    const draft = createLocalDraft(createInput);
+    const draft = sessionApplication.createDraft(createInput);
     dispatchDelete({ type: "session-selected", sessionId: draft.id });
     dispatchSessionTabs({ type: "session-draft.open", draft });
     return projectDraftSessionSummary(draft);
@@ -1172,7 +702,7 @@ export function ChatPage({
     if (!normalizedWorkingDirectory) return;
 
     const startupDraft = composerDraft;
-    const draft = createLocalDraft({ workingDirectory: normalizedWorkingDirectory });
+    const draft = sessionApplication.createDraft({ workingDirectory: normalizedWorkingDirectory });
     dispatchSessionTabs({ type: "session-draft.open", draft });
     if (startupDraft) {
       dispatchSessionTabs({ type: "draft.changed", sessionId: draft.id, value: startupDraft });
@@ -1194,16 +724,8 @@ export function ChatPage({
         installedPluginEnabled: result.plugin.enabled,
         ...(result.cleanupWarning ? { cleanupWarning: result.cleanupWarning } : {}),
       };
-      setSessions((current) => current.map((candidate) => (
-        candidate.id === session.id ? { ...candidate, pluginMigration: installedMigration } : candidate
-      )));
       try {
-        await sessionStore.markPluginMigrationInstalled?.(
-          session.id,
-          result.plugin.name,
-          result.plugin.enabled,
-          result.cleanupWarning,
-        );
+        await sessionApplication.recordMigration(session.id, installedMigration);
       } catch (error) {
         setMigrationInstallError(
           `Plugin ${result.plugin.name} was installed, but the migration status could not be saved: ${error instanceof Error ? error.message : String(error)}`,
@@ -1224,111 +746,13 @@ export function ChatPage({
         dispatchSessionTabs({ type: "remove", sessionId: session.id });
         return;
       }
-      await sessionStore.delete(session.id);
-      optimisticSessionTitlesRef.current.delete(session.id);
-      setDissolvingSessionIds((current) => new Set(current).add(session.id));
-      const timer = window.setTimeout(() => {
-        const remaining = sessionsRef.current.filter((item) => item.id !== session.id);
-        sessionsRef.current = remaining;
-        setSessions(remaining);
-        dispatchSessionTabs({ type: "remove", sessionId: session.id });
-        conversationViewBySessionRef.current.delete(session.id);
-        setOptimisticMessagesBySession((current) => {
-          if (!current.has(session.id)) return current;
-          const next = new Map(current);
-          next.delete(session.id);
-          return next;
-        });
-        setDissolvingSessionIds((current) => {
-          const nextIds = new Set(current);
-          nextIds.delete(session.id);
-          return nextIds;
-        });
-      }, SESSION_DELETE_DISSOLVE_MS);
-      deleteDissolveTimers.current.push(timer);
+      await sessionApplication.delete(session);
     }
-  }
-
-  async function handleSessionStoreRefresh(preserveSession?: SessionSummary): Promise<SessionSummary[]> {
-    const listedSessions = await sessionStore.list();
-    let titledSessions = listedSessions.map((session) => {
-      if (!isDefaultSessionTitle(session.title)) {
-        optimisticSessionTitlesRef.current.delete(session.id);
-        return session;
-      }
-      const optimisticTitle = optimisticSessionTitlesRef.current.get(session.id);
-      return optimisticTitle ? { ...session, title: optimisticTitle } : session;
-    });
-    const listedSessionIdsBeforeReconciliation = new Set(titledSessions.map((session) => session.id));
-    const knownSessionIds = new Set(sessionsRef.current.map((session) => session.id));
-    const missingOptimisticSessions = sessionsRef.current.filter((session) => (
-      optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIdsBeforeReconciliation.has(session.id)
-    ));
-    const replacementCandidates = titledSessions.filter((session) => !knownSessionIds.has(session.id));
-    let sessionIdReplacement: { previousSessionId: string; sessionId: string } | undefined;
-    if (missingOptimisticSessions.length === 1 && replacementCandidates.length === 1) {
-      const pendingSession = missingOptimisticSessions[0];
-      const replacementSession = replacementCandidates[0];
-      sessionIdReplacement = {
-        previousSessionId: pendingSession.id,
-        sessionId: replacementSession.id,
-      };
-      const optimisticTitle = optimisticSessionTitlesRef.current.get(pendingSession.id);
-      optimisticSessionTitlesRef.current.delete(pendingSession.id);
-      if (optimisticTitle && isDefaultSessionTitle(replacementSession.title)) {
-        optimisticSessionTitlesRef.current.set(replacementSession.id, optimisticTitle);
-        titledSessions = titledSessions.map((session) => (
-          session.id === replacementSession.id ? { ...session, title: optimisticTitle } : session
-        ));
-      }
-    }
-    const listedSessionIds = new Set(titledSessions.map((session) => session.id));
-    const pendingOptimisticSessions = sessionsRef.current.filter((session) => (
-      optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIds.has(session.id)
-    )).map((session) => ({
-      ...session,
-      title: optimisticSessionTitlesRef.current.get(session.id) ?? session.title,
-    }));
-    const visibleSessions = [...pendingOptimisticSessions, ...titledSessions];
-    const preserveOptimisticTitle = preserveSession && !isDefaultSessionTitle(preserveSession.title);
-    const nextSessions = preserveSession && !visibleSessions.some((session) => session.id === preserveSession.id)
-      ? [preserveSession, ...visibleSessions]
-      : visibleSessions.map((session) => (
-        preserveOptimisticTitle && session.id === preserveSession.id && isDefaultSessionTitle(session.title)
-          ? { ...session, title: preserveSession.title }
-          : session
-      ));
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
-    if (sessionIdReplacement) {
-      dispatchSessionTabs({ type: "replace", ...sessionIdReplacement });
-      moveMapValue(
-        conversationViewBySessionRef.current,
-        sessionIdReplacement.previousSessionId,
-        sessionIdReplacement.sessionId,
-      );
-      setOptimisticMessagesBySession((current) => replaceMapKey(
-        current,
-        sessionIdReplacement.previousSessionId,
-        sessionIdReplacement.sessionId,
-      ));
-      updateQueuedInputsBySession((current) => replaceMapKey(
-        current,
-        sessionIdReplacement.previousSessionId,
-        sessionIdReplacement.sessionId,
-      ));
-    }
-    dispatchSessionTabs({
-      type: "reconcile",
-      availableSessionIds: nextSessions.map((session) => session.id),
-    });
-    return nextSessions;
   }
 
   async function handlePinConversation(session: SessionSummary) {
     const pinned = !session.pinned;
-    await sessionStore.pin(session.id, pinned);
-    setSessions((current) => current.map((item) => item.id === session.id ? { ...item, pinned } : item));
+    await sessionApplication.pin(session.id, pinned);
     setHeaderMenuOpen(false);
   }
 
@@ -1338,9 +762,7 @@ export function ChatPage({
       setHeaderMenuOpen(false);
       return;
     }
-    await sessionStore.rename(session.id, nextTitle);
-    optimisticSessionTitlesRef.current.delete(session.id);
-    setSessions((current) => current.map((item) => item.id === session.id ? { ...item, title: nextTitle } : item));
+    await sessionApplication.rename(session.id, nextTitle);
     setHeaderMenuOpen(false);
   }
 
@@ -1355,62 +777,12 @@ export function ChatPage({
   }
 
   async function handleArchiveConversation(session: SessionSummary) {
-    await sessionStore.archive(session.id);
-    const remaining = sessions.filter((item) => item.id !== session.id);
-    sessionsRef.current = remaining;
-    setSessions(remaining);
-    dispatchSessionTabs({ type: "remove", sessionId: session.id });
-    conversationViewBySessionRef.current.delete(session.id);
+    await sessionApplication.archive(session);
     setHeaderMenuOpen(false);
   }
 
   async function handleBranchFromMessage(session: SessionSummary, messageId: string) {
-    const branched = await chatStore.branchFromMessage(session.id, messageId);
-    const nextSessions = [branched, ...sessionsRef.current.filter((item) => item.id !== branched.id)];
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
-    dispatchSessionTabs({ type: "open", sessionId: branched.id });
-  }
-
-  async function dispatchTurn(
-    sessionId: string,
-    input: ChatInput,
-    control: string,
-    optimisticText?: string,
-  ): Promise<void> {
-    const command = createDesktopTurnSubmitCommand({
-      message: input,
-      sessionId,
-      source: { control, surface: "chat" },
-    });
-    if (await prepareArtifactReviews(input.references, workspaceStore?.artifactReviews, sessionId, command.commandId)) {
-      setArtifactReviewEpoch((value) => value + 1);
-    }
-    if (optimisticText) {
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        sessionId,
-        (messages) => [...messages, {
-          createdAtMs: now(),
-          id: command.commandId,
-          role: "user",
-          status: "complete",
-          text: optimisticText,
-        }],
-      ));
-    }
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      if (optimisticText) {
-        setOptimisticMessagesBySession((current) => updateSessionMessages(
-          current,
-          sessionId,
-          (messages) => messages.filter((message) => message.id !== command.commandId),
-        ));
-      }
-      throw error;
-    }
+    await chatActions.fork(session.id, messageId);
   }
 
   async function handleComposerSend(
@@ -1420,87 +792,23 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
-    const prepared = await prepareChatSubmission({
+    await chatActions.send({
       availableSessionIds: availableMentionIds,
       files,
       isRunning: activeSession ? sessionResponding : false,
-      loadSessionTranscript: chatStore.copyMarkdown,
       message,
-      now: nextQueuedInputTimestamp,
       options,
       pastedContent,
-      queuedInputs: activeQueuedInputs,
       selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
-      sessions: sessionsRef.current.map((session) => ({
+      sessions: sessionApplication.snapshot().sessions.map((session) => ({
         id: session.id,
         title: displaySessionTitle(session.title, t),
         updatedAtMs: session.updatedAtMs,
       })),
       artifactReferences: composerArtifactReferences.map(({ id: _id, ...reference }) => reference),
       spreadsheetAnnotations: composerSpreadsheetAnnotations,
-      t,
     });
-    if (prepared.kind === "compact") {
-      if (!activeSession) {
-        throw new Error(t("errors.compactNeedsSession"));
-      }
-      const compactSession = activeSession;
-      handleComposerDraftChange("");
-      setCompactingSessionId(compactSession.id);
-      try {
-        await chatStore.dispatch(createDesktopCompactCommand({
-          sessionId: compactSession.id,
-          source: { control: "slash-compact", surface: "chat" },
-        }));
-        await reloadSessionRuntime();
-        await handleSessionStoreRefresh(compactSession);
-      } catch (error) {
-        console.error("[chat] context.compact.failed", {
-          error: error instanceof Error ? error.message : String(error),
-          sessionId: compactSession.id,
-        });
-        throw error;
-      } finally {
-        setCompactingSessionId((current) => current === compactSession.id ? "" : current);
-      }
-      return;
-    }
-    if (prepared.kind === "empty") {
-      return;
-    }
-    if (prepared.kind === "queue_limit_reached") {
-      setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
-      return;
-    }
-    await defaultModelSavePromise.current;
-    const materializingDraft = !activeSession;
-    const sendSession = activeSession ?? await createSessionForDraft();
-    if (!sendSession) {
-      return;
-    }
-    if (prepared.kind === "queue_input") {
-      handleQueuedComposerResult(sendSession.id, prepared.input);
-      return;
-    }
-    const visibleText = prepared.visibleText;
-    const optimisticSession = isDefaultSessionTitle(sendSession.title)
-      ? { ...sendSession, title: deriveSessionTitle(visibleText, t) }
-      : sendSession;
-    if (optimisticSession !== sendSession) {
-      optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
-      setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
-    }
-    await dispatchTurn(
-      sendSession.id,
-      prepared.turnInput,
-      "composer-send",
-      materializingDraft ? visibleText : undefined,
-    );
-    await handleSessionStoreRefresh(optimisticSession);
-    if (materializingDraft) {
-      dispatchSessionTabs({ type: "draft.changed", sessionId: sendSession.id, value: "" });
-    }
   }
 
   function handleConversationScroll(): void {
@@ -1527,359 +835,38 @@ export function ChatPage({
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 
-  function handleQueuedComposerResult(
-    sessionId: string,
-    input: QueuedComposerInput,
-  ) {
-    setQueueMessage("");
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      next.set(sessionId, [...(next.get(sessionId) ?? []), input]);
-      return next;
-    });
-  }
-
-  async function handleInterruptComposerResult(
-    sessionId: string,
-    turnId: string,
-    input: QueuedComposerInput,
-  ) {
-    setQueueMessage("");
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      next.set(sessionId, (next.get(sessionId) ?? []).map((candidate) => (
-        candidate.id === input.id ? input : candidate
-      )));
-      return next;
-    });
-    const command = createThreadAgentCancelCommand({
-      sessionId,
-      source: { control: "composer-interrupt", surface: "chat" },
-      turnId,
-    });
-    try {
-      await chatStore.dispatch(command);
-      interruptCancellationConfirmedInputIdsRef.current.add(input.id);
-      await sendPendingInterruptInput(sessionId);
-    } catch (error) {
-      interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
-      interruptTerminalInputIdsRef.current.delete(input.id);
-      updateInterruptForSession(sessionId, input.id, "failed");
-      throw error;
-    }
-  }
-
-  function updateInterruptForSession(
-    sessionId: string,
-    inputId: string,
-    status: "sent" | "failed",
-  ) {
-    updateQueuedInputsBySession((current) => {
-      const inputs = current.get(sessionId) ?? [];
-      if (!inputs.some((input) => input.id === inputId && input.mode === "interrupt")) return current;
-      const next = new Map(current);
-      next.set(sessionId, updateInterruptStatus(inputs, inputId, status) as QueuedComposerInput[]);
-      return next;
-    });
-  }
-
-  async function createSessionForDraft(): Promise<SessionSummary | null> {
-    if (!draftNewSession) {
-      return null;
-    }
-    if (!draftSessionCreatePromise.current) {
-      const draftSession = sessionTabs.draftSessionsById[activeSessionId];
-      const modelInput = composerSessionModelInput(composerModels, composerModel);
-      const createInput = {
-        ...draftSession?.createInput,
-        ...modelInput,
+  function handleSessionChange(event: ChatSessionChange) {
+    if (event.type === "loaded") {
+      dispatchSessionTabs({ type: "hydrate", availableSessionIds: event.sessions.map((session) => session.id),
+        persisted: startInNewSessionOnMount ? { activeSessionId: "", draftsBySession: {}, openSessionIds: [] }
+          : readPersistedSessionTabWorkspace(window.localStorage) });
+      onStartupSessionHydrated?.();
+    } else if (event.type === "reconciled") {
+      dispatchSessionTabs({ type: "reconcile", availableSessionIds: event.sessions.map((session) => session.id) });
+    } else if (event.type === "created") {
+      dispatchSessionTabs(event.previousSessionId !== undefined && event.previousSessionId !== event.session.id
+        ? { type: "replace", previousSessionId: event.previousSessionId, sessionId: event.session.id }
+        : { type: "open", sessionId: event.session.id });
+    } else if (event.type === "replaced") {
+      dispatchSessionTabs({ type: "replace", previousSessionId: event.previousSessionId, sessionId: event.sessionId });
+      moveMapValue(conversationViewBySessionRef.current, event.previousSessionId, event.sessionId);
+    } else if (event.type === "removed") {
+      const sessionId = event.session.id;
+      const finish = () => {
+        dispatchSessionTabs({ type: "remove", sessionId });
+        conversationViewBySessionRef.current.delete(sessionId);
+        setRetainedDeletingSessions((current) => current.filter((session) => session.id !== sessionId));
+        setDissolvingSessionIds((current) => { const next = new Set(current); next.delete(sessionId); return next; });
       };
-      const createArgument = draftSession || Object.keys(createInput).length
-        ? createInput
-        : undefined;
-      const materializingSessionId = activeSessionId;
-      setSessionCreatePending(true);
-      setSessionWorkspaceError("");
-      draftSessionCreatePromise.current = sessionStore.create(createArgument)
-        .then((created) => {
-          activateCreatedSession(created, materializingSessionId);
-          return created;
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          setSessionWorkspaceError(message);
-          console.error("[session-workspaces] session.create.failed", {
-            error: message,
-            workingDirectory: draftSession?.createInput.workingDirectory ?? "",
-            projectGroupId: draftSession?.createInput.projectGroupId ?? "",
-          });
-          return Promise.reject(error);
-        })
-        .finally(() => {
-          draftSessionCreatePromise.current = null;
-          setSessionCreatePending(false);
-        });
+      if (event.reason === "archive") { finish(); return; }
+      setRetainedDeletingSessions((current) => [...current, event.session]);
+      setDissolvingSessionIds((current) => new Set(current).add(sessionId));
+      deleteDissolveTimers.current.push(window.setTimeout(finish, SESSION_DELETE_DISSOLVE_MS));
     }
-    return draftSessionCreatePromise.current;
-  }
-
-  function activateCreatedSession(created: SessionSummary, previousSessionId = ""): void {
-    sessionsRef.current = [created, ...sessionsRef.current.filter((session) => session.id !== created.id)];
-    setSessions((current) => [created, ...current.filter((session) => session.id !== created.id)]);
-    dispatchSessionTabs(previousSessionId !== created.id
-      ? { type: "replace", previousSessionId, sessionId: created.id }
-      : { type: "open", sessionId: created.id });
-  }
-
-  function handleDeleteQueuedInput(sessionId: string, inputId: string) {
-    setQueueMessage("");
-    removeQueuedInputForSession(sessionId, inputId);
-  }
-
-  async function handleInterruptQueuedInput(sessionId: string, inputId: string) {
-    setQueueMessage("");
-    if (!activeTurn || activeTurn.status === "awaiting_user") {
-      setQueueMessage(t("errors.noInterruptibleTurn"));
-      return;
-    }
-    const inputs = queuedInputsRef.current.get(sessionId) ?? [];
-    if (inputs.some((input) => (
-      input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
-    ))) {
-      setQueueMessage(t("errors.interruptPending"));
-      return;
-    }
-    const queuedInput = inputs.find((input) => (
-      input.id === inputId
-      && input.mode === "queued"
-      && (input.status === "queued" || input.status === "paused")
-    ));
-    try {
-      if (!queuedInput) {
-        throw new Error(`Queued input ${inputId} is no longer available`);
-      }
-      await handleInterruptComposerResult(sessionId, activeTurn.id, {
-        ...queuedInput,
-        mode: "interrupt",
-        status: "queued",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("[chat] queued-input.interrupt.failed", {
-        error: message,
-        inputId,
-        sessionId,
-      });
-      setQueueMessage(t("errors.interruptFailed", { message }));
-    }
-  }
-
-  function removeQueuedInputForSession(sessionId: string, inputId: string) {
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      const remaining = deleteQueuedInput(next.get(sessionId) ?? [], inputId);
-      if (remaining.length) {
-        next.set(sessionId, remaining as QueuedComposerInput[]);
-      } else {
-        next.delete(sessionId);
-      }
-      return next;
-    });
   }
 
   async function handleStopGeneration(session: SessionSummary) {
-    if (cancelInFlight) return;
-    if (!canCancelTurn) {
-      reportTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t("runtime.cancelActiveTurnUnavailable"));
-      return;
-    }
-    const command = createThreadAgentCancelCommand({
-      sessionId: session.id,
-      source: { control: "stop-response", surface: "chat" },
-      threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-    });
-    pauseQueuedInputsForSession(session.id);
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
-  }
-
-  function updateQueuedInputsBySession(
-    updater: (current: Map<string, QueuedComposerInput[]>) => Map<string, QueuedComposerInput[]>,
-  ) {
-    setQueuedInputsBySession((current) => {
-      const next = updater(current);
-      queuedInputsRef.current = next;
-      return next;
-    });
-  }
-
-  function nextQueuedInputTimestamp(): string {
-    const sequence = queuedInputSequence.current;
-    queuedInputSequence.current += 1;
-    return new Date(now() + sequence).toISOString();
-  }
-
-  function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
-    if (effect.type === "timeline_applied") {
-      updateSessionStatusFromTimeline(effect.sessionId, effect.timeline);
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        effect.sessionId,
-        (messages) => messages.filter((message) => !effect.timeline.turns.some((turn) => (
-          turn.userMessage.clientEventId === message.id
-        ))),
-      ));
-      return;
-    }
-    if (effect.type === "message_received") {
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        effect.sessionId,
-        (messages) => (
-          messages.some((message) => message.id === effect.message.id)
-            ? messages.map((message) => (
-              message.id === effect.message.id ? { ...message, ...effect.message } : message
-            ))
-            : [...messages, effect.message]
-        ),
-      ));
-      return;
-    }
-    if (effect.type === "session_refresh_requested") {
-      void handleQueueStateAfterChatEvent(effect.sessionId, effect.event);
-      return;
-    }
-
-    const event = effect.event;
-    if (event.command && event.type === "command.dispatched") {
-      pauseQueuedInputsForSession(event.command.target.sessionId);
-      dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
-      return;
-    }
-    if (event.commandId && event.type === "command.accepted") {
-      dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
-      return;
-    }
-    if (event.commandId && event.type === "error") {
-      dispatchCommandLifecycle({
-        commandId: event.commandId,
-        error: event.error || t("runtime.commandRejected"),
-        type: "rejected",
-      });
-    }
-  }
-
-  async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
-    const nextSessions = await handleSessionStoreRefresh();
-    const effects = projectChatEventEffects(event);
-    if (effects.terminalAgentEvent && await sendPendingInterruptInput(sessionId, true)) {
-      return;
-    }
-    if (effects.queuedInputDisposition === "pause") {
-      pauseQueuedInputsForSession(sessionId);
-      return;
-    }
-    if (effects.queuedInputDisposition !== "dispatch_next") {
-      return;
-    }
-    const nextSession = nextSessions.find((session) => session.id === sessionId);
-    if (!canDispatchQueuedInput(nextSession)) {
-      return;
-    }
-    await sendNextQueuedInput(sessionId, "normal_completion");
-  }
-
-  function updateSessionStatusFromTimeline(sessionId: string, nextTimeline: ChatTimelineSnapshot) {
-    const status = projectTimelineSessionStatus(nextTimeline);
-    if (!status) return;
-    setSessions((current) => {
-      const next = current.map((session) => (
-        session.id === sessionId ? { ...session, status } : session
-      ));
-      sessionsRef.current = next;
-      return next;
-    });
-  }
-
-  async function sendPendingInterruptInput(
-    sessionId: string,
-    terminalEventReceived = false,
-  ): Promise<boolean> {
-    const input = (queuedInputsRef.current.get(sessionId) ?? []).find((candidate) => (
-      candidate.mode === "interrupt" && (candidate.status === "queued" || candidate.status === "sent")
-    ));
-    if (!input) return false;
-    if (terminalEventReceived) {
-      interruptTerminalInputIdsRef.current.add(input.id);
-    }
-    if (!interruptCancellationConfirmedInputIdsRef.current.has(input.id)
-      || !interruptTerminalInputIdsRef.current.has(input.id)) {
-      return true;
-    }
-    if (interruptDispatchingInputIdsRef.current.has(input.id)) return true;
-    interruptDispatchingInputIdsRef.current.add(input.id);
-    updateInterruptForSession(sessionId, input.id, "sent");
-    try {
-      await dispatchTurn(sessionId, toChatInput(input), "interrupt-new-turn");
-      removeQueuedInputForSession(sessionId, input.id);
-      await handleSessionStoreRefresh();
-    } catch (error) {
-      updateInterruptForSession(sessionId, input.id, "failed");
-      setQueueMessage(t("errors.interruptFailed", { message: error instanceof Error ? error.message : String(error) }));
-    } finally {
-      interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
-      interruptDispatchingInputIdsRef.current.delete(input.id);
-      interruptTerminalInputIdsRef.current.delete(input.id);
-    }
-    return true;
-  }
-
-  async function handleResumeQueuedInputs(sessionId: string) {
-    await sendNextQueuedInput(sessionId, "manual_resume");
-  }
-
-  async function sendNextQueuedInput(sessionId: string, mode: "normal_completion" | "manual_resume") {
-    const inputs = queuedInputsRef.current.get(sessionId) ?? [];
-    const result = mode === "manual_resume" ? resumeNextQueuedInput(inputs) : dispatchNextQueuedInput(inputs);
-    if (!result.nextInput) {
-      return;
-    }
-    await dispatchTurn(sessionId, toChatInput(result.nextInput as QueuedComposerInput), `queue-${mode}`);
-    updateQueuedInputsBySession((current) => {
-      const next = new Map(current);
-      if (result.remainingInputs.length) {
-        next.set(sessionId, result.remainingInputs as QueuedComposerInput[]);
-      } else {
-        next.delete(sessionId);
-      }
-      return next;
-    });
-    await handleSessionStoreRefresh();
-  }
-
-  function pauseQueuedInputsForSession(sessionId: string) {
-    updateQueuedInputsBySession((current) => {
-      const inputs = current.get(sessionId) ?? [];
-      if (!inputs.length) {
-        return current;
-      }
-      const next = new Map(current);
-      next.set(sessionId, pauseQueuedInputs(inputs) as QueuedComposerInput[]);
-      return next;
-    });
+    await chatApplication.cancel(session.id);
   }
 
   async function handleOpenSubagent(delegate: DelegatedAgentState) {
@@ -1908,300 +895,15 @@ export function ChatPage({
     }
   }
 
-  async function handleOpenArtifact(artifact: ArtifactRef) {
-    if (!activeSession) {
-      return;
-    }
-    const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
-    dispatchSidecar({
-      artifactId: artifact.id,
-      threadId: activeSession.id,
-      title: artifact.title,
-      type: "tab.openArtifact",
-    });
-    if (artifact.kind === "data_view") {
-      setArtifactSidecarContent((current) => ({
-        ...current,
-        [tabId]: {
-          artifact,
-          ...(artifact.dataView ? { detail: { id: artifact.id, title: artifact.title, mimeType: artifact.mimeType, dataView: artifact.dataView } } : {}),
-          loading: false,
-          ...(artifact.dataViewError ? { error: artifact.dataViewError } : {}),
-        },
-      }));
-      return;
-    }
-    setArtifactSidecarContent((current) => ({
-      ...current,
-      [tabId]: { artifact, loading: Boolean(chatStore.loadArtifact) },
-    }));
-    if (!chatStore.loadArtifact) {
-      return;
-    }
-    try {
-      const payload = await chatStore.loadArtifact({
-        artifactId: artifact.id,
-        sessionKey: activeSession.id,
-      });
-      const detail = projectLoadedArtifactDetail(artifact, payload);
-      setArtifactSidecarContent((current) => current[tabId]
-        ? { ...current, [tabId]: { ...current[tabId], detail, loading: false } }
-        : current);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setArtifactSidecarContent((current) => current[tabId]
-        ? { ...current, [tabId]: { ...current[tabId], error: message, loading: false } }
-        : current);
-    }
-  }
+  function handleOpenArtifact(artifact: ArtifactRef) { return sidecarResources.current?.openArtifact(artifact); }
+  function handleOpenAssistantFileLink(link: AssistantFileLink) { return sidecarResources.current?.openFileLink(link); }
 
-  async function handleOpenAssistantFileLink(link: AssistantFileLink) {
-    if (!activeSession) {
-      return;
-    }
-
-    let artifact: ArtifactRef;
-    try {
-      artifact = assistantFileArtifact(resolveAssistantFileLink(link.href, activeSession.workingDirectory));
-      logRendererEvent("info", "artifact.file_link.resolved", {
-        href: link.href, path: artifact.fetchPath, sessionId: activeSession.id,
-      });
-    } catch (error) {
-      artifact = assistantFileArtifact({ path: link.href, title: assistantFileLinkTitle(link.href) });
-      const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
-      dispatchSidecar({
-        artifactId: artifact.id,
-        threadId: activeSession.id,
-        title: artifact.title,
-        type: "tab.openArtifact",
-      });
-      const message = error instanceof AssistantFileLinkError && error.code === "outside_workspace"
-        ? t("details.fileOutsideWorkspace")
-        : errorMessage(error);
-      console.error("[artifact-preview] workspace file link resolution failed", {
-        error,
-        href: link.href,
-        sessionId: activeSession.id,
-        workspaceRoot: activeSession.workingDirectory,
-      });
-      setArtifactSidecarContent((current) => ({
-        ...current,
-        [tabId]: { artifact, error: message, loading: false },
-      }));
-      return;
-    }
-
-    const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
-    dispatchSidecar({
-      artifactId: artifact.id,
-      threadId: activeSession.id,
-      title: artifact.title,
-      type: "tab.openArtifact",
-    });
-    setArtifactSidecarContent((current) => ({
-      ...current,
-      [tabId]: { artifact, localFile: true, loading: false },
-    }));
-  }
-
-  async function handleCloseSidecarTab(tab: SidecarTab) {
-    if (tab.kind === "browser") {
-      setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
-      const browserRuntime = chatStore.browserRuntime;
-      if (!browserRuntime || !tab.browserSessionId || !tab.nativeTabId) {
-        dispatchSidecar({ tabId: tab.id, type: "tab.close" });
-        return;
-      }
-      try {
-        let snapshot = await browserRuntime.snapshot(tab.browserSessionId);
-        const remainingResources = sidecarRef.current.tabs.filter((candidate) => (
-          candidate.kind === "browser"
-            && candidate.threadId === tab.threadId
-            && candidate.id !== tab.id
-        ));
-        if (snapshot.data.tabs.length === 1 && remainingResources.length) {
-          snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
-        }
-        if (snapshot.data.tabs.length === 1) {
-          await browserRuntime.closeSession(snapshot.data.browserSessionId);
-          clearBrowserSnapshot(snapshot.data.browserSessionId);
-          dispatchSidecar({ tabId: tab.id, type: "tab.close" });
-          return;
-        }
-        const next = await browserRuntime.closeTab(snapshot.data.browserSessionId, tab.nativeTabId);
-        dispatchSidecar({ tabId: tab.id, type: "tab.close" });
-        synchronizeBrowserSnapshot(next);
-      } catch (error) {
-        setBrowserProvisionErrors((current) => ({ ...current, [tab.id]: errorMessage(error) }));
-      }
-      return;
-    }
-
-    if (tab.kind === "terminal") {
-      setTerminalErrors((current) => omitRecordKey(current, tab.id));
-      try {
-        await chatStore.terminalRuntime?.terminate(tab.id);
-      } catch (error) {
-        setTerminalErrors((current) => ({ ...current, [tab.id]: errorMessage(error) }));
-        return;
-      }
-      dispatchSidecar({ tabId: tab.id, type: "tab.close" });
-      return;
-    }
-
-    dispatchSidecar({ tabId: tab.id, type: "tab.close" });
-    if (tab.kind === "artifact") {
-      setArtifactSidecarContent((current) => omitRecordKey(current, tab.id));
-    }
-  }
-
-  function renderSidecarArtifact(tab: SidecarArtifactTab) {
-    const content = artifactSidecarContent[tab.id];
-    if (!content) {
-      return <p className="react-empty-state">{t("details.noPreview")}</p>;
-    }
-    return (
-      <ArtifactDetails
-        key={tab.id}
-        reviewEpoch={artifactReviewEpoch}
-        responding={sessionResponding}
-        localThreadId={content.localFile ? tab.threadId : undefined}
-        observeFile={sidecar.presentation !== "closed" && tab.threadId === activeSessionId}
-        workspaceStore={workspaceStore}
-        onReference={(reference) => {
-          const id = "artifact:" + tab.id + ":" + reference.detail;
-          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== id), { ...reference, id }]);
-          setComposerFocusRequestId((current) => current + 1);
-        }}
-        artifact={content.artifact}
-        detail={content.detail}
-        error={content.error}
-        loading={content.loading}
-        notice={content.notice}
-        office={content.office}
-        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
-        onOpenFileLink={handleOpenAssistantFileLink}
-      />
-    );
-  }
-
-  function renderSidecarBrowser(tab: SidecarBrowserTab, surfaceVisible: boolean) {
-    return (
-      <SidecarBrowser
-        browserRuntime={chatStore.browserRuntime}
-        externalError={browserProvisionErrors[tab.id] || browserError}
-        snapshot={browserSnapshot?.data.sessionId === tab.threadId ? browserSnapshot : undefined}
-        surfaceVisible={surfaceVisible && !presentDrawer}
-        tab={tab}
-        onHandoffComplete={() => handleBrowserHandoffComplete(tab)}
-        onRetryProvision={() => {
-          clearBrowserError();
-          setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
-          setBrowserProvisionEpoch((current) => current + 1);
-        }}
-        onSnapshot={synchronizeBrowserSnapshot}
-      />
-    );
-  }
-
-  function renderSidecarTerminal(tab: SidecarTerminalTab) {
-    return (
-      <Suspense fallback={(
-        <div aria-busy="true" className="react-sidecar__deferred" role="status">
-          <Loader2 aria-hidden="true" size={18} />
-          <span>{t("sidecar.terminalStarting")}</span>
-        </div>
-      )}>
-        <LazySidecarTerminal
-          externalError={terminalErrors[tab.id]}
-          tab={tab}
-          terminalRuntime={chatStore.terminalRuntime}
-          workspaceLabel={activeWorkspaceLabel}
-        />
-      </Suspense>
-    );
-  }
-
-  async function handleBrowserHandoffComplete(tab: SidecarBrowserTab) {
-    if (!activeSession || activeSession.id !== tab.threadId) return;
-    try {
-      await dispatchTurn(activeSession.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
-      await handleSessionStoreRefresh(activeSession);
-    } catch (error) {
-      reportTimelineError(t("sidecar.browserHandoffFailed", { message: errorMessage(error) }));
-    }
-  }
-
-  async function handleSubmitAgentUiForm(
-    form: AgentUiForm,
-    values: Record<string, unknown>,
-  ) {
-    if (!activeSession || isThreadCommandInFlight(commandLifecycle)) {
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t("runtime.submitFormTurnUnavailable"));
-      return;
-    }
-    const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
-    if (formTurnId !== activeTurn.id) {
-      reportTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
-      return;
-    }
-    const command = createThreadFormSubmitCommand({
-      formId: form.form_id,
-      sessionId: activeSession.id,
-      source: { control: "chat-form", surface: "chat" },
-      threadId: agentUiFormCorrelationString(form, "thread_id")
-        || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-      values,
-    });
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
+  async function handleSubmitAgentUiForm(form: AgentUiForm, values: Record<string, unknown>) {
+    await chatApplication.submitForm(activePersistedSessionId, form, values);
   }
 
   async function handleCancelAgentUiForm(form: AgentUiForm) {
-    if (!activeSession || isThreadCommandInFlight(commandLifecycle)) {
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t("runtime.cancelFormTurnUnavailable"));
-      return;
-    }
-    const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
-    if (formTurnId !== activeTurn.id) {
-      reportTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
-      return;
-    }
-    const command = createThreadFormCancelCommand({
-      formId: form.form_id,
-      sessionId: activeSession.id,
-      source: { control: "chat-form", surface: "chat" },
-      threadId: agentUiFormCorrelationString(form, "thread_id")
-        || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-    });
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
+    await chatApplication.submitForm(activePersistedSessionId, form);
   }
 
   function handleSessionSidebarCollapsedChange(collapsed: boolean) {
@@ -2242,11 +944,6 @@ export function ChatPage({
       else setComposerFocusRequestId((current) => current + 1);
     }
     setDrawer(null);
-  }
-
-  function hideSidecar() {
-    sidecarToggleRef.current?.focus();
-    dispatchSidecar({ type: "presentation.hide" });
   }
 
   function handleComposerDraftChange(value: string) {
@@ -2351,9 +1048,7 @@ export function ChatPage({
               ref={sidecarToggleRef}
               title={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
               type="button"
-              onClick={() => dispatchSidecar({
-                type: sidecar.presentation === "closed" ? "presentation.show" : "presentation.hide",
-              })}
+              onClick={() => sidecarResources.current?.toggle()}
             >
               {sidecar.presentation === "closed"
                 ? <PanelRightOpen aria-hidden="true" size={17} />
@@ -2488,7 +1183,7 @@ export function ChatPage({
           <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>{t("shell.backToLatest")}</button>
         ) : null}
 
-        {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
+        <ChatQueueNotice application={chatApplication} sessionId={activePersistedSessionId} />
         {compactingActiveSession ? (
           <p aria-live="polite" className="react-context-compaction-status" role="status">
             <Loader2 aria-hidden="true" />
@@ -2506,15 +1201,7 @@ export function ChatPage({
           </p>
         ) : null}
         <div className="react-composer-drop-target">
-          {activeSession && activeQueuedInputs.length ? (
-            <QueuedInputsPanel
-              canInterrupt={canInterruptQueuedInput}
-              inputs={activeQueuedInputs}
-              onDelete={(inputId) => handleDeleteQueuedInput(activeSession.id, inputId)}
-              onInterrupt={(inputId) => void handleInterruptQueuedInput(activeSession.id, inputId)}
-              onResume={() => void handleResumeQueuedInputs(activeSession.id)}
-            />
-          ) : null}
+          <ChatQueuedInputs application={chatApplication} sessionId={activePersistedSessionId} />
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
             contextReferences={composerArtifactContextReferences}
@@ -2533,19 +1220,7 @@ export function ChatPage({
             const selectedModelId = selected.modelId || selected.id;
             setComposerModel(modelId);
             if (emptyActiveSession) {
-              const saveDefault = settingsStore?.saveDefaultChatModel;
-              const persistence = defaultModelSavePromise.current
-                .catch(() => undefined)
-                .then(() => {
-                  if (!saveDefault || !selected.providerId) {
-                    throw new Error("Native default Provider/model persistence is unavailable.");
-                  }
-                  return saveDefault({
-                    modelId: selectedModelId,
-                    providerId: selected.providerId,
-                  });
-                });
-              defaultModelSavePromise.current = persistence;
+              const persistence = chatActions.saveDefaultModel(selectedModelId, selected.providerId);
               void persistence.catch((error) => {
                 reportTimelineError(t("errors.modelSaveFailed", {
                   message: error instanceof Error ? error.message : String(error),
@@ -2553,18 +1228,7 @@ export function ChatPage({
               });
             }
             if (activeSession) {
-              setSessions((current) => current.map((session) => (
-                session.id === activeSession.id
-                  ? {
-                      ...session,
-                      model: selectedModelId,
-                      modelProvider: selected.providerId,
-                    }
-                  : session
-              )));
-              const setModel = selected.providerId
-                ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
-                : sessionStore.setModel?.(activeSession.id, selectedModelId);
+              const setModel = sessionApplication.selectModel(activeSession.id, selectedModelId, selected.providerId);
               void setModel?.catch((error) => {
                 reportTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
               });
@@ -2608,24 +1272,25 @@ export function ChatPage({
         </div>
       </main>
 
-      <Sidecar
-        scopeKey={JSON.stringify([activeSessionId, activeWorkspaceId])}
-        activeTabId={sidecarActiveTab?.id ?? ""}
-        canCreateBrowser={Boolean(activeSession)}
-        canCreateTerminal={Boolean(activeWorkspaceId)}
-        presentation={sidecar.presentation}
-        renderArtifact={renderSidecarArtifact}
-        renderBrowser={renderSidecarBrowser}
-        renderTerminal={renderSidecarTerminal}
-        tabs={sidecarTabs}
-        width={sidecar.width}
-        onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
-        onCloseTab={handleCloseSidecarTab}
-        onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
-        onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
-        onHide={hideSidecar}
-        onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
-        onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
+      <SidecarResources
+        ref={sidecarResources}
+        activeSession={activeSession}
+        activeDisplaySession={activeDisplaySession}
+        activeSessionId={activeSessionId}
+        chatStore={chatStore}
+        workspaceStore={workspaceStore}
+        artifactReviewEpoch={artifactReviewEpoch}
+        sessionResponding={sessionResponding}
+        presentDrawer={Boolean(presentDrawer)}
+        onLayoutChange={setSidecar}
+        onHide={() => sidecarToggleRef.current?.focus()}
+        onReference={(reference) => {
+          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
+          setComposerFocusRequestId((current) => current + 1);
+        }}
+        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
+        onHandoff={chatActions.completeBrowserHandoff}
+        onError={reportTimelineError}
       />
 
       {presentDrawer ? (
@@ -2665,10 +1330,6 @@ function EmptyStateText({ text }: { text: string }) {
   return <p className="react-empty-state">{text}</p>;
 }
 
-function toChatInput(input: QueuedComposerInput): ChatInput {
-  return input.turnInput;
-}
-
 function threadCommandLifecycleLabel(lifecycle: ThreadCommandLifecycle, t: TFunction<"chat">): string {
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
   const operation = ({
@@ -2695,47 +1356,12 @@ function threadCommandLifecycleLabel(lifecycle: ThreadCommandLifecycle, t: TFunc
   }
 }
 
-function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
-  const value = form.correlation[key];
-  return typeof value === "string" ? value : "";
-}
-
 function isVisibleAgentUiForm(form: AgentUiForm): boolean {
   return form.status !== "submitted" && form.status !== "cancelled" && form.status !== "expired";
 }
 
 async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
-}
-
-function updateSessionMessages(
-  current: Map<string, ReactChatMessage[]>,
-  sessionId: string,
-  update: (messages: ReactChatMessage[]) => ReactChatMessage[],
-): Map<string, ReactChatMessage[]> {
-  const nextMessages = update(current.get(sessionId) ?? EMPTY_OPTIMISTIC_MESSAGES);
-  const next = new Map(current);
-  if (nextMessages.length) {
-    next.set(sessionId, nextMessages);
-  } else {
-    next.delete(sessionId);
-  }
-  return next;
-}
-
-function replaceMapKey<T>(
-  current: Map<string, T>,
-  previousSessionId: string,
-  sessionId: string,
-): Map<string, T> {
-  if (!current.has(previousSessionId) || previousSessionId === sessionId) {
-    return current;
-  }
-  const next = new Map(current);
-  const value = next.get(previousSessionId) as T;
-  next.delete(previousSessionId);
-  next.set(sessionId, value);
-  return next;
 }
 
 function moveMapValue<T>(
@@ -2764,83 +1390,6 @@ function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): Mo
     ...(model.supportsImageInput ? { badge: t("composer.imageInput") } : {}),
   };
 }
-
-function QueuedInputsPanel({
-  canInterrupt,
-  inputs,
-  onDelete,
-  onInterrupt,
-  onResume,
-}: {
-  canInterrupt: boolean;
-  inputs: QueuedInput[];
-  onDelete: (inputId: string) => void;
-  onInterrupt: (inputId: string) => void;
-  onResume: () => void;
-}) {
-  const { t } = useTranslation("chat");
-  const hasPausedInput = inputs.some((input) => input.status === "paused");
-  const pendingCount = inputs.filter((input) => input.status === "queued" || input.status === "paused").length;
-  return (
-    <section aria-label={t("queue.label")} aria-live="polite" className="react-queued-inputs">
-      <div className="react-queued-inputs__header">
-        <h2>{t("queue.title")}</h2>
-        <div>
-          <span>{t("queue.pending", { max: MAX_QUEUED_INPUTS, pending: pendingCount })}</span>
-          {hasPausedInput ? <button type="button" onClick={onResume}>{t("queue.resume")}</button> : null}
-        </div>
-      </div>
-      <ol>
-        {inputs.map((input) => (
-          <li className="react-queued-input" data-status={input.status} key={input.id}>
-            <span>{queuedInputStatusLabel(input, t)}</span>
-            <p>{input.content}</p>
-            {(input.mode === "queued" && (input.status === "queued" || input.status === "paused")) || (input.mode === "interrupt" && input.status !== "queued") ? (
-              <div className="react-queued-input__actions">
-                {input.mode === "queued" && canInterrupt ? (
-                  <button
-                    className="react-queued-input__interrupt"
-                    title={t("queue.interruptHelp")}
-                    type="button"
-                    onClick={() => onInterrupt(input.id)}
-                  >
-                    {t("queue.interrupt")}
-                  </button>
-                ) : null}
-                <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? t("queue.clearInterrupt") : t("queue.delete")}</button>
-              </div>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-function queuedInputStatusLabel(input: QueuedInput, t: TFunction<"chat">): string {
-  if (input.mode === "interrupt") {
-    switch (input.status) {
-      case "sent":
-        return t("queue.sending");
-      case "failed":
-        return t("queue.interruptFailed");
-      default:
-        return t("queue.interrupting");
-    }
-  }
-  switch (input.status) {
-    case "paused":
-      return t("queue.paused");
-    case "sent":
-      return t("queue.sent");
-    case "failed":
-      return t("queue.failed");
-    default:
-      return t("queue.waiting");
-  }
-}
-
-
 
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallSummary }) {
   const { t } = useTranslation("chat");
@@ -2897,116 +1446,6 @@ function SubagentDetails({
   );
 }
 
-function ArtifactDetails({
-  artifact,
-  detail: storedDetail,
-  error: storedError,
-  loading: storedLoading,
-  notice: storedNotice,
-  office: storedOffice,
-  localThreadId,
-  reviewEpoch,
-  responding,
-  observeFile,
-  workspaceStore,
-  onReference,
-  onAskForSpreadsheetChange,
-  onOpenFileLink,
-}: {
-  artifact: ArtifactRef;
-  detail?: LoadedArtifactDetail;
-  error?: string;
-  loading: boolean;
-  notice?: string;
-  office?: OfficeArtifactSource;
-  localThreadId?: string;
-  reviewEpoch: number;
-  responding: boolean;
-  observeFile: boolean;
-  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
-  onReference: (reference: AgentInputReference) => void;
-  onAskForSpreadsheetChange: (artifact: ArtifactRef, request: SpreadsheetCellChangeRequest, revision?: string) => void;
-  onOpenFileLink: (link: AssistantFileLink) => void;
-}) {
-  const { t } = useTranslation("chat");
-  const [refreshKey, setRefreshKey] = useState(0);
-  const file = useArtifactFile({
-    refreshKey,
-    artifact, enabled: Boolean(localThreadId) && observeFile, threadId: localThreadId, workspaceStore,
-    unavailableMessage: t("details.filePreviewUnavailable"), binaryMessage: t("details.binaryFilePreviewUnsupported"),
-  });
-  const { detail, error, loading, office } = localThreadId ? file : { detail: storedDetail, error: storedError, loading: storedLoading, office: storedOffice };
-  const notice = localThreadId ? (file.truncated ? t("details.filePreviewTruncated") : undefined) : storedNotice;
-  function referenceArtifact() {
-    const text = detail?.dataView ? JSON.stringify(detail.dataView) : detail?.textContent;
-    const excerpt = text && text.length > 12000 ? text.slice(0, 12000) + "\n[Preview excerpt truncated]" : text;
-    onReference({
-      kind: "reference", title: artifact.title, detail: t("details.artifactReference"),
-      ...(localThreadId ? { referenceKind: "file", sourcePath: artifact.fetchPath, scope: localThreadId, revision: file.revision } as const : {}),
-      sourceText: [
-        `Artifact: ${artifact.title}`, `Artifact ID: ${artifact.id}`,
-        ...(localThreadId ? [`File: ${artifact.fetchPath}`, `Viewed revision: ${file.revision}`, "Verify the current file before editing; this reference describes the viewed revision."] : []),
-        ...(excerpt ? [excerpt] : []),
-      ].join("\n"),
-    });
-  }
-  const markdown = isMarkdownArtifact(artifact, detail);
-  const markdownContent = detail?.textContent && markdown
-    ? { text: detail.textContent, title: detail.title }
-    : undefined;
-  return (
-    <div className="react-artifact-detail" data-content={markdown || office?.kind === "document" ? "document" : "preview"}>
-      <div className="react-artifact-detail__toolbar">
-        <button disabled={loading || Boolean(error)} onClick={referenceArtifact} type="button">{t("details.referenceInChat")}</button>
-        {localThreadId ? <span role="status">{t("details.fileAutoUpdates")}</span> : null}
-      </div>
-      {localThreadId && artifact.fetchPath && workspaceStore?.artifactReviews ? (
-        <ArtifactReviewPanel store={workspaceStore.artifactReviews} path={artifact.fetchPath} threadId={localThreadId}
-          revision={error ? undefined : file.revision} epoch={reviewEpoch} responding={responding}
-          kind={office?.kind} title={artifact.title} onRestored={() => setRefreshKey((value) => value + 1)} />
-      ) : null}
-      {!markdown && !office ? (
-        <dl>
-          <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
-          {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
-        </dl>
-      ) : null}
-      {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-      {notice ? <p className="react-artifact-detail__notice">{notice}</p> : null}
-      {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
-      {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
-      {office ? (
-        <OfficeArtifactPreview
-          onAskForContentChange={!error && localThreadId && file.revision && artifact.fetchPath ? (request) => {
-            const position = request.start === request.end ? String(request.start) : `${request.start}–${request.end}`;
-            onReference(officeContentReference({ request, path: artifact.fetchPath!, title: artifact.title, threadId: localThreadId, revision: file.revision!,
-              label: t(request.kind === "document" ? "details.officeParagraphSelection" : "details.officeSlideSelection", { position }),
-            }));
-          } : undefined}
-          onAskForChange={error ? undefined : (selection) => onAskForSpreadsheetChange(artifact, selection, file.revision)}
-          source={office}
-        />
-      ) : null}
-      {markdownContent ? (
-        <article aria-label={markdownContent.title} className="react-artifact-detail__document" role="document">
-          <AssistantMarkdown
-            onOpenFileLink={onOpenFileLink}
-            streaming={false}
-            text={markdownContent.text}
-          />
-        </article>
-      ) : detail?.textContent ? <pre className="react-artifact-detail__text">{detail.textContent}</pre> : null}
-      {!loading && !error && !office && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
-    </div>
-  );
-}
-
-function isMarkdownArtifact(artifact: ArtifactRef, detail?: LoadedArtifactDetail): boolean {
-  const mimeType = (detail?.mimeType || artifact.mimeType || "").split(";", 1)[0].trim().toLowerCase();
-  return artifact.kind.toLowerCase() === "markdown" || mimeType === "text/markdown";
-}
-
 function toolCallDetailSections(toolCall: ToolCallSummary, t: TFunction<"chat">): Array<{ label: string; value: string }> {
   return [
     { label: t("details.status"), value: toolCall.status },
@@ -3036,19 +1475,6 @@ function formatDetailLines(rows: Array<[string, string | undefined]>): string {
     .join("\n");
 }
 
-function browserResourceTitle(title: string, url: string, fallback: string): string {
-  const normalizedTitle = title.trim();
-  if (normalizedTitle && normalizedTitle !== "about:blank" && normalizedTitle !== "New tab") {
-    return normalizedTitle;
-  }
-  if (!url || url === "about:blank") return fallback;
-  try {
-    return new URL(url).hostname || url;
-  } catch {
-    return url;
-  }
-}
-
 function projectDraftSessionSummary(draft: DraftSession): SessionSummary {
   return {
     id: draft.id,
@@ -3061,17 +1487,6 @@ function projectDraftSessionSummary(draft: DraftSession): SessionSummary {
   };
 }
 
-function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
-  if (!(key in record)) return record;
-  const next = { ...record };
-  delete next[key];
-  return next;
-}
-
 function boundedSpreadsheetSelectionValue(value: string): string {
   return value.length > 12000 ? `${value.slice(0, 12000)}\n[Selection excerpt truncated; read the referenced range for all values.]` : value;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

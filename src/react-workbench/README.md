@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:061d9c17966a33e7c092a59d21f9601e174d19e1460cd83543c21c4cfe2d6110 -->
+<!-- tinybot-module-fingerprint: sha256:be2ae4e17b9a555178aabfe9e9ee07567061366e03845e49db00d5264951ef8a -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -19,6 +19,9 @@ renderer diagnostic overlay; render errors also remove the startup surface.
 `DesktopShell` owns the desktop chrome, and `defaultServices.ts` composes the
 renderer-facing stores including the native `WorkspaceRegistry` Adapter and
 the optional native pet and quick-chat hosts.
+Native Chat submission, model resolution, cancellation, compaction, and fork
+lookup are implemented by `chat/desktopChatCommands.ts`, which receives the
+native adapters and event notifications from this composition root.
 
 The standalone [`agent-graph/`](agent-graph/README.md) route owns the in-memory
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
