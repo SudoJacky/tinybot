@@ -1,9 +1,23 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2ee384121e49221fc5537942b383b1f11a1d58a81159ca52b90964b1c68947cb -->
+<!-- tinybot-module-fingerprint: sha256:e41ba50e373b3c1637b644a031c23c24f3d202f26a2ab0ca68d793d0e1c31f08 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
+width defaults to 280 px and ranges from 220 to 420 px, with the maximum reduced
+to reserve 480 px for the chat workspace where possible. Pointer movement updates
+only sidebar geometry and the separator, without rerendering Chat content.
+Dragging 48 px beyond the minimum invokes the existing collapse operation while
+retaining pointer capture and focus. Dragging back to the minimum expanded width
+reopens the sidebar and continues the same gesture, with a 48 px gap between the
+two thresholds to prevent toggling near the boundary. Release while collapsed
+retains the last saved expanded width. Completed expanded resize gestures persist
+width in localStorage, while window constraints never overwrite the preference.
+Escape, pointer cancellation, capture loss, blur, and unmount release the drag.
+The separator supports arrow keys (8 px, or 32 px with Shift), Home/End, and
+double-click reset. Tests cover persistence, bounds, cancellation, focus, and
+render isolation.
 Workspace session lists initially show six rows. Each workspace independently
 reveals twelve rows on the first Show more click and all remaining rows on the
 second. General chats and project member workspaces use the same behavior;

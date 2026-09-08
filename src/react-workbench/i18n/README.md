@@ -1,8 +1,11 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:7d0b8e1c34253d6e2a4a06fcb4cf4619519f7c0dd5258df9400ddd557710d929 -->
+<!-- tinybot-module-fingerprint: sha256:36730183a389856b945604bca8bb1543cb6e0087437c2b69284870c4148222de -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
+
+Sidebar resizing includes localized separator labels, width values, and hints
+for dragging, collapse, keyboard adjustment, and reset.
 
 Workspace session lists localize their Show more action in both languages.
 

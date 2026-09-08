@@ -1,8 +1,18 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:091d0cefed23e35e3a451c656a416663fe758c26ad843aa827ce8b1f3b812ea7 -->
+<!-- tinybot-module-fingerprint: sha256:bcf34eaa424ba8d118bde6c12124931ca21d1870e0611f0b997b194b989a0a3a -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+Session sidebar width uses a renderer-owned CSS variable. Its 8 px resize target
+highlights on hover and focus, with increasing emphasis past the minimum width.
+Its accent line supplies focus feedback instead of the browser's rectangular
+outline around the full-height drag target.
+The session scroller reserves the handle's gutter so its scrollbar remains usable.
+Width transitions are disabled during expanded direct dragging. Collapse keeps
+its existing motion and reduced-motion behavior while pointer capture remains
+active. The collapsed rail hides the handle only after the gesture ends, so a
+held drag can reverse direction and reopen the sidebar.
 
 Workspace session reveal buttons align with session titles and use the sidebar's
 muted text, row hover surface, and keyboard focus styling.

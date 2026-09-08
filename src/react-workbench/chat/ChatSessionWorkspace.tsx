@@ -49,6 +49,7 @@ import {
 } from "./sessionSidebarOrder";
 import { displaySessionTitle } from "./sessionTitle";
 import { TinybotMascot } from "./TinybotMascot";
+import { SessionSidebarResizeHandle } from "./SessionSidebarResizeHandle";
 import {
   groupSessionsByWorkspace,
   normalizedWorkspacePathKey,
@@ -687,6 +688,7 @@ export function ChatSessionWorkspace({
   return (
     <>
       <aside className="react-session-list" aria-label={t("shell.sessions")} data-collapsed={collapsed}>
+        <SessionSidebarResizeHandle collapsed={collapsed} onCollapsedChange={actions.onCollapsedChange} />
         {collapsed ? (
           <nav aria-label={t("shell.collapsedNavigation")} className="react-session-list__collapsed-nav">
             <button

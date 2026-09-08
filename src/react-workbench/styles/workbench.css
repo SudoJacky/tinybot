@@ -800,9 +800,10 @@ button:disabled {
 }
 
 .react-session-list {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: clamp(220px, 25vw, 280px);
+  width: var(--session-sidebar-width, 280px);
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--color-hairline);
@@ -813,6 +814,53 @@ button:disabled {
 
 .react-session-list[data-collapsed="true"] {
   width: 64px;
+}
+
+.react-session-list[data-resizing="true"][data-collapsed="false"] {
+  transition: none;
+}
+
+.react-session-list:not([data-collapsed="true"]) > .react-session-list__rows {
+  margin-right: 8px;
+}
+
+.react-session-sidebar-resize {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.react-session-sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-accent);
+  opacity: 0;
+}
+
+.react-session-sidebar-resize:focus {
+  outline: none;
+}
+
+.react-session-sidebar-resize:hover::after,
+.react-session-sidebar-resize:focus-visible::after {
+  opacity: 0.45;
+}
+
+.react-session-list[data-resizing="true"] .react-session-sidebar-resize::after {
+  opacity: calc(0.45 + var(--collapse-progress, 0) * 0.55);
+}
+
+.react-session-list[data-collapsed="true"]:not([data-resizing="true"]) .react-session-sidebar-resize {
+  display: none;
 }
 
 .react-session-list__header {

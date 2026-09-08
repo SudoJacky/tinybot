@@ -1058,6 +1058,7 @@ export const en = {
     },
     shell: {
       label: "Chat", sessions: "Sessions", addWorkspace: "Add workspace folder", workspaceActions: "Workspace and project actions", searchChats: "Search chats", expandSidebar: "Expand session sidebar", collapsedNavigation: "Collapsed session sidebar shortcuts",
+      resizeSidebar: "Resize session sidebar", resizeSidebarHint: "Drag left to collapse; keep holding and drag right to reopen. Double-click to reset. Use arrow keys to adjust.", sidebarWidth: "{{width}} pixels",
       collapseSidebar: "Collapse session sidebar", newChat: "New chat", sessionRows: "Session list rows", workspace: "Workspace {{name}}", generalSessions: "General chats", showMoreSessions: "Show more",
       newSessionIn: "New session in {{name}}", confirmDelete: "Confirm delete {{name}}", delete: "Delete {{name}}", noSessions: "No sessions yet.",
       reorderWorkspace: "Reorder workspace {{name}}. Drag or press Alt+Arrow Up or Down.", reorderProject: "Reorder project {{name}}. Drag or press Alt+Arrow Up or Down.",
