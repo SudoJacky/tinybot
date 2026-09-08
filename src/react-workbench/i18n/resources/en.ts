@@ -688,7 +688,7 @@ export const en = {
       petSizeOptionsLabel: "Desktop pet size options",
       petSizes: { small: "Small", medium: "Medium", large: "Large" },
       petPosition: "Position",
-      petPositionDescription: "Return an off-screen pet to a safe position on the current primary display.",
+      petPositionDescription: "Move the pet to the bottom-right corner inside the Tinybot main window.",
       resetPetPosition: "Reset position",
       petStyle: "Style",
       petAppearanceDescription: "Choose a flat mark or add subtle light, depth, and shadow without changing Tinybot's shape.",

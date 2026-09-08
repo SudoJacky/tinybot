@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:1b3298f6009703be26c59d17ef38d34be42533efcc93dd7f061e7d2b06fcad1e -->
+<!-- tinybot-doc-fingerprint: sha256:294981c3a9d48a63e3ca4b2b9f64dfa230ac08b2b7a167e2a7cb58b5c2fce19c -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -80,6 +80,10 @@ Tauri events, uses the native `startDragging` operation for pointer movement,
 and reports settled native window moves back to `main`. Monitor work areas are
 used when restoring or resizing the pet, including monitors with negative
 coordinates.
+Initial placement without a saved position and the Appearance position-reset
+action use the bottom-right of the main window's current client area, inset by
+12 physical pixels. The resulting pet bounds are clamped to the main window's
+monitor work area. Manually saved positions still restore independently.
 
 Closing `desktop-pet` prevents destruction, hides the window, and notifies
 `main` to persist `visible: false`; closing `desktop-pet-chat` hides it without

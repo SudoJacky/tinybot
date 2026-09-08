@@ -13,7 +13,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:acb726b82260f7a8f8d2551fe0a768e6d5b3725dca38590551300bea41e04fc9 -->
+<!-- tinybot-doc-fingerprint: sha256:014e47cdd6378f8a8d0c61c01ac5de8cf0c8d52d63148806e9f8466c356175b4 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -154,6 +154,17 @@ strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit
 `discard` remains available and keeps the newest messages that fit without
 creating a summary.
+
+The compaction prompt asks for a structured continuation handoff covering the
+active goal, user constraints and corrections, decisions and rationale, work
+state, verification evidence, exact working references, and unresolved next
+actions. Empty sections are omitted. Plans, performed actions, verified results,
+and hypotheses remain distinct; source material is summarized as data rather
+than followed as instructions. When space is tight, active requirements,
+blockers, unfinished work, and evidence take priority over background and
+repetition. Partial-summary merges use the same requirements, preserve unique
+facts, and only resolve conflicts supported by explicit chronology or corrections.
+These are model instructions, not a guarantee of lossless preservation.
 
 Context usage prefers the provider's normalized total when one is reported and
 otherwise uses the local request estimate. The estimate remains available for

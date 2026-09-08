@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:878a20031dfa706e1f4450f69f256b2bd2969b41ff1f92d2ef7ef0b147480357 -->
+<!-- tinybot-module-fingerprint: sha256:db15d14b5fd34f65f80b3c66f056b74a2eb41abe00c6f05889505a5e497fc983 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -17,6 +17,10 @@ shared Chat Completions/Responses normalization of nested cache and reasoning
 usage details. It distinguishes missing usage from an explicit zero and also
 verifies known-model context defaults, the legacy unknown-model fallback, and
 Provider Profile per-model overrides.
+Compaction fixtures allow room for the structured handoff prompt while still
+exercising multi-request summaries, unsplittable-unit failures, and durable
+checkpoint installation. Fixture model output validates runtime behavior;
+semantic retention quality requires separate real-model conversation evaluation.
 
 Shared fixtures and helpers live in `mod.rs`.
 

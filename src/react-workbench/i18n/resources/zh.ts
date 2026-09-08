@@ -353,7 +353,7 @@ export const zh = {
       petVisible: "显示桌面宠物", petVisibleDescription: "让 Tinybot 保持在其他桌面窗口上方。",
       petSize: "宠物尺寸", petSizeDescription: "调整桌面占用空间，不改变角色样式。", petSizeOptionsLabel: "桌面宠物尺寸选项",
       petSizes: { small: "小", medium: "中", large: "大" },
-      petPosition: "位置", petPositionDescription: "将跑出屏幕的宠物移回当前主显示器的安全位置。", resetPetPosition: "初始化位置",
+      petPosition: "位置", petPositionDescription: "将宠物移到 Tinybot 主窗口内的右下角。", resetPetPosition: "初始化位置",
       petStyle: "样式", petAppearanceDescription: "保持 Tinybot 轮廓不变，选择平面标志或带柔和光影与体积感的样式。", petAppearanceOptionsLabel: "桌面宠物外观",
       petAppearances: { classic: "经典", dimensional: "立体" },
       petAppearanceDescriptions: { classic: "保留原有的平面 Tinybot 标志。", dimensional: "使用克制的渐变、光泽与阴影。" },
