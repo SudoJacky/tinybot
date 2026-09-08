@@ -1,9 +1,19 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:b9b7f4c665290e507b335eee931807b00be4d29154187dddc48c0c5911f877c3 -->
+<!-- tinybot-module-fingerprint: sha256:bc23aaf34bb18e6e076dc6490d6d85445bfb19ae53be8b29b3a7b495835b14ab -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`useQuickStart` owns model catalog loading and local onboarding progress. New
+users without usable models see an inline welcome card; configured users are
+left alone. Dismissal and completion persist, and Help can explicitly reopen
+the guide in an empty draft without creating a native Thread. `QuickStart`
+connects providers through the existing Settings store and patch builders.
+Model discovery saves the connection and checks only the catalog endpoint;
+successful canonical user Turns establish task completion. Errors remain
+visible with retry. Examples append to the composer without sending, and
+project examples use the existing workspace picker. The model dialog uses the
+shared modal focus and native-surface occlusion conventions.
 `SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
 width defaults to 280 px and ranges from 220 to 420 px, with the maximum reduced
 to reserve 480 px for the chat workspace where possible. Pointer movement updates

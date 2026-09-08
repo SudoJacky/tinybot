@@ -332,6 +332,29 @@ function createUpdateClient(
 }
 
 describe("DesktopShell", () => {
+  it("reopens dismissed quick start from Help across route changes without creating a native session", async () => {
+    const user = userEvent.setup();
+    const services = createServices();
+    services.settingsStore.loadChatModels = vi.fn(async () => [{ id: "example", label: "Example", providerId: "deepseek" }]);
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings({}));
+    services.settingsStore.saveProviderSettings = vi.fn(async () => buildProviderModelsSettings({}));
+    localStorage.setItem("tinybot.quick-start.v1", "dismissed");
+    render(<DesktopShell services={services} />);
+    await screen.findByRole("textbox", { name: /message/i });
+    expect(screen.queryByText("What would you like to try first?")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    await screen.findByRole("heading", { name: "Keyboard shortcuts" });
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Quick start" }));
+    await screen.findByRole("heading", { name: "What would you like to try first?" });
+    await user.click(screen.getByRole("button", { name: "Dismiss quick start" }));
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Quick start" }));
+    await screen.findByRole("heading", { name: "What would you like to try first?" });
+    expect(services.sessionStore.create).not.toHaveBeenCalled();
+  });
+
   it("starts with an uncreated conversation even when a previous tab was saved", async () => {
     const services = createServices({
       sessions: [{
@@ -515,7 +538,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     const helpMenu = screen.getByRole("menu", { name: "Help menu" });
-    for (const item of ["Documentation (F1)", "Keyboard shortcuts", "Report an issue", "Tinybot repository"]) {
+    for (const item of ["Documentation (F1)", "Keyboard shortcuts", "Quick start", "Report an issue", "Tinybot repository"]) {
       expect(within(helpMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(helpMenu).getAllByRole("separator")).toHaveLength(1);

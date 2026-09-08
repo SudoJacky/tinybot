@@ -1,8 +1,10 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:36730183a389856b945604bca8bb1543cb6e0087437c2b69284870c4148222de -->
+<!-- tinybot-module-fingerprint: sha256:e550fbd6458d4e63b8dd929410b72766a20074348d8abd34440b3f6baf26937d -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
+Quick start localizes welcome and model setup, catalog-validation feedback,
+task examples, dismissal, and the Help reentry action in both languages.
 
 Sidebar resizing includes localized separator labels, width values, and hints
 for dragging, collapse, keyboard adjustment, and reset.

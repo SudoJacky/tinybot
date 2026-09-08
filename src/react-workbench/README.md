@@ -117,3 +117,9 @@ The optional Workspace `artifactReviews` service connects explicit local file
 references to native baseline capture and Sidecar comparison/keep/restore.
 Desktop supports it; attempting a referenced edit without the service fails
 visibly before dispatch.
+
+Renderer tests require Happy DOM 20.11.2 or newer. Earlier versions could lose
+MutationObserver listeners during garbage collection, producing intermittent
+native-surface occlusion failures even while the observer remained connected.
+`test/happyDomMutationObserver.test.ts` exercises real garbage collection in an
+isolated Node process and checks both continued delivery and disconnection.

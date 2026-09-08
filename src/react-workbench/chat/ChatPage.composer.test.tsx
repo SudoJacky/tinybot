@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent, SettingsStore } from "../services";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
+import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { ReactChatMessage } from "./messageActions";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import {
@@ -16,6 +17,26 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("opens quick start without creating a native session and appends examples to the draft without sending", async () => {
+    const stores = createStores({ sessions: [] });
+    const settingsStore: SettingsStore = {
+      load: async () => [],
+      loadChatModels: async () => [{ id: "test-model", label: "Test model", providerId: "deepseek" }],
+      loadProviderSettings: async () => buildProviderModelsSettings({}),
+      saveProviderSettings: vi.fn(),
+    };
+    const handled = vi.fn();
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} settingsStore={settingsStore} startInNewSession quickStartRequest={1} onQuickStartHandled={handled} />);
+    await screen.findByRole("heading", { name: "What would you like to try first?" });
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "My draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask a question" }));
+    expect(input.value).toMatch(/^My draft\n\nWhat can you help me with/);
+    expect(handled).toHaveBeenCalledOnce();
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toEqual([]);
+  });
+
   it("uses a raised start layout for an empty active session", async () => {
     const stores = createStores();
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));

@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:2bf536210785bf2085e2d548e4a28eefbf6f780226fd56109fe7f36ecd1b20f9 -->
+<!-- tinybot-module-fingerprint: sha256:98e0cc509783927b7861e3ac95e78ec620c56769d96e98a55b7179598cc21bab -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -24,6 +24,9 @@ Shell menu surfaces and items use the shared workbench popover primitives, so
 route-owned menus can reuse the same visual and focus states without copying
 shell-specific selectors.
 The Help menu stays single-level and exposes only working actions:
+Quick start signals Chat to reopen its inline onboarding guide; the request is
+acknowledged after session hydration and works across route remounts. Progress,
+model configuration, and task examples remain owned by Chat.
 Documentation, Report an issue, and Tinybot repository open through the same
 system URL opener, while Keyboard shortcuts targets that module inside the
 Settings route. The shell carries the requested Settings module across the

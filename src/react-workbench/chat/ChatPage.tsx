@@ -86,6 +86,8 @@ import {
 import { ChatTimeline } from "./ChatTimeline";
 import { captureConversationView, restoreConversationView, type ConversationViewState } from "./conversationViewport";
 import { EmptyChatStart } from "./EmptyChatStart";
+import { QuickStart } from "./QuickStart";
+import { useQuickStart } from "./useQuickStart";
 import { FloatingPlanStatus } from "./FloatingPlanStatus";
 import type { AssistantFileLink } from "./assistantFileLinks";
 import {
@@ -106,6 +108,8 @@ export type ChatPageProps = {
   toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
   workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
   createSessionSignal?: number;
+  quickStartRequest?: number | null;
+  onQuickStartHandled?: () => void;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
@@ -246,6 +250,8 @@ export function ChatPage({
   activateSessionRequest = null,
   chatStore,
   createSessionSignal = 0,
+  quickStartRequest = null,
+  onQuickStartHandled,
   now = Date.now,
   onActiveWorkspaceChange,
   onMascotMoodChange,
@@ -272,8 +278,9 @@ export function ChatPage({
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [composerModel, setComposerModel] = useState("");
+  const quickStart = useQuickStart(settingsStore);
+  const composerModels = useMemo(() => quickStart.models.map((model) => toComposerModelOption(model, t)), [quickStart.models, t]);
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [composerSkills, setComposerSkills] = useState<SkillSummary[]>([]);
   const [composerTools, setComposerTools] = useState<ToolSummary[]>([]);
@@ -360,6 +367,9 @@ export function ChatPage({
   } = chatState;
   const { reportError: reportTimelineError } = chatActions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
+  const completedTask = timeline?.source === "canonical" && timeline.turns.some((turn) => turn.status === "completed" && Boolean(turn.userMessage.text.trim()));
+  const { completeTask } = quickStart;
+  useEffect(() => { if (completedTask) completeTask(); }, [completedTask, completeTask]);
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const composerSkillOptions = useMemo(
@@ -455,6 +465,15 @@ export function ChatPage({
   );
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
+  const showQuickStart = emptyActiveSession && quickStart.visible;
+  const openQuickStart = useEffectEvent(() => {
+    quickStart.open();
+    if (!emptyActiveSession) void handleCreateSession();
+    onQuickStartHandled?.();
+  });
+  useEffect(() => {
+    if (sessionsLoaded && quickStartRequest !== null) openQuickStart();
+  }, [sessionsLoaded, quickStartRequest]);
   const sessionRunning = activeSession?.status === "running";
   const activeTurn = useMemo(() => timelineLoaded
     ? [...(timeline?.turns ?? [])].reverse().find((turn) => (
@@ -556,32 +575,7 @@ export function ChatPage({
   }, [activateSessionRequest, reportTimelineError, sessionsLoaded]);
 
   useEffect(() => {
-    if (!settingsStore?.loadChatModels) {
-      setComposerModels([]);
-      setComposerModel("");
-      return;
-    }
-    let cancelled = false;
-    void settingsStore.loadChatModels().then((models) => {
-      if (cancelled) {
-        return;
-      }
-      const nextModels = models.map((model) => toComposerModelOption(model, t));
-      setComposerModels(nextModels);
-      setComposerModel(resolveComposerModel(nextModels));
-    }).catch(() => {
-      if (!cancelled) {
-        setComposerModels([]);
-        setComposerModel("");
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [settingsStore, t]);
-
-  useEffect(() => {
-    if (!composerModels.length) return;
+    if (!composerModels.length) { setComposerModel(""); return; }
     const model = resolveComposerModel(
       composerModels,
       activeSession?.model,
@@ -797,6 +791,7 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
+    if (quickStart.visible) quickStart.beginTask();
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
     await chatActions.send({
       availableSessionIds: availableMentionIds,
@@ -1038,7 +1033,7 @@ export function ChatPage({
         data-sidecar-layout-motion={sidecar.layoutMotion}
         style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
       >
-      <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
+      <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined} data-quick-start={showQuickStart || undefined}>
         <header className="react-chat-header">
           <h1 className="react-chat-header__title">{headerTitle}</h1>
           <SessionTabStrip
@@ -1118,7 +1113,23 @@ export function ChatPage({
             turns={activeSession ? timeline?.turns ?? [] : []}
           />
           {activeSession && timeline?.turns.length ? null : emptyActiveSession ? (
-            <EmptyChatStart
+            showQuickStart && settingsStore ? <QuickStart
+              ready={quickStart.models.length > 0}
+              settingsStore={settingsStore}
+              onConfigured={() => { quickStart.reloadModels(); setComposerFocusRequestId((current) => current + 1); }}
+              onDismiss={() => { quickStart.dismiss(); setComposerFocusRequestId((current) => current + 1); }}
+              onExample={(text) => {
+                handleComposerDraftChange(composerDraft.trim() ? `${composerDraft}\n\n${text}` : text);
+                setComposerFocusRequestId((current) => current + 1);
+              }}
+              onAddWorkspace={async () => {
+                const path = await chooseWorkspace();
+                if (path) handleDraftWorkspaceChange(path);
+                return path;
+              }}
+              workspaceEnabled={Boolean(draftNewSession && !activeDraft?.createInput.projectCoordinator && !activeDraft?.createInput.projectGroupId)}
+              pending={workspacePickerPending}
+            /> : <EmptyChatStart
               availableWorkspaces={availableWorkspaces}
               selectedWorkspacePath={activeDraft?.createInput.workingDirectory}
               workspaceError={workspaceError}
@@ -1168,6 +1179,7 @@ export function ChatPage({
               ) : null}
             </section>
           ) : null}
+          {quickStart.error ? <p role="alert">{t("quickStart.modelsLoadFailed", { message: quickStart.error })} <button type="button" onClick={quickStart.reloadModels}>{t("quickStart.retry")}</button></p> : null}
           {visibleAgentUiForms.length ? (
             <div className="react-agent-ui-forms" aria-label={t("turn.agentForms")}>
               {visibleAgentUiForms.map((form) => (
