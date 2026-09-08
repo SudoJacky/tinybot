@@ -1,8 +1,12 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:ba3b2e5b521fd168c4596b8de00d3368fa7a90013466fea5ddeca97e35cd6940 -->
+<!-- tinybot-module-fingerprint: sha256:f8c4cf133bf8ae5d8c220a1e75fff7a2495296ef154d3c33d44f20a464225cd1 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+Update notes and upgrade notices use 13px body text, matching Chat. Their
+Markdown selectors reach through the viewport wrapper, keeping compact headings
+and list spacing effective in both the update prompt and saved release notes.
 
 Session sidebar width uses a renderer-owned CSS variable. Its 8 px resize target
 highlights on hover and focus, with increasing emphasis past the minimum width.
