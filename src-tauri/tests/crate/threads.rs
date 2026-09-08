@@ -353,7 +353,8 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         .filter(|item| item["kind"]["type"] == "context_compaction")
         .collect::<Vec<_>>();
     assert_eq!(
-        compactions.len(), 1,
+        compactions.len(),
+        1,
         "thread should persist one context compaction: {snapshot:#}"
     );
     assert!(compactions.iter().all(|item| {
