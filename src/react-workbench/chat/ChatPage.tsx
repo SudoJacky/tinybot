@@ -1,7 +1,7 @@
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
-import { useChatSubmission } from "./useChatSubmission";
+import { useChatApplication } from "./useChatApplication";
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
@@ -18,7 +18,6 @@ import {
 import { useTranslation } from "react-i18next";
 import "./ChatPage.css";
 import { ChatQueueNotice, ChatQueuedInputs } from "./ChatQueuedInputs";
-import { useChatTurnApplication } from "./useChatTurnApplication";
 import {
   ClaudeStyleAiInput,
   type ComposerContextReference,
@@ -32,7 +31,7 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
+import type { ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
 import {
   clearDefaultChatModel,
   readDefaultChatModelPreference,
@@ -46,9 +45,6 @@ import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
-import {
-  projectChatEventEffects,
-} from "./chatEventPolicy";
 import {
   projectLatestContextUsage,
   type ContextUsageDefaults,
@@ -84,14 +80,6 @@ import {
   type ThreadCommandLifecycle,
   type ThreadCommand,
 } from "../../app-core/chat/threadCommand";
-import {
-  unavailableThreadEffectiveCapabilities,
-  type ThreadEffectiveCapabilities,
-} from "../../app-core/chat/threadCapabilities";
-import {
-  useChatSessionRuntime,
-  type ChatSessionRuntimeEffect,
-} from "./useChatSessionRuntime";
 import {
   MAX_COMPOSER_SESSION_REFERENCES,
   type SpreadsheetComposerAnnotation,
@@ -285,9 +273,6 @@ export function ChatPage({
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [threadCapabilities, setThreadCapabilities] = useState<ThreadEffectiveCapabilities>(() => (
-    unavailableThreadEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
-  ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [composerModel, setComposerModel] = useState("");
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
@@ -355,31 +340,20 @@ export function ChatPage({
     onActiveWorkspaceChange?.(workingDirectory);
   }, [activeDisplaySession?.pluginMigration, activeDisplaySession?.workingDirectory, onActiveWorkspaceChange]);
   const activePersistedSessionId = activeSession?.id ?? "";
-  const sessionRuntime = useChatSessionRuntime({
-    chatStore,
-    onEffect: handleChatSessionRuntimeEffect,
-    sessionId: activePersistedSessionId,
+  const { state: chatState, actions: chatActions, turns: chatApplication } = useChatApplication({
+    chatStore, sessions: sessionApplication, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
+    sessionId: activeSessionId, session: activeSession, openSessionIds: sessionTabs.openSessionIds,
+    drafts: sessionTabs.draftSessionsById, model: composerSessionModelInput(composerModels, composerModel), now, t,
+    onDraftConsumed(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
+    onBackgroundActivity(sessionId) { dispatchSessionTabs({ type: "activity", sessionId }); },
   });
   const {
-    agentUiForms,
-    error: timelineError,
-    hookResults,
-    timeline,
-  } = sessionRuntime.state;
-  const {
-    clearError: clearTimelineError,
-    reload: reloadSessionRuntime,
-    reportError: reportTimelineError,
-  } = sessionRuntime.actions;
+    agentUiForms, error: timelineError, hookResults, timeline,
+    optimisticMessages, compactingSessionId, artifactReviewEpoch,
+    lifecycle: commandLifecycle, canCancel: canCancelTurn, cancelUnavailableReason,
+  } = chatState;
+  const { reportError: reportTimelineError } = chatActions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
-  const submission = useChatSubmission({
-    chatStore, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
-    sessionId: activeSessionId, now, t, reload: reloadSessionRuntime,
-    refreshSessions: sessionApplication.refresh, materializeDraft: createSessionForDraft,
-    previewSession: sessionApplication.preview,
-    consumeDraft(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
-  });
-  const { optimisticMessages, compactingSessionId, artifactReviewEpoch } = submission;
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const composerSkillOptions = useMemo(
@@ -494,20 +468,6 @@ export function ChatPage({
       activeSession?.pluginMigration?.status === "pending"
       && latestTurnStatus === "completed"
     );
-  const {
-    application: chatApplication,
-    lifecycle: commandLifecycle,
-    canCancel: canCancelTurn,
-    cancelUnavailableReason,
-  } = useChatTurnApplication({
-    dispatch: chatStore.dispatch,
-    submitTurn: submission.submitTurn,
-    refreshSessions: sessionApplication.refresh,
-    reportError: reportTimelineError,
-    clearError: clearTimelineError,
-    now,
-    t,
-  }, activePersistedSessionId, { timeline, capabilities: threadCapabilities });
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
     && commandLifecycle.command.kind !== "agent.cancel";
@@ -527,33 +487,6 @@ export function ChatPage({
     () => activeSession && timelineLoaded ? latestTurnPlan(timeline) : undefined,
     [activeSession, timeline, timelineLoaded],
   );
-  useEffect(() => {
-    if (!activePersistedSessionId) {
-      setThreadCapabilities(unavailableThreadEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
-      return;
-    }
-    let cancelled = false;
-    setThreadCapabilities(unavailableThreadEffectiveCapabilities(
-      activePersistedSessionId,
-      "loading",
-      t("runtime.loadingCapabilities"),
-    ));
-    void chatStore.loadEffectiveCapabilities(activePersistedSessionId).then((capabilities) => {
-      if (!cancelled) setThreadCapabilities(capabilities);
-    }).catch((error) => {
-      if (!cancelled) {
-        setThreadCapabilities(unavailableThreadEffectiveCapabilities(
-          activePersistedSessionId,
-          "capability_query_failed",
-          error instanceof Error ? error.message : String(error),
-        ));
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTurn?.id, activeTurn?.status, activePersistedSessionId, chatStore, t]);
-
   useEffect(() => {
     setComposerSessionMentionIds([]);
     setComposerSelectedSkillIds([]);
@@ -615,32 +548,6 @@ export function ChatPage({
       });
     });
   }, [activateSessionRequest, reportTimelineError, sessionsLoaded]);
-
-  const handleBackgroundChatEvent = useEffectEvent((sessionId: string, event: ChatEvent) => {
-    const effects = projectChatEventEffects(event);
-    chatApplication.receiveCommand(sessionId, event);
-    if (event.timeline) {
-      chatApplication.receiveTimeline(sessionId, event.timeline);
-      sessionApplication.receiveTimeline(sessionId, event.timeline);
-      dispatchSessionTabs({ type: "activity", sessionId });
-    }
-    if (effects.backgroundTabActivity) {
-      dispatchSessionTabs({ type: "activity", sessionId });
-    }
-    if (effects.reloadSessions) {
-      void chatApplication.receiveSessionEvent(sessionId, event);
-    }
-  });
-  useEffect(() => {
-    const unsubscribes = sessionTabs.openSessionIds
-      .filter((sessionId) => (
-        sessionId !== activeSessionId && !(sessionId in sessionTabs.draftSessionsById)
-      ))
-      .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
-        handleBackgroundChatEvent(sessionId, event);
-      }));
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [activeSessionId, chatStore, sessionTabs.draftSessionsById, sessionTabs.openSessionIds]);
 
   useEffect(() => {
     if (!settingsStore?.loadChatModels) {
@@ -875,8 +782,7 @@ export function ChatPage({
   }
 
   async function handleBranchFromMessage(session: SessionSummary, messageId: string) {
-    const branched = await submission.fork(session.id, messageId);
-    sessionApplication.accept(branched);
+    await chatActions.fork(session.id, messageId);
   }
 
   async function handleComposerSend(
@@ -886,7 +792,7 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
-    await submission.send({
+    await chatActions.send({
       availableSessionIds: availableMentionIds,
       files,
       isRunning: activeSession ? sessionResponding : false,
@@ -902,7 +808,7 @@ export function ChatPage({
       })),
       artifactReferences: composerArtifactReferences.map(({ id: _id, ...reference }) => reference),
       spreadsheetAnnotations: composerSpreadsheetAnnotations,
-    }, activeSession, chatApplication);
+    });
   }
 
   function handleConversationScroll(): void {
@@ -929,12 +835,6 @@ export function ChatPage({
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 
-  async function createSessionForDraft(): Promise<SessionSummary | null> {
-    if (!draftNewSession) return null;
-    return sessionApplication.materializeDraft(activeSessionId, sessionTabs.draftSessionsById[activeSessionId],
-      composerSessionModelInput(composerModels, composerModel));
-  }
-
   function handleSessionChange(event: ChatSessionChange) {
     if (event.type === "loaded") {
       dispatchSessionTabs({ type: "hydrate", availableSessionIds: event.sessions.map((session) => session.id),
@@ -950,14 +850,11 @@ export function ChatPage({
     } else if (event.type === "replaced") {
       dispatchSessionTabs({ type: "replace", previousSessionId: event.previousSessionId, sessionId: event.sessionId });
       moveMapValue(conversationViewBySessionRef.current, event.previousSessionId, event.sessionId);
-      submission.replaceSession(event.previousSessionId, event.sessionId);
-      chatApplication.replaceSession(event.previousSessionId, event.sessionId);
     } else if (event.type === "removed") {
       const sessionId = event.session.id;
       const finish = () => {
         dispatchSessionTabs({ type: "remove", sessionId });
         conversationViewBySessionRef.current.delete(sessionId);
-        submission.forgetSession(sessionId);
         setRetainedDeletingSessions((current) => current.filter((session) => session.id !== sessionId));
         setDissolvingSessionIds((current) => { const next = new Set(current); next.delete(sessionId); return next; });
       };
@@ -970,24 +867,6 @@ export function ChatPage({
 
   async function handleStopGeneration(session: SessionSummary) {
     await chatApplication.cancel(session.id);
-  }
-
-  function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
-    if (effect.type === "timeline_applied") {
-      sessionApplication.receiveTimeline(effect.sessionId, effect.timeline);
-      submission.receiveTimeline(effect.sessionId, effect.timeline);
-      return;
-    }
-    if (effect.type === "message_received") {
-      submission.receiveMessage(effect.sessionId, effect.message);
-      return;
-    }
-    if (effect.type === "session_refresh_requested") {
-      void chatApplication.receiveSessionEvent(effect.sessionId, effect.event);
-      return;
-    }
-
-    chatApplication.receiveCommand(effect.sessionId, effect.event);
   }
 
   async function handleOpenSubagent(delegate: DelegatedAgentState) {
@@ -1341,7 +1220,7 @@ export function ChatPage({
             const selectedModelId = selected.modelId || selected.id;
             setComposerModel(modelId);
             if (emptyActiveSession) {
-              const persistence = submission.saveDefaultModel(selectedModelId, selected.providerId);
+              const persistence = chatActions.saveDefaultModel(selectedModelId, selected.providerId);
               void persistence.catch((error) => {
                 reportTimelineError(t("errors.modelSaveFailed", {
                   message: error instanceof Error ? error.message : String(error),
@@ -1410,10 +1289,7 @@ export function ChatPage({
           setComposerFocusRequestId((current) => current + 1);
         }}
         onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
-        onHandoff={async (sessionId) => {
-          await submission.submitTurn(sessionId, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
-          await sessionApplication.refresh(activeSession);
-        }}
+        onHandoff={chatActions.completeBrowserHandoff}
         onError={reportTimelineError}
       />
 

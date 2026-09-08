@@ -246,6 +246,15 @@ export function createChatTurnApplication(deps: Dependencies) {
       queues.set(sessionId, previous);
       notify();
     },
+    forgetSession(sessionId: string) {
+      clearTimeout(timers.get(sessionId));
+      timers.delete(sessionId);
+      queues.delete(sessionId);
+      turns.delete(sessionId);
+      contexts.delete(sessionId);
+      interrupts.delete(sessionId);
+      notify();
+    },
     remove,
     resume(sessionId: string) { return sendNext(sessionId, "manual_resume"); },
     async cancel(sessionId: string) {
