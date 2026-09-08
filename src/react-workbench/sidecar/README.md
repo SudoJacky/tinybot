@@ -1,20 +1,26 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:18ea8d30478623769cb881e9d9cae2f763974c91a433a470058bec590c39d2da -->
+<!-- tinybot-module-fingerprint: sha256:2e09f6a8731fa0c9780715c2f64714164c586058cb68ba45cb0b0cd1e1e5541c -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
 resources, their tab selection, and the docked, hidden, or expanded Sidecar
 layout.
 
-The module owns renderer state and presentation only. Chat provisions and
+The module owns renderer state, presentation, and resource lifecycle coordination.
+`SidecarResources.tsx` provisions and
 releases native resources, the native Browser runtime owns WebView2 sessions
 and tabs, and the desktop Terminal runtime owns user PTY processes. Sidecar
 must not become a second authority for either native lifecycle.
 
+`useSidecarBrowserState.ts` owns native Browser snapshots and revision ordering.
+It shares one native event subscription with Chat through `chatEventSource`;
+Browser updates do not enter the Chat runtime state. The page receives only
+presentation geometry and explicit requests to reference content or resume Chat.
+
 ## Resource model
 
 `sidecarModel.ts` defines the reducer and the stable resource identities used
-by Chat:
+by `SidecarResources`:
 
 - Browser resources belong to the current Thread and bind one-to-one to native
   WebView2 tabs in that Thread's shared Browser Session.
@@ -27,7 +33,7 @@ by Chat:
 
 Creating a resource selects it and reveals Sidecar. Closing a selected resource
 chooses the next visible resource, then the previous one, and finally no active
-resource. The reducer removes renderer state; the Chat owner performs any
+resource. The reducer removes renderer state; the resource owner performs any
 required native Browser close or Terminal termination before dispatching the
 close event.
 
@@ -55,22 +61,22 @@ Sidecar CSS retains only its anchored placement and two-line resource layout.
 `SidecarBrowser.tsx` renders Browser chrome and coordinates visible-surface
 attachment with the native Browser adapter. It does not render remote page
 content in React. Browser snapshots are authoritative for native session and
-tab identity. Chat guards activation so a snapshot update cannot create a
+tab identity. `SidecarResources` guards activation so a snapshot update cannot create a
 reverse activation feedback loop.
 
 `SidecarTerminal.tsx` attaches xterm.js to the dedicated user-only native PTY
-adapter. Chat loads this terminal surface on demand and Sidecar presents a
+adapter. `SidecarResources` loads this terminal surface on demand and Sidecar presents a
 bounded pending state while its code chunk arrives, keeping xterm out of the
 main startup bundle. Mounting and unmounting the React view never terminate the process:
 hiding Sidecar and switching resources may remount the view, while closing the
-resource invokes termination through Chat. Terminal input is serialized with
+resource invokes termination through `SidecarResources`. Terminal input is serialized with
 polling so cursor-based output cannot be reordered.
 
 Artifact presentation is supplied by Chat through the Sidecar render contract;
 Artifact domain state does not live in this module. Artifact tabs may come from
 canonical Agent artifacts or from local file links in assistant Markdown. File
 links are contextual only, so the resource menu does not create an empty
-Artifact tab. Chat presents Markdown Artifacts as rendered documents and keeps
+Artifact tab. Sidecar presents Markdown Artifacts as rendered documents and keeps
 the Artifact panel as the single vertical scrolling surface. Modern Office
 files (`.xlsx`, `.docx`, and `.pptx`) are parsed locally into sheet, continuous
 document, and slide-list previews; plain text, image, and data-view Artifacts
@@ -99,7 +105,7 @@ Sidecar does not own or submit the Chat composer state.
 - User Terminal processes, input, output, and lifecycle are isolated from Agent
   shell tools.
 - Hiding Sidecar or switching tabs preserves native resources; closing a
-  resource releases the native resource through its Chat owner.
+  resource releases the native resource through its Sidecar resource owner.
 - Persisted widths cannot force Chat or the resource surface outside the
   current workspace bounds.
 - Resource provisioning failures remain visible and retryable rather than
@@ -117,7 +123,7 @@ Sidecar does not own or submit the Chat composer state.
   handoff, and Browser failure states.
 - `SidecarTerminal.test.tsx` covers PTY creation, ordered input and polling,
   reattachment, resize, and renderer disposal without termination.
-- `../chat/ChatPage.sidecar.test.tsx` covers Chat-owned provisioning, Browser
+- `../chat/ChatPage.sidecar.test.tsx` covers Sidecar-owned provisioning, Browser
   activation, session reattachment, workspace fallback, and close-time cleanup.
 - `../chat/ChatPage.timeline.test.tsx` covers assistant file-link Artifact
   previews, spreadsheet change requests, and visible path-boundary failures.

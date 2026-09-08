@@ -1,9 +1,12 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:fbaafe00613a05a97e7191e010a1e8e3f03cc5aa676fbca70ed327236429539c -->
+<!-- tinybot-module-fingerprint: sha256:985749c7affe59a69eb32b9ea34a23efe4d442c962127e72a5b3262e587f3f6e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
+coordination. The page holds only Sidecar layout presentation and invokes its
+open/toggle operations; resource snapshots never enter page state.
 `useChatSubmission.ts` owns submission preparation, model-save ordering,
 optimistic message reconciliation, Artifact review capture, and compaction.
 Session operations are supplied through semantic operations; the page supplies
@@ -201,7 +204,7 @@ the native Provider Profile/model pair before updating that renderer preference;
 the first send waits for that persistence to complete.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
-maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
+maps to one native WebView2 tab in the Thread-scoped shared Browser Session, so user
 input and Agent browser tools operate on the same tabs, profile, and navigation
 state without a nested browser tab strip. Sidecar owns the user's selected
 resource while native snapshots synchronize tab identity and content; the selected

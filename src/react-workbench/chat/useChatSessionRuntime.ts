@@ -1,11 +1,8 @@
+import { subscribeChatEvents } from "./chatEventSource";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResult";
-import type {
-  NativeBrowserSession,
-  NativeBrowserSnapshot,
-} from "../../app-core/native/nativeBrowserSnapshot";
 import type { ChatEvent, ChatStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import { projectChatEventEffects } from "./chatEventPolicy";
@@ -14,8 +11,6 @@ export type ChatSessionRuntimeStatus = "idle" | "loading" | "ready" | "failed";
 
 export type ChatSessionRuntimeState = {
   agentUiForms: AgentUiForm[];
-  browserError: string;
-  browserSnapshot?: NativeBrowserSnapshot<NativeBrowserSession>;
   error: string;
   hookResults: HookExecutionResult[];
   sessionId: string;
@@ -30,12 +25,8 @@ export type ChatSessionRuntimeEffect =
   | { sessionId: string; timeline: ChatTimelineSnapshot; type: "timeline_applied" };
 
 export type ChatSessionRuntimeActions = {
-  acceptBrowserSnapshot(snapshot: NativeBrowserSnapshot<NativeBrowserSession>): void;
-  clearBrowserError(): void;
-  clearBrowserSnapshot(browserSessionId?: string): void;
   clearError(): void;
   reload(): Promise<void>;
-  reportBrowserError(error: unknown): void;
   reportError(error: unknown): void;
 };
 
@@ -70,38 +61,6 @@ export function useChatSessionRuntime({
       error: "",
       status: current.sessionId ? (current.timeline ? "ready" : "loading") : "idle",
     }));
-  }, []);
-  const reportBrowserError = useCallback((error: unknown) => {
-    setState((current) => ({ ...current, browserError: errorMessage(error) }));
-  }, []);
-  const clearBrowserError = useCallback(() => {
-    setState((current) => ({ ...current, browserError: "" }));
-  }, []);
-  const acceptBrowserSnapshot = useCallback((snapshot: NativeBrowserSnapshot<NativeBrowserSession>) => {
-    const activeSessionId = activeSessionIdRef.current;
-    if (activeSessionId && snapshot.data.sessionId !== activeSessionId) {
-      throw new Error(
-        `Browser snapshot session ${snapshot.data.sessionId} does not match active session ${activeSessionId}.`,
-      );
-    }
-    setState((current) => {
-      const previous = current.browserSnapshot;
-      if (previous?.sourceId === snapshot.sourceId
-        && typeof previous.revision === "number"
-        && typeof snapshot.revision === "number"
-        && snapshot.revision < previous.revision) {
-        return current;
-      }
-      return { ...current, browserError: "", browserSnapshot: snapshot };
-    });
-  }, []);
-  const clearBrowserSnapshot = useCallback((browserSessionId?: string) => {
-    setState((current) => {
-      if (browserSessionId && current.browserSnapshot?.data.browserSessionId !== browserSessionId) {
-        return current;
-      }
-      return { ...current, browserError: "", browserSnapshot: undefined };
-    });
   }, []);
   const reload = useCallback(async () => {
     await reloadRef.current?.();
@@ -204,16 +163,9 @@ export function useChatSessionRuntime({
 
     reloadRef.current = reloadSession;
     void reloadSession();
-    const unsubscribe = chatStore.subscribe(sessionId, (event) => {
+    const unsubscribe = subscribeChatEvents(chatStore, sessionId, (event) => {
       const effects = projectChatEventEffects(event);
-      if (event.browserSnapshot) {
-        try {
-          acceptBrowserSnapshot(event.browserSnapshot);
-        } catch (error) {
-          fail("browser-snapshot.apply", error);
-        }
-        return;
-      }
+      if (event.browserSnapshot) return;
       if (event.hookResults) {
         setState((current) => (
           current.sessionId === sessionId
@@ -266,23 +218,15 @@ export function useChatSessionRuntime({
       if (reloadRef.current === reloadSession) reloadRef.current = null;
       unsubscribe();
     };
-  }, [acceptBrowserSnapshot, chatStore, sessionId]);
+  }, [chatStore, sessionId]);
 
   const actions = useMemo<ChatSessionRuntimeActions>(() => ({
-    acceptBrowserSnapshot,
-    clearBrowserError,
-    clearBrowserSnapshot,
     clearError,
     reload,
-    reportBrowserError,
     reportError,
   }), [
-    acceptBrowserSnapshot,
-    clearBrowserError,
-    clearBrowserSnapshot,
     clearError,
     reload,
-    reportBrowserError,
     reportError,
   ]);
 
@@ -295,7 +239,6 @@ function initialState(
 ): ChatSessionRuntimeState {
   return {
     agentUiForms: [],
-    browserError: "",
     error: "",
     hookResults: [],
     sessionId,
