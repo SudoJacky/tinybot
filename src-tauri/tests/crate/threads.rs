@@ -301,7 +301,7 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         "agents": { "defaults": {
             "provider": "fixture",
             "model": "fixture-model",
-            "contextWindowTokens": 800,
+            "contextWindowTokens": 1600,
             "contextWindowStrategy": "compact",
             "compactTriggerPercent": 50,
             "compactSummaryMaxTokens": 32
@@ -352,7 +352,10 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         .iter()
         .filter(|item| item["kind"]["type"] == "context_compaction")
         .collect::<Vec<_>>();
-    assert_eq!(compactions.len(), 1);
+    assert_eq!(
+        compactions.len(), 1,
+        "thread should persist one context compaction: {snapshot:#}"
+    );
     assert!(compactions.iter().all(|item| {
         item["kind"]["payload"]["payload"]["contextCheckpoint"]["checkpointStage"] == "finalized"
     }));
