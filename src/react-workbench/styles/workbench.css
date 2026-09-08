@@ -624,38 +624,38 @@ button:disabled {
   padding: 11px 13px;
 }
 
-.desktop-update-dialog__notice strong,
+.desktop-update-dialog__notice > strong,
 .desktop-update-dialog__notes h3 {
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 700;
 }
 
-.desktop-update-dialog__notice > .react-message-markdown,
-.desktop-update-dialog__notes > .react-message-markdown,
+.desktop-update-dialog__notice .react-message-markdown,
+.desktop-update-dialog__notes .react-message-markdown,
 .desktop-update-dialog__notes > p {
   margin-top: 6px;
   color: var(--color-body);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
-.desktop-update-dialog__notice > .react-message-markdown,
-.desktop-update-dialog__notes > .react-message-markdown {
+.desktop-update-dialog__notice .react-message-markdown,
+.desktop-update-dialog__notes .react-message-markdown {
   gap: 6px;
 }
 
-.desktop-update-dialog__notice > .react-message-markdown [data-streamdown^="heading-"],
-.desktop-update-dialog__notes > .react-message-markdown [data-streamdown^="heading-"] {
+.desktop-update-dialog__notice .react-message-markdown [data-streamdown^="heading-"],
+.desktop-update-dialog__notes .react-message-markdown [data-streamdown^="heading-"] {
   font-size: 13px;
   line-height: 1.4;
 }
 
-.desktop-update-dialog__notice > .react-message-markdown ul,
-.desktop-update-dialog__notice > .react-message-markdown ol,
-.desktop-update-dialog__notes > .react-message-markdown ul,
-.desktop-update-dialog__notes > .react-message-markdown ol {
+.desktop-update-dialog__notice .react-message-markdown ul,
+.desktop-update-dialog__notice .react-message-markdown ol,
+.desktop-update-dialog__notes .react-message-markdown ul,
+.desktop-update-dialog__notes .react-message-markdown ol {
   gap: 3px;
   padding-left: 18px;
 }
