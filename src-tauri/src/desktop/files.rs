@@ -1,6 +1,7 @@
 use crate::config::application::{
     default_tinybot_config_path, resolve_native_backend_workspace_root_from_config_path,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
@@ -99,6 +100,73 @@ pub(crate) fn pick_chat_files(
         &dialog.pick_files().unwrap_or_default(),
         &crate::config::application::tinybot_data_root(),
     )
+}
+
+#[tauri::command]
+pub(crate) async fn import_chat_file(
+    request: tauri::ipc::Request<'_>,
+) -> Result<PickedChatFile, String> {
+    let result = async {
+        let encoded_name = request
+            .headers()
+            .get("x-tinybot-file-name")
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| "attachment filename header is missing".to_string())?;
+        let name = String::from_utf8(
+            BASE64_STANDARD
+                .decode(encoded_name)
+                .map_err(|error| format!("invalid attachment filename encoding: {error}"))?,
+        )
+        .map_err(|error| format!("invalid attachment filename: {error}"))?;
+        let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+            return Err("attachment import requires a binary body".to_string());
+        };
+        if bytes.len() > 32 * 1024 * 1024 {
+            return Err("attachment exceeds the 32 MiB import limit".to_string());
+        }
+        let bytes = bytes.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            chat_file_from_bytes(
+                &name,
+                &bytes,
+                &crate::config::application::tinybot_data_root(),
+            )
+        })
+        .await
+        .map_err(|error| format!("attachment import task failed: {error}"))?
+    }
+    .await;
+    match &result {
+        Ok(file) => eprintln!(
+            "chat_file_import_complete size_bytes={} mime_type={}",
+            file.size_bytes, file.mime_type
+        ),
+        Err(error) => eprintln!("chat_file_import_failed error={error}"),
+    }
+    result
+}
+
+fn chat_file_from_bytes(
+    name: &str,
+    bytes: &[u8],
+    data_root: &Path,
+) -> Result<PickedChatFile, String> {
+    let image = crate::chat_attachments::store_image_attachment_bytes(bytes, data_root)?;
+    let (path, mime_type, content_hash) = match image {
+        Some(image) => (image.path, image.mime_type, Some(image.content_hash)),
+        None => (
+            crate::chat_attachments::store_document_attachment_bytes(name, bytes, data_root)?,
+            mime_type_for_path(Path::new(name)).to_string(),
+            None,
+        ),
+    };
+    Ok(PickedChatFile {
+        name: name.to_string(),
+        path,
+        mime_type,
+        size_bytes: bytes.len() as u64,
+        content_hash,
+    })
 }
 
 #[tauri::command]
@@ -350,6 +418,52 @@ fn safe_export_file_name(default_path: &str) -> String {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn binary_chat_import_stores_documents_and_detects_images_by_content() {
+        let root = unique_temp_path("binary-import");
+        let document = chat_file_from_bytes("笔记.md", b"hello", &root).unwrap();
+        assert_eq!(document.name, "笔记.md");
+        assert_eq!(document.mime_type, "text/markdown");
+        assert_eq!(document.content_hash, None);
+        assert_eq!(std::fs::read(&document.path).unwrap(), b"hello");
+        assert!(Path::new(&document.path).starts_with(root.join("chat-attachments/files")));
+        let repeated = chat_file_from_bytes("笔记.md", b"hello", &root).unwrap();
+        assert_eq!(repeated.path, document.path);
+
+        let bytes = b"\x89PNG\r\n\x1a\n\0\x01";
+        let image = chat_file_from_bytes("clipboard.txt", bytes, &root).unwrap();
+        assert_eq!(image.mime_type, "image/png");
+        assert!(image.content_hash.is_some());
+        assert!(Path::new(&image.path).starts_with(root.join("chat-attachments/images")));
+        assert_eq!(std::fs::read(&image.path).unwrap(), bytes);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn binary_chat_import_rejects_path_names_and_surfaces_storage_errors() {
+        let root = unique_temp_path("binary-invalid");
+        for name in [
+            "../outside.txt",
+            "..\\outside.txt",
+            "C:\\outside.txt",
+            "note:stream",
+            "",
+            "..",
+        ] {
+            assert!(chat_file_from_bytes(name, b"hello", &root)
+                .unwrap_err()
+                .contains("filename"));
+        }
+        assert!(!root.exists());
+        std::fs::write(&root, b"blocking file").unwrap();
+        let error = chat_file_from_bytes("notes.txt", b"hello", &root).unwrap_err();
+        assert!(
+            error.contains("failed to create managed file directory"),
+            "{error}"
+        );
+        std::fs::remove_file(root).unwrap();
+    }
 
     #[test]
     fn chat_file_import_rejects_directories_before_attachment_storage() {

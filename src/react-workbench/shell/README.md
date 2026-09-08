@@ -1,5 +1,8 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:98e0cc509783927b7861e3ac95e78ec620c56769d96e98a55b7179598cc21bab -->
+<!-- tinybot-module-fingerprint: sha256:c17bf0032c6465af738b45c06dc27c9afd2f2cc9ae292de3690354a1d90080ab -->
+
+Desktop-pet quick chat shares composer drop and clipboard import with main Chat;
+its window permission set includes the bounded binary attachment import command.
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.

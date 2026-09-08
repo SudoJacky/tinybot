@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:9e3edc47a4090e6f8949f0cfe1d6de40f3539aa13d10a35145632cf65216031d -->
+<!-- tinybot-doc-fingerprint: sha256:1b3298f6009703be26c59d17ef38d34be42533efcc93dd7f061e7d2b06fcad1e -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -161,6 +161,7 @@ therefore fail preflight if stale.
 | --- | --- | --- |
 | `pick_upload_file` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `null` when cancelled, or `{ name, path, mime_type, size_bytes, bytes }` |
 | `pick_chat_files` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `[]` when cancelled, or `{ name, path, mimeType, sizeBytes, contentHash? }[]`; non-files fail, supported images are copied into Tinybot-managed storage and identified by `contentHash`, while other files keep their selected path; file bytes are not returned |
+| `import_chat_file` | Raw binary body; `x-tinybot-file-name` header contains the base64-encoded UTF-8 filename | `{ name, path, mimeType, sizeBytes, contentHash? }`; 32 MiB limit, content-detected images and documents saved into managed storage on a blocking worker; available to main and quick-chat windows |
 | `pick_workspace_directory` | `{ options: { title?: string } }` | `null` when cancelled, or the selected absolute UTF-8 path |
 | `save_export_file` | `{ options: { title?: string, defaultPath?: string, filters?: Filter[], contents: string } }` | `null` when cancelled, or `{ path }` |
 | `reveal_workspace_file` | `{ path: string }` | `void` |

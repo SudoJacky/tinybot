@@ -1079,6 +1079,26 @@
   padding: 0 0 min(18vh, 148px);
 }
 
+.claude-ai-input[data-dragging-files] .claude-ai-input__panel {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.claude-ai-input__panel > .claude-ai-input__file-status {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-panel) 94%, transparent);
+  color: var(--color-primary);
+  font-size: 13px;
+  pointer-events: none;
+}
+
 .react-composer--raised .claude-ai-input__panel {
   --claude-ai-panel-bg: color-mix(in srgb, var(--color-panel) 92%, var(--color-surface-soft));
   --claude-ai-panel-radius: 18px;

@@ -1,8 +1,9 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:e550fbd6458d4e63b8dd929410b72766a20074348d8abd34440b3f6baf26937d -->
+<!-- tinybot-module-fingerprint: sha256:5a98aa6268a8c0581c14c190156eb8668397bd498371dc2695642762bbc2efc5 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
-and Chinese resource bundles.
+and Chinese resource bundles. Composer drag targets and attachment preparation
+status are localized in both languages.
 Quick start localizes welcome and model setup, catalog-validation feedback,
 task examples, dismissal, and the Help reentry action in both languages.
 

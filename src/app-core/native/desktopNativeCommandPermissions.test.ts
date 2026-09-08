@@ -57,6 +57,7 @@ describe("desktop native command permissions", () => {
       "get_settings_snapshot",
       "get_config_editor_snapshot",
       "pick_chat_files",
+      "import_chat_file",
       "worker_webui_route",
       "worker_threads_list",
       "worker_thread_create",

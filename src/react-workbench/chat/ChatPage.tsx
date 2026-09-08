@@ -39,7 +39,7 @@ import {
   readCurrentChatReasoningEffort,
   writeCurrentChatReasoningEffort,
 } from "../../app-core/chat/reasoningEffort";
-import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
+import { importDesktopChatFiles, pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -1282,6 +1282,8 @@ export function ChatPage({
           placeholder={emptyActiveSession ? t("shell.taskPlaceholder") : t("shell.messagePlaceholder")}
           value={composerDraft}
           onSelectFiles={pickDesktopChatFiles}
+          onImportFiles={importDesktopChatFiles}
+          attachmentContextKey={activeSessionId}
           onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession)}

@@ -1,9 +1,11 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:bc23aaf34bb18e6e076dc6490d6d85445bfb19ae53be8b29b3a7b495835b14ab -->
+<!-- tinybot-module-fingerprint: sha256:105e8e2fad2562b81fe57c7a0a8a5b878888fa7b5efd91896ccf71c91654b4e0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
-`ChatPage.tsx` is the route-level composition module.
+`ChatPage.tsx` is the route-level composition module. Its composer receives
+the native file importer for drag-and-drop and clipboard attachments, plus
+the active session identity to invalidate imports after navigation.
 `useQuickStart` owns model catalog loading and local onboarding progress. New
 users without usable models see an inline welcome card; configured users are
 left alone. Dismissal and completion persist, and Help can explicitly reopen

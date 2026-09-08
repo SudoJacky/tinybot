@@ -646,10 +646,11 @@ describe("ChatPage", () => {
     }, { timeout: 3_000 });
   });
 
-  it("sends native files as structured references without exposing paths in user text", async () => {
+  it.each(["picker", "drop", "paste"])("sends native files as structured references without exposing paths in user text via %s", async (source) => {
     const user = userEvent.setup();
     const stores = createStores();
-    nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
+    const importFiles = source === "picker" ? nativeFilePickerMocks.pickDesktopChatFiles : nativeFilePickerMocks.importDesktopChatFiles;
+    importFiles.mockResolvedValueOnce([{
       name: "notes.md",
       path: "C:\\Users\\tester\\notes.md",
       mimeType: "text/markdown",
@@ -658,8 +659,14 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
-    await user.click(screen.getByRole("button", { name: "Attach files" }));
-    await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
+    if (source === "picker") {
+      await user.click(screen.getByRole("button", { name: "Attach files" }));
+    } else {
+      const files = [new File(["fixture"], "attachment")];
+      if (source === "drop") fireEvent.drop(input, { dataTransfer: { types: ["Files"], files } });
+      else fireEvent.paste(input, { clipboardData: { files } });
+    }
+    await waitFor(() => expect(importFiles).toHaveBeenCalledTimes(1));
     expect((input as HTMLTextAreaElement).value).toBe("");
     await user.type(input, "Review this file");
     await user.click(screen.getByRole("button", { name: /send message/i }));
@@ -677,10 +684,11 @@ describe("ChatPage", () => {
     });
   });
 
-  it("sends managed images as multimodal references without embedding base64 in the command", async () => {
+  it.each(["picker", "drop", "paste"])("sends managed images as multimodal references without embedding base64 in the command via %s", async (source) => {
     const user = userEvent.setup();
     const stores = createStores();
-    nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
+    const importFiles = source === "picker" ? nativeFilePickerMocks.pickDesktopChatFiles : nativeFilePickerMocks.importDesktopChatFiles;
+    importFiles.mockResolvedValueOnce([{
       contentHash: "abc123",
       name: "diagram.png",
       path: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
@@ -690,8 +698,14 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
-    await user.click(screen.getByRole("button", { name: "Attach files" }));
-    await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
+    if (source === "picker") {
+      await user.click(screen.getByRole("button", { name: "Attach files" }));
+    } else {
+      const files = [new File(["fixture"], "attachment")];
+      if (source === "drop") fireEvent.drop(input, { dataTransfer: { types: ["Files"], files } });
+      else fireEvent.paste(input, { clipboardData: { files } });
+    }
+    await waitFor(() => expect(importFiles).toHaveBeenCalledTimes(1));
     await user.type(input, "Explain this diagram");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
