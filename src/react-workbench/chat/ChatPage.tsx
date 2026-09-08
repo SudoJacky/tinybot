@@ -1286,7 +1286,6 @@ export function ChatPage({
         workspaceStore={workspaceStore}
         artifactReviewEpoch={artifactReviewEpoch}
         sessionResponding={sessionResponding}
-        presentDrawer={Boolean(presentDrawer)}
         onLayoutChange={setSidecar}
         onHide={() => { restoreSidecarFocusRef.current = true; }}
         onReference={(reference) => {
@@ -1302,6 +1301,7 @@ export function ChatPage({
         <aside
           ref={drawerElementRef}
           className="react-right-drawer"
+          data-native-overlay="modal"
           aria-label={t("shell.detailsDrawer")}
           aria-hidden={!currentDrawer || undefined}
           inert={!currentDrawer || undefined}

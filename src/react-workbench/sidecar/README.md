@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:6c00b64a9395eb8d3eef2a3f9b014537482d6c3f84860e43f6078b150099f7fa -->
+<!-- tinybot-module-fingerprint: sha256:efdc81266e27e066eea233d96955f92ad400286d6d55fb3e61a5336e50f0f73a -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -58,6 +58,13 @@ Reopening invalidates pending removal, and changing owner scope or active tab
 discards incompatible retained content. Browser native visibility becomes false
 immediately on logical close, independently of retained React chrome. Hiding
 does not terminate browser or terminal resources.
+Native Browser surfaces use the shared overlay coordinator: global modals hide
+the surface regardless of position, and local popup surfaces hide it only on
+intersection. Nested and closing overlays keep it hidden until none remain.
+Only native presentation changes; tabs, navigation, and resources remain alive.
+Hiding is reported immediately, while restoration uses the existing settling
+delay and latest layout revision. `data-occlusion` reports `modal` or `overlap`.
+The shell and Chat no longer pass individual menu or drawer visibility flags.
 The resource menu reuses the global popover surface and item interaction states;
 Sidecar CSS retains only its anchored placement and two-line resource layout.
 

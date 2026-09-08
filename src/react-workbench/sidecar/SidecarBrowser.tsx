@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useNativeSurfaceOcclusion } from "../../components/ui/useNativeSurfaceOcclusion";
 import type {
   NativeBrowserSession,
   NativeBrowserSnapshot,
@@ -367,6 +368,8 @@ function BrowserSurfaceHost({
 }) {
   const { t } = useTranslation("chat");
   const hostRef = useRef<HTMLDivElement>(null);
+  const occlusion = useNativeSurfaceOcclusion(hostRef, visible);
+  const surfaceVisible = visible && !occlusion;
   const layoutRevision = useRef(session.surface?.layoutRevision ?? 0);
   layoutRevision.current = Math.max(layoutRevision.current, session.surface?.layoutRevision ?? 0);
   const lastReportedUpdate = useRef<BrowserSurfaceUpdateInput | undefined>(undefined);
@@ -374,7 +377,7 @@ function BrowserSurfaceHost({
   const updateInFlight = useRef(false);
   const frame = useRef(0);
   const settleTimer = useRef(0);
-  const scheduledVisible = useRef(visible);
+  const scheduledVisible = useRef(surfaceVisible);
   const surfaceId = useMemo(() => `sidecar-browser-surface-${session.browserSessionId}`, [session.browserSessionId]);
 
   const flushUpdate = useCallback(function flushPendingSurfaceUpdate() {
@@ -434,14 +437,14 @@ function BrowserSurfaceHost({
     if (nextVisible) {
       settleTimer.current = window.setTimeout(enqueue, BROWSER_SURFACE_SETTLE_MS);
     } else {
-      enqueue();
+      report(false);
     }
   }, [report]);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const scheduleCurrent = () => schedule(visible);
+    const scheduleCurrent = () => schedule(surfaceVisible);
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(scheduleCurrent);
     observer?.observe(host);
     window.addEventListener("resize", scheduleCurrent);
@@ -456,22 +459,23 @@ function BrowserSurfaceHost({
       document.removeEventListener("visibilitychange", scheduleCurrent);
       report(false);
     };
-  }, [report, schedule, visible]);
+  }, [report, schedule, surfaceVisible]);
 
   useLayoutEffect(() => {
-    schedule(visible);
-  }, [schedule, visible]);
+    schedule(surfaceVisible);
+  }, [schedule, surfaceVisible]);
 
   return (
     <div
       aria-label={t("sidecar.browserPage")}
       className="react-sidecar-browser-surface"
-      data-live={visible ? "true" : undefined}
+      data-live={surfaceVisible ? "true" : undefined}
+      data-occlusion={occlusion ?? undefined}
       ref={hostRef}
       role="document"
     >
       <span aria-live="polite">
-        {visible ? t("sidecar.browserLoadingPage") : t("sidecar.browserTemporarilyHidden")}
+        {surfaceVisible ? t("sidecar.browserLoadingPage") : t("sidecar.browserTemporarilyHidden")}
       </span>
     </div>
   );

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2fd06ac6ee664569c00e833b8257b9aad07de39438d161bea362f5dd674d4ee0 -->
+<!-- tinybot-module-fingerprint: sha256:b9b7f4c665290e507b335eee931807b00be4d29154187dddc48c0c5911f877c3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -79,7 +79,9 @@ The ChatPage details drawer retains closing content through a reversible 220 ms
 opacity/transform transition using `lib/useExitPresence`. Closing immediately
 makes the drawer inert and restores trigger focus; reopening cancels pending
 removal. Thread changes clear incompatible details. Native Sidecar browser
-visibility remains suppressed until the details drawer has fully left.
+visibility remains suppressed until the details drawer has fully left through
+the shared overlay coordinator. The retained drawer declares a whole-window
+native overlay marker, without coupling its state to Sidecar resources.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.

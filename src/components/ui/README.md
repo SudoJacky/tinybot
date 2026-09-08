@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:8fd16e7f2266fa9bd187583d9a912cb01dd070d589a8bf409e0d93e83215687e -->
+<!-- tinybot-module-fingerprint: sha256:3b6036e158c4772fd1e159a387b400e0ba85cf4d57d49ff3d575843cd2a854ed -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -42,3 +42,15 @@ Route orchestration and domain-specific state stay in `react-workbench` and
 `useModalDialog` is the shared seam for modal focus, keyboard navigation,
 background dismissal, focus restoration, and body scroll locking. Route-owned
 dialogs keep their visual structure and domain actions local.
+
+`useNativeSurfaceOcclusion` coordinates native child surfaces with shared overlay
+semantics across routes and portals. Rendered modal dialogs block native surfaces
+for their entire presence, including retained exit animation and nested dialogs.
+Local menus, listboxes, dialogs, and `react-popover-surface` elements block only
+intersecting surfaces. Hidden ancestors and inactive aria-hidden layers do not
+block. Custom retained overlays declare `data-native-overlay="modal"` or `"local"`.
+An exit layer keeps its marker until unmount and may use `data-state="closing"`
+while already inert. No route-specific dialog flags enter native resource owners.
+Mutation and resize observers track relevant overlay changes; finite overlay
+motion is measured per frame, while unrelated streaming text does not trigger
+geometry reads. Native hosts expose `data-occlusion` for inspection.

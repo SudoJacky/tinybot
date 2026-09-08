@@ -3,6 +3,8 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useModalDialog } from "../../components/ui/useModalDialog";
+import { SettingsSheet } from "../settings/SettingsSheet";
 import { createNativeBrowserSessionSnapshot } from "../../app-core/native/nativeBrowserSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { normalizeBrowserAddress, SidecarBrowser } from "./SidecarBrowser";
@@ -101,6 +103,44 @@ function renderBrowser(overrides: Partial<Parameters<typeof SidecarBrowser>[0]> 
 }
 
 describe("SidecarBrowser", () => {
+  it("hides for shared modal dialogs and only restores after the last closing sheet unmounts", async () => {
+    const user = userEvent.setup();
+    const view = renderBrowser({ surfaceVisible: true });
+    const update = vi.mocked(view.runtime.updateSurface);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true })));
+    const onClose = vi.fn();
+    const sheet = <SettingsSheet ariaLabel="Settings modal" closeLabel="Close settings" title="Settings" onClose={onClose}>{() => <p>Preferences</p>}</SettingsSheet>;
+    view.rerender(<><SidecarBrowser {...view.props} /><SharedModal />{sheet}</>);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false, unobscured: false })));
+    expect(document.querySelector(".react-sidecar-browser-surface")?.getAttribute("data-occlusion")).toBe("modal");
+    view.rerender(<><SidecarBrowser {...view.props} />{sheet}</>);
+    await user.click(screen.getByRole("button", { name: "Close settings" }));
+    expect(screen.getByRole("dialog", { name: "Settings modal" }).getAttribute("data-state")).toBe("closing");
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }));
+    view.rerender(<SidecarBrowser {...view.props} />);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true })));
+    expect(view.runtime.closeSession).not.toHaveBeenCalled();
+    expect(view.runtime.closeTab).not.toHaveBeenCalled();
+    expect(view.runtime.reload).not.toHaveBeenCalled();
+  });
+
+  it("coordinates popup intersection without any parent visibility flag", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const left = this.dataset.outside === "true" ? 10 : 720;
+      return { x: left, y: 100, left, top: 100, right: left + 200, bottom: 300, width: 200, height: 200, toJSON: () => ({}) };
+    });
+    const view = renderBrowser({ surfaceVisible: true });
+    const update = vi.mocked(view.runtime.updateSurface);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true })));
+    view.rerender(<><SidecarBrowser {...view.props} /><div className="react-popover-surface" role="menu" data-outside="true" /></>);
+    await act(async () => undefined);
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true }));
+    view.rerender(<><SidecarBrowser {...view.props} /><div className="react-popover-surface" role="menu" style={{ left: 720 }} /></>);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false })));
+    view.rerender(<SidecarBrowser {...view.props} />);
+    await waitFor(() => expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true })));
+  });
+
   it("normalizes web addresses without treating search text as a URL", () => {
     expect(normalizeBrowserAddress("localhost:5173/chat", "empty", "invalid")).toBe("http://localhost:5173/chat");
     expect(normalizeBrowserAddress("tinybot.dev", "empty", "invalid")).toBe("https://tinybot.dev");
@@ -182,3 +222,8 @@ describe("SidecarBrowser", () => {
     expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
   });
 });
+
+function SharedModal() {
+  const { dialogRef } = useModalDialog<HTMLDivElement>({ onClose: () => undefined });
+  return <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="About"><button>Close about</button></div>;
+}
