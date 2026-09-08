@@ -1,3 +1,5 @@
+import { useChatSessions } from "./useChatSessions";
+import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
 import { useChatSubmission } from "./useChatSubmission";
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -46,7 +48,6 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import {
   projectChatEventEffects,
-  projectTimelineSessionStatus,
 } from "./chatEventPolicy";
 import {
   projectLatestContextUsage,
@@ -106,7 +107,6 @@ import {
 } from "./ChatSessionWorkspace";
 import {
   displaySessionTitle,
-  isDefaultSessionTitle,
 } from "./sessionTitle";
 import { projectTinybotMascotMood, type TinybotMascotMood } from "./TinybotMascot";
 
@@ -276,8 +276,10 @@ export function ChatPage({
 }: ChatPageProps) {
   const { i18n, t } = useTranslation("chat");
   const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [retainedDeletingSessions, setRetainedDeletingSessions] = useState<SessionSummary[]>([]);
+  const sessionData = useChatSessions(sessionStore, now, handleSessionChange);
+  const { application: sessionApplication, loaded: sessionsLoaded, error: sessionWorkspaceError, creating: sessionCreatePending } = sessionData;
+  const sessions = useMemo(() => [...sessionData.sessions, ...retainedDeletingSessions], [sessionData.sessions, retainedDeletingSessions]);
   const [startInNewSessionOnMount] = useState(startInNewSession);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
     reduceSessionTabWorkspace,
@@ -293,8 +295,6 @@ export function ChatPage({
   const [composerTools, setComposerTools] = useState<ToolSummary[]>([]);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
-  const [sessionCreatePending, setSessionCreatePending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [drawerSessionId, setDrawerSessionId] = useState("");
@@ -313,15 +313,11 @@ export function ChatPage({
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
-  const sessionsRef = useRef<SessionSummary[]>([]);
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
-  const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
-  const draftSessionSequence = useRef(0);
   const sessionTabsRef = useRef(sessionTabs);
   const sessionsLoadedRef = useRef(sessionsLoaded);
-  const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const conversationViewBySessionRef = useRef<Map<string, ConversationViewState>>(new Map());
@@ -379,11 +375,8 @@ export function ChatPage({
   const submission = useChatSubmission({
     chatStore, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
     sessionId: activeSessionId, now, t, reload: reloadSessionRuntime,
-    refreshSessions: handleSessionStoreRefresh, materializeDraft: createSessionForDraft,
-    previewSession(session) {
-      optimisticSessionTitlesRef.current.set(session.id, session.title);
-      setSessions((current) => current.map((candidate) => candidate.id === session.id ? session : candidate));
-    },
+    refreshSessions: sessionApplication.refresh, materializeDraft: createSessionForDraft,
+    previewSession: sessionApplication.preview,
     consumeDraft(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
   });
   const { optimisticMessages, compactingSessionId, artifactReviewEpoch } = submission;
@@ -509,7 +502,7 @@ export function ChatPage({
   } = useChatTurnApplication({
     dispatch: chatStore.dispatch,
     submitTurn: submission.submitTurn,
-    refreshSessions: handleSessionStoreRefresh,
+    refreshSessions: sessionApplication.refresh,
     reportError: reportTimelineError,
     clearError: clearTimelineError,
     now,
@@ -534,10 +527,6 @@ export function ChatPage({
     () => activeSession && timelineLoaded ? latestTurnPlan(timeline) : undefined,
     [activeSession, timeline, timelineLoaded],
   );
-  useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
-
   useEffect(() => {
     if (!activePersistedSessionId) {
       setThreadCapabilities(unavailableThreadEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
@@ -579,32 +568,6 @@ export function ChatPage({
     };
   }, []);
 
-  const notifyStartupSessionHydrated = useEffectEvent(() => {
-    onStartupSessionHydrated?.();
-  });
-  useEffect(() => {
-    let cancelled = false;
-    void sessionStore.list().then((nextSessions) => {
-      if (cancelled) {
-        return;
-      }
-      sessionsRef.current = nextSessions;
-      setSessions(nextSessions);
-      setSessionsLoaded(true);
-      dispatchSessionTabs({
-        type: "hydrate",
-        availableSessionIds: nextSessions.map((session) => session.id),
-        persisted: startInNewSessionOnMount
-          ? { activeSessionId: "", draftsBySession: {}, openSessionIds: [] }
-          : readPersistedSessionTabWorkspace(window.localStorage),
-      });
-      notifyStartupSessionHydrated();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionStore, startInNewSessionOnMount]);
-
   useEffect(() => {
     if (!sessionsLoaded) {
       return;
@@ -633,13 +596,7 @@ export function ChatPage({
   }, [createSessionSignal]);
 
   const activateRequestedSession = useEffectEvent(async (sessionId: string) => {
-    const nextSessions = sessionStore.refresh
-      ? await sessionStore.refresh()
-      : await sessionStore.list();
-    const target = nextSessions.find((session) => session.id === sessionId);
-    if (!target) throw new Error(`Cannot activate unknown Thread ${sessionId}`);
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
+    await sessionApplication.activateExternal(sessionId);
     dispatchDelete({ type: "session-selected", sessionId });
     dispatchSessionTabs({ type: "open", sessionId });
   });
@@ -664,7 +621,7 @@ export function ChatPage({
     chatApplication.receiveCommand(sessionId, event);
     if (event.timeline) {
       chatApplication.receiveTimeline(sessionId, event.timeline);
-      updateSessionStatusFromTimeline(sessionId, event.timeline);
+      sessionApplication.receiveTimeline(sessionId, event.timeline);
       dispatchSessionTabs({ type: "activity", sessionId });
     }
     if (effects.backgroundTabActivity) {
@@ -788,20 +745,10 @@ export function ChatPage({
     }
   }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
-  function createLocalDraft(input: DraftSessionCreateInput): DraftSession {
-    const createdAtMs = now();
-    return {
-      id: `draft:${createdAtMs}:${++draftSessionSequence.current}`,
-      createdAtMs,
-      createInput: input,
-    };
-  }
-
   async function handleCreateSession(
     workingDirectory?: string,
     projectContext?: ProjectSessionContext,
   ): Promise<SessionSummary | null> {
-    setSessionWorkspaceError("");
     const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined
       && activeDisplaySession?.projectGroupId
       && !activeDisplaySession.projectCoordinator
@@ -823,10 +770,10 @@ export function ChatPage({
     if (!activeSessionId && composerDraft.trim()) {
       dispatchSessionTabs({
         type: "startup-draft.materialize",
-        draft: createLocalDraft({}),
+        draft: sessionApplication.createDraft({}),
       });
     }
-    const draft = createLocalDraft(createInput);
+    const draft = sessionApplication.createDraft(createInput);
     dispatchDelete({ type: "session-selected", sessionId: draft.id });
     dispatchSessionTabs({ type: "session-draft.open", draft });
     return projectDraftSessionSummary(draft);
@@ -848,7 +795,7 @@ export function ChatPage({
     if (!normalizedWorkingDirectory) return;
 
     const startupDraft = composerDraft;
-    const draft = createLocalDraft({ workingDirectory: normalizedWorkingDirectory });
+    const draft = sessionApplication.createDraft({ workingDirectory: normalizedWorkingDirectory });
     dispatchSessionTabs({ type: "session-draft.open", draft });
     if (startupDraft) {
       dispatchSessionTabs({ type: "draft.changed", sessionId: draft.id, value: startupDraft });
@@ -870,16 +817,8 @@ export function ChatPage({
         installedPluginEnabled: result.plugin.enabled,
         ...(result.cleanupWarning ? { cleanupWarning: result.cleanupWarning } : {}),
       };
-      setSessions((current) => current.map((candidate) => (
-        candidate.id === session.id ? { ...candidate, pluginMigration: installedMigration } : candidate
-      )));
       try {
-        await sessionStore.markPluginMigrationInstalled?.(
-          session.id,
-          result.plugin.name,
-          result.plugin.enabled,
-          result.cleanupWarning,
-        );
+        await sessionApplication.recordMigration(session.id, installedMigration);
       } catch (error) {
         setMigrationInstallError(
           `Plugin ${result.plugin.name} was installed, but the migration status could not be saved: ${error instanceof Error ? error.message : String(error)}`,
@@ -900,101 +839,13 @@ export function ChatPage({
         dispatchSessionTabs({ type: "remove", sessionId: session.id });
         return;
       }
-      await sessionStore.delete(session.id);
-      optimisticSessionTitlesRef.current.delete(session.id);
-      setDissolvingSessionIds((current) => new Set(current).add(session.id));
-      const timer = window.setTimeout(() => {
-        const remaining = sessionsRef.current.filter((item) => item.id !== session.id);
-        sessionsRef.current = remaining;
-        setSessions(remaining);
-        dispatchSessionTabs({ type: "remove", sessionId: session.id });
-        conversationViewBySessionRef.current.delete(session.id);
-        submission.forgetSession(session.id);
-        setDissolvingSessionIds((current) => {
-          const nextIds = new Set(current);
-          nextIds.delete(session.id);
-          return nextIds;
-        });
-      }, SESSION_DELETE_DISSOLVE_MS);
-      deleteDissolveTimers.current.push(timer);
+      await sessionApplication.delete(session);
     }
-  }
-
-  async function handleSessionStoreRefresh(preserveSession?: SessionSummary): Promise<SessionSummary[]> {
-    const listedSessions = await sessionStore.list();
-    let titledSessions = listedSessions.map((session) => {
-      if (!isDefaultSessionTitle(session.title)) {
-        optimisticSessionTitlesRef.current.delete(session.id);
-        return session;
-      }
-      const optimisticTitle = optimisticSessionTitlesRef.current.get(session.id);
-      return optimisticTitle ? { ...session, title: optimisticTitle } : session;
-    });
-    const listedSessionIdsBeforeReconciliation = new Set(titledSessions.map((session) => session.id));
-    const knownSessionIds = new Set(sessionsRef.current.map((session) => session.id));
-    const missingOptimisticSessions = sessionsRef.current.filter((session) => (
-      optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIdsBeforeReconciliation.has(session.id)
-    ));
-    const replacementCandidates = titledSessions.filter((session) => !knownSessionIds.has(session.id));
-    let sessionIdReplacement: { previousSessionId: string; sessionId: string } | undefined;
-    if (missingOptimisticSessions.length === 1 && replacementCandidates.length === 1) {
-      const pendingSession = missingOptimisticSessions[0];
-      const replacementSession = replacementCandidates[0];
-      sessionIdReplacement = {
-        previousSessionId: pendingSession.id,
-        sessionId: replacementSession.id,
-      };
-      const optimisticTitle = optimisticSessionTitlesRef.current.get(pendingSession.id);
-      optimisticSessionTitlesRef.current.delete(pendingSession.id);
-      if (optimisticTitle && isDefaultSessionTitle(replacementSession.title)) {
-        optimisticSessionTitlesRef.current.set(replacementSession.id, optimisticTitle);
-        titledSessions = titledSessions.map((session) => (
-          session.id === replacementSession.id ? { ...session, title: optimisticTitle } : session
-        ));
-      }
-    }
-    const listedSessionIds = new Set(titledSessions.map((session) => session.id));
-    const pendingOptimisticSessions = sessionsRef.current.filter((session) => (
-      optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIds.has(session.id)
-    )).map((session) => ({
-      ...session,
-      title: optimisticSessionTitlesRef.current.get(session.id) ?? session.title,
-    }));
-    const visibleSessions = [...pendingOptimisticSessions, ...titledSessions];
-    const preserveOptimisticTitle = preserveSession && !isDefaultSessionTitle(preserveSession.title);
-    const nextSessions = preserveSession && !visibleSessions.some((session) => session.id === preserveSession.id)
-      ? [preserveSession, ...visibleSessions]
-      : visibleSessions.map((session) => (
-        preserveOptimisticTitle && session.id === preserveSession.id && isDefaultSessionTitle(session.title)
-          ? { ...session, title: preserveSession.title }
-          : session
-      ));
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
-    if (sessionIdReplacement) {
-      dispatchSessionTabs({ type: "replace", ...sessionIdReplacement });
-      moveMapValue(
-        conversationViewBySessionRef.current,
-        sessionIdReplacement.previousSessionId,
-        sessionIdReplacement.sessionId,
-      );
-      submission.replaceSession(sessionIdReplacement.previousSessionId, sessionIdReplacement.sessionId);
-      chatApplication.replaceSession(
-        sessionIdReplacement.previousSessionId,
-        sessionIdReplacement.sessionId,
-      );
-    }
-    dispatchSessionTabs({
-      type: "reconcile",
-      availableSessionIds: nextSessions.map((session) => session.id),
-    });
-    return nextSessions;
   }
 
   async function handlePinConversation(session: SessionSummary) {
     const pinned = !session.pinned;
-    await sessionStore.pin(session.id, pinned);
-    setSessions((current) => current.map((item) => item.id === session.id ? { ...item, pinned } : item));
+    await sessionApplication.pin(session.id, pinned);
     setHeaderMenuOpen(false);
   }
 
@@ -1004,9 +855,7 @@ export function ChatPage({
       setHeaderMenuOpen(false);
       return;
     }
-    await sessionStore.rename(session.id, nextTitle);
-    optimisticSessionTitlesRef.current.delete(session.id);
-    setSessions((current) => current.map((item) => item.id === session.id ? { ...item, title: nextTitle } : item));
+    await sessionApplication.rename(session.id, nextTitle);
     setHeaderMenuOpen(false);
   }
 
@@ -1021,21 +870,13 @@ export function ChatPage({
   }
 
   async function handleArchiveConversation(session: SessionSummary) {
-    await sessionStore.archive(session.id);
-    const remaining = sessions.filter((item) => item.id !== session.id);
-    sessionsRef.current = remaining;
-    setSessions(remaining);
-    dispatchSessionTabs({ type: "remove", sessionId: session.id });
-    conversationViewBySessionRef.current.delete(session.id);
+    await sessionApplication.archive(session);
     setHeaderMenuOpen(false);
   }
 
   async function handleBranchFromMessage(session: SessionSummary, messageId: string) {
     const branched = await submission.fork(session.id, messageId);
-    const nextSessions = [branched, ...sessionsRef.current.filter((item) => item.id !== branched.id)];
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
-    dispatchSessionTabs({ type: "open", sessionId: branched.id });
+    sessionApplication.accept(branched);
   }
 
   async function handleComposerSend(
@@ -1054,7 +895,7 @@ export function ChatPage({
       pastedContent,
       selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
-      sessions: sessionsRef.current.map((session) => ({
+      sessions: sessionApplication.snapshot().sessions.map((session) => ({
         id: session.id,
         title: displaySessionTitle(session.title, t),
         updatedAtMs: session.updatedAtMs,
@@ -1089,51 +930,42 @@ export function ChatPage({
   }
 
   async function createSessionForDraft(): Promise<SessionSummary | null> {
-    if (!draftNewSession) {
-      return null;
-    }
-    if (!draftSessionCreatePromise.current) {
-      const draftSession = sessionTabs.draftSessionsById[activeSessionId];
-      const modelInput = composerSessionModelInput(composerModels, composerModel);
-      const createInput = {
-        ...draftSession?.createInput,
-        ...modelInput,
-      };
-      const createArgument = draftSession || Object.keys(createInput).length
-        ? createInput
-        : undefined;
-      const materializingSessionId = activeSessionId;
-      setSessionCreatePending(true);
-      setSessionWorkspaceError("");
-      draftSessionCreatePromise.current = sessionStore.create(createArgument)
-        .then((created) => {
-          activateCreatedSession(created, materializingSessionId);
-          return created;
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          setSessionWorkspaceError(message);
-          console.error("[session-workspaces] session.create.failed", {
-            error: message,
-            workingDirectory: draftSession?.createInput.workingDirectory ?? "",
-            projectGroupId: draftSession?.createInput.projectGroupId ?? "",
-          });
-          return Promise.reject(error);
-        })
-        .finally(() => {
-          draftSessionCreatePromise.current = null;
-          setSessionCreatePending(false);
-        });
-    }
-    return draftSessionCreatePromise.current;
+    if (!draftNewSession) return null;
+    return sessionApplication.materializeDraft(activeSessionId, sessionTabs.draftSessionsById[activeSessionId],
+      composerSessionModelInput(composerModels, composerModel));
   }
 
-  function activateCreatedSession(created: SessionSummary, previousSessionId = ""): void {
-    sessionsRef.current = [created, ...sessionsRef.current.filter((session) => session.id !== created.id)];
-    setSessions((current) => [created, ...current.filter((session) => session.id !== created.id)]);
-    dispatchSessionTabs(previousSessionId !== created.id
-      ? { type: "replace", previousSessionId, sessionId: created.id }
-      : { type: "open", sessionId: created.id });
+  function handleSessionChange(event: ChatSessionChange) {
+    if (event.type === "loaded") {
+      dispatchSessionTabs({ type: "hydrate", availableSessionIds: event.sessions.map((session) => session.id),
+        persisted: startInNewSessionOnMount ? { activeSessionId: "", draftsBySession: {}, openSessionIds: [] }
+          : readPersistedSessionTabWorkspace(window.localStorage) });
+      onStartupSessionHydrated?.();
+    } else if (event.type === "reconciled") {
+      dispatchSessionTabs({ type: "reconcile", availableSessionIds: event.sessions.map((session) => session.id) });
+    } else if (event.type === "created") {
+      dispatchSessionTabs(event.previousSessionId !== undefined && event.previousSessionId !== event.session.id
+        ? { type: "replace", previousSessionId: event.previousSessionId, sessionId: event.session.id }
+        : { type: "open", sessionId: event.session.id });
+    } else if (event.type === "replaced") {
+      dispatchSessionTabs({ type: "replace", previousSessionId: event.previousSessionId, sessionId: event.sessionId });
+      moveMapValue(conversationViewBySessionRef.current, event.previousSessionId, event.sessionId);
+      submission.replaceSession(event.previousSessionId, event.sessionId);
+      chatApplication.replaceSession(event.previousSessionId, event.sessionId);
+    } else if (event.type === "removed") {
+      const sessionId = event.session.id;
+      const finish = () => {
+        dispatchSessionTabs({ type: "remove", sessionId });
+        conversationViewBySessionRef.current.delete(sessionId);
+        submission.forgetSession(sessionId);
+        setRetainedDeletingSessions((current) => current.filter((session) => session.id !== sessionId));
+        setDissolvingSessionIds((current) => { const next = new Set(current); next.delete(sessionId); return next; });
+      };
+      if (event.reason === "archive") { finish(); return; }
+      setRetainedDeletingSessions((current) => [...current, event.session]);
+      setDissolvingSessionIds((current) => new Set(current).add(sessionId));
+      deleteDissolveTimers.current.push(window.setTimeout(finish, SESSION_DELETE_DISSOLVE_MS));
+    }
   }
 
   async function handleStopGeneration(session: SessionSummary) {
@@ -1142,7 +974,7 @@ export function ChatPage({
 
   function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
     if (effect.type === "timeline_applied") {
-      updateSessionStatusFromTimeline(effect.sessionId, effect.timeline);
+      sessionApplication.receiveTimeline(effect.sessionId, effect.timeline);
       submission.receiveTimeline(effect.sessionId, effect.timeline);
       return;
     }
@@ -1156,18 +988,6 @@ export function ChatPage({
     }
 
     chatApplication.receiveCommand(effect.sessionId, effect.event);
-  }
-
-  function updateSessionStatusFromTimeline(sessionId: string, nextTimeline: ChatTimelineSnapshot) {
-    const status = projectTimelineSessionStatus(nextTimeline);
-    if (!status) return;
-    setSessions((current) => {
-      const next = current.map((session) => (
-        session.id === sessionId ? { ...session, status } : session
-      ));
-      sessionsRef.current = next;
-      return next;
-    });
   }
 
   async function handleOpenSubagent(delegate: DelegatedAgentState) {
@@ -1529,18 +1349,7 @@ export function ChatPage({
               });
             }
             if (activeSession) {
-              setSessions((current) => current.map((session) => (
-                session.id === activeSession.id
-                  ? {
-                      ...session,
-                      model: selectedModelId,
-                      modelProvider: selected.providerId,
-                    }
-                  : session
-              )));
-              const setModel = selected.providerId
-                ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
-                : sessionStore.setModel?.(activeSession.id, selectedModelId);
+              const setModel = sessionApplication.selectModel(activeSession.id, selectedModelId, selected.providerId);
               void setModel?.catch((error) => {
                 reportTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
               });
@@ -1603,7 +1412,7 @@ export function ChatPage({
         onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
         onHandoff={async (sessionId) => {
           await submission.submitTurn(sessionId, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
-          await handleSessionStoreRefresh(activeSession);
+          await sessionApplication.refresh(activeSession);
         }}
         onError={reportTimelineError}
       />
@@ -1805,4 +1614,3 @@ function projectDraftSessionSummary(draft: DraftSession): SessionSummary {
 function boundedSpreadsheetSelectionValue(value: string): string {
   return value.length > 12000 ? `${value.slice(0, 12000)}\n[Selection excerpt truncated; read the referenced range for all values.]` : value;
 }
-

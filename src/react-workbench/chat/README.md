@@ -1,9 +1,16 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:985749c7affe59a69eb32b9ea34a23efe4d442c962127e72a5b3262e587f3f6e -->
+<!-- tinybot-module-fingerprint: sha256:26d42714f165dd5629688a49d65fd3d23e9b4bf59f3ef7383c30ecd9d892cc53 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`chatSessionApplication.ts` owns session data, optimistic titles, per-draft
+creation promises, persisted-ID reconciliation, metadata operations, and
+Timeline-derived session status. `useChatSessions.ts` connects its snapshot and
+semantic changes to React. The page owns tab selection, composer draft
+persistence, scroll restoration, and temporary deleted-row animation snapshots;
+it does not mutate the application's session data. Module tests cover concurrent
+draft creation, ID/title reconciliation, deletion events, and visible failures.
 `SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
 coordination. The page holds only Sidecar layout presentation and invokes its
 open/toggle operations; resource snapshots never enter page state.
