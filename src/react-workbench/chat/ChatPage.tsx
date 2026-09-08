@@ -11,7 +11,6 @@ import {
   FolderOpen,
   Loader2,
   MoreHorizontal,
-  PanelRightClose,
   PanelRightOpen,
   X,
 } from "lucide-react";
@@ -286,8 +285,15 @@ export function ChatPage({
   const drawerElementRef = useRef<HTMLElement>(null);
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const sidecarToggleRef = useRef<HTMLButtonElement>(null);
+  const restoreSidecarFocusRef = useRef(false);
   const sidecarResources = useRef<SidecarResourcesHandle>(null);
   const [sidecar, setSidecar] = useState<SidecarLayout>(initialSidecarLayout);
+  useLayoutEffect(() => {
+    if (sidecar.presentation === "closed" && restoreSidecarFocusRef.current) {
+      restoreSidecarFocusRef.current = false;
+      sidecarToggleRef.current?.focus();
+    }
+  }, [sidecar.presentation]);
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
@@ -1042,18 +1048,17 @@ export function ChatPage({
             onClose={handleCloseSessionTab}
           />
           <div className="react-chat-header__actions">
-            <button
-              aria-label={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
-              aria-pressed={sidecar.presentation !== "closed"}
-              ref={sidecarToggleRef}
-              title={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
-              type="button"
-              onClick={() => sidecarResources.current?.toggle()}
-            >
-              {sidecar.presentation === "closed"
-                ? <PanelRightOpen aria-hidden="true" size={17} />
-                : <PanelRightClose aria-hidden="true" size={17} />}
-            </button>
+            {sidecar.presentation === "closed" ? (
+              <button
+                aria-label={t("sidecar.show")}
+                ref={sidecarToggleRef}
+                title={t("sidecar.show")}
+                type="button"
+                onClick={() => sidecarResources.current?.toggle()}
+              >
+                <PanelRightOpen aria-hidden="true" size={17} />
+              </button>
+            ) : null}
             <button
               aria-label={t("shell.conversationMenu")}
               title={t("shell.conversationMenu")}
@@ -1283,7 +1288,7 @@ export function ChatPage({
         sessionResponding={sessionResponding}
         presentDrawer={Boolean(presentDrawer)}
         onLayoutChange={setSidecar}
-        onHide={() => sidecarToggleRef.current?.focus()}
+        onHide={() => { restoreSidecarFocusRef.current = true; }}
         onReference={(reference) => {
           setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
           setComposerFocusRequestId((current) => current + 1);

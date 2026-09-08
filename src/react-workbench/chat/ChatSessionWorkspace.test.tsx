@@ -207,7 +207,18 @@ describe("ChatSessionWorkspace", () => {
 
     fireEvent.click(within(search).getByRole("button", { name: "Close session search" }));
     expect(screen.queryByRole("search", { name: "Session search" })).toBeNull();
+    expect(search.isConnected).toBe(true);
+    expect(search.hasAttribute("inert")).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search chats" }));
     expect(screen.getByRole("button", { name: "Planning notes" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search chats" }));
+    expect(screen.getByRole("search", { name: "Session search" })).toBe(search);
+    expect(search.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(input);
+    expect((input as HTMLInputElement).value).toBe("");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(search.hasAttribute("inert")).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search chats" }));
     expect(actions.onCreateSession).not.toHaveBeenCalled();
   });
 

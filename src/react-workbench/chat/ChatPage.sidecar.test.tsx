@@ -57,6 +57,12 @@ describe("ChatPage", () => {
     await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
     const sidecar = screen.getByLabelText("Sidecar");
     const workspace = document.querySelector<HTMLElement>(".react-chat-workspace");
+    expect(screen.queryByRole("button", { name: "Show Sidecar" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Hide Sidecar" })).toHaveLength(1);
+    await user.click(within(sidecar).getByRole("button", { name: "Expand Sidecar" }));
+    expect(screen.getAllByRole("button", { name: "Hide Sidecar" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Show Sidecar" })).toBeNull();
+    await user.click(within(sidecar).getByRole("button", { name: "Restore Sidecar" }));
     within(sidecar).getByRole("separator").focus();
     await user.keyboard("{ArrowLeft}");
     expect(workspace?.dataset.sidecarLayoutMotion).toBe("instant");
@@ -74,6 +80,8 @@ describe("ChatPage", () => {
     await user.click(within(sidecar).getByRole("button", { name: "Hide Sidecar" }));
     expect(screen.queryByLabelText("Sidecar")).toBeNull();
     expect(document.querySelector<HTMLElement>(".react-sidecar")?.dataset.hidden).toBe("true");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Show Sidecar" }));
+    expect(screen.queryByRole("button", { name: "Hide Sidecar" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
     expect(workspace?.dataset.sidecarLayoutMotion).toBe("animated");

@@ -446,11 +446,11 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
     expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
     expect(css).toMatch(/\.react-route-surface\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
-    expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
+    expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*42px minmax\(0,\s*1fr\) auto;/s);
     expect(css).toMatch(/\.react-popover-item\[aria-current="page"\][^{]*\{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
     expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s);
-    expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
+    expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*42px;/s);
     expect(css).not.toMatch(/\.react-session-list__new/);
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-default-model-picker\s*{[^}]*grid-template-columns:\s*minmax\(170px,\s*0\.72fr\) minmax\(300px,\s*1\.45fr\);/s);

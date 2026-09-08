@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:2e09f6a8731fa0c9780715c2f64714164c586058cb68ba45cb0b0cd1e1e5541c -->
+<!-- tinybot-module-fingerprint: sha256:6c00b64a9395eb8d3eef2a3f9b014537482d6c3f84860e43f6078b150099f7fa -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -38,6 +38,9 @@ required native Browser close or Terminal termination before dispatching the
 close event.
 
 ## Presentation and lifecycle
+
+The header is 42px tall including its bottom border, aligned with the Chat
+session bar. Resource tab selection fills the available header height.
 
 `Sidecar.tsx` owns tabs, the resource menu, keyboard tab behavior, and the
 resize handle. Width is persisted separately from resource state. The live and

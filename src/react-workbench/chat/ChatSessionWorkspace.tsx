@@ -734,8 +734,13 @@ export function ChatSessionWorkspace({
         ) : (
           <div className="react-session-list__header">
             <div className="react-session-list__title-row" data-search-open={searchOpen ? "true" : undefined}>
-              {searchOpen ? (
-                <div aria-label={t("search.label")} className="react-session-list__inline-search" role="search">
+                <div
+                  aria-hidden={!searchOpen}
+                  aria-label={t("search.label")}
+                  className="react-session-list__inline-search"
+                  inert={!searchOpen}
+                  role="search"
+                >
                   <Search aria-hidden="true" size={15} />
                   <input
                     aria-label={t("shell.searchChats")}
@@ -761,8 +766,7 @@ export function ChatSessionWorkspace({
                     <X aria-hidden="true" size={14} />
                   </button>
                 </div>
-              ) : (
-                <>
+                <div className="react-session-list__title-default" aria-hidden={searchOpen} inert={searchOpen}>
                   <h2>Tinybot</h2>
                   <div className="react-session-list__title-actions">
                     <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
@@ -828,8 +832,7 @@ export function ChatSessionWorkspace({
                       <ChevronLeft aria-hidden="true" size={16} />
                     </button>
                   </div>
-                </>
-              )}
+                </div>
             </div>
             {displayError ? (
               <p className="react-session-list__error" role="alert">{displayError}</p>

@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:bcf34eaa424ba8d118bde6c12124931ca21d1870e0611f0b997b194b989a0a3a -->
+<!-- tinybot-module-fingerprint: sha256:ba3b2e5b521fd168c4596b8de00d3368fa7a90013466fea5ddeca97e35cd6940 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -16,6 +16,9 @@ held drag can reverse direction and reopen the sidebar.
 
 Workspace session reveal buttons align with session titles and use the sidebar's
 muted text, row hover surface, and keyboard focus styling.
+Session tab close and overflow controls use centered 32px targets, matching the
+Chat header and Sidecar toolbar actions. Tab selection fills the available height
+inside the 42px header without overflowing its bottom border.
 
 Shared scrollbar tokens keep native overflow thumbs quiet against the current
 theme, with stronger hover and drag states and transparent tracks. Desktop
@@ -48,11 +51,17 @@ Session-row entrance styles apply only to the workspace's explicitly eligible
 initial rows, with a bounded 30 ms stagger. Ordinary search/navigation never
 inherits an entrance animation from the list container.
 Its search action expands from the compact icon into a full-width inline input;
-focus-within styling keeps the active boundary visible and reduced-motion mode
-shortens the reveal through the shared global motion rule.
-The collapsed sidebar is a vertical shortcut rail. Its top control presents the
-Tinybot mascot at rest, then reveals the expand icon on pointer hover or keyboard
-focus; new-chat, add-workspace, and search actions follow in that order.
+the outer search field stays 32px high including its border, with a 28px input
+and close button, so toggling search never shifts the session rows vertically.
+The mounted search layer reveals and retracts toward its trigger through reversible
+160ms clip-path and opacity transitions; the default title controls crossfade in
+the same fixed-height row. Focus-within styling keeps the active boundary visible,
+and reduced-motion mode disables these transitions.
+The collapsed sidebar is a 42px vertical shortcut rail matching the top bar's
+height, with centered 32px buttons, 16px action icons, and a 24px mascot.
+Its top control presents the Tinybot mascot at rest, then reveals the expand icon
+on pointer hover or keyboard focus; new-chat, add-workspace, and search actions
+follow in that order.
 Workspace rename and forget actions stay compact beside the owning header and
 use the same visible focus treatment as other sidebar controls. The workspace
 row, rather than the native `details` content box, anchors a fixed right-aligned

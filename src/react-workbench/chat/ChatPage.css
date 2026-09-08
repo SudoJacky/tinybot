@@ -50,7 +50,7 @@
 .react-chat-surface {
   position: relative;
   display: grid;
-  grid-template-rows: 45px minmax(0, 1fr) auto;
+  grid-template-rows: 42px minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: var(--color-canvas);
@@ -92,10 +92,11 @@
 }
 
 .react-chat-header__actions > button {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
 }
 
 

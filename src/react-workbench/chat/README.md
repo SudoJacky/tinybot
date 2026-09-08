@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e41ba50e373b3c1637b644a031c23c24f3d202f26a2ab0ca68d793d0e1c31f08 -->
+<!-- tinybot-module-fingerprint: sha256:2fd06ac6ee664569c00e833b8257b9aad07de39438d161bea362f5dd674d4ee0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -18,6 +18,10 @@ Escape, pointer cancellation, capture loss, blur, and unmount release the drag.
 The separator supports arrow keys (8 px, or 32 px with Shift), Home/End, and
 double-click reset. Tests cover persistence, bounds, cancellation, focus, and
 render isolation.
+Inline session search stays mounted within the expanded sidebar so both opening
+and closing can transition, including rapid reversals. The inactive search or
+title controls are inert and hidden from accessibility APIs. Closing clears the
+query and immediately restores trigger focus; Escape follows the same path.
 Workspace session lists initially show six rows. Each workspace independently
 reveals twelve rows on the first Show more click and all remaining rows on the
 second. General chats and project member workspaces use the same behavior;
@@ -43,6 +47,11 @@ draft creation, ID/title reconciliation, deletion events, and visible failures.
 `SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
 coordination. The page holds only Sidecar layout presentation and invokes its
 open/toggle operations; resource snapshots never enter page state.
+The Chat header offers an open action only while Sidecar is closed. When visible,
+Sidecar owns the single hide action in its toolbar, including expanded mode.
+Hiding restores keyboard focus after the Chat header's open action remounts.
+Chat header icon actions use centered 32px targets matching the Sidecar toolbar;
+the header is 42px tall including its bottom border, aligned with Sidecar.
 `useChatSubmission.ts` owns submission preparation, model-save ordering,
 optimistic message reconciliation, Artifact review capture, and compaction.
 Session operations are supplied through semantic operations; the page supplies
