@@ -63,10 +63,10 @@ export function buildDesktopSettingsFormState(
       apiBase: stringOrNull(pick(embedding, "apiBase", "api_base")),
     },
     tools: {
-      webEnable: web.enable === true,
+      webEnable: web.enable !== false,
       webProxy: stringOrNull(web.proxy),
       searchProvider: stringOrDefault(asRecord(web.search).provider, "duckduckgo"),
-      execEnable: exec.enable === true,
+      execEnable: exec.enable !== false,
       execTimeout: numberOrDefault(exec.timeout, 60),
       mcpServersText: stringifyDesktopJsonObject(pick(tools, "mcpServers", "mcp_servers")),
       restrictToWorkspace: boolValue(pick(tools, "restrictToWorkspace", "restrict_to_workspace")),

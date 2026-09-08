@@ -55,6 +55,7 @@ import {
 } from "./sessionWorkspaces";
 
 const SIDEBAR_ROOT_CONTAINER_ID = "sidebar:root";
+const SESSION_PAGE_SIZE = 6;
 
 type SidebarOrderItem = {
   itemId: string;
@@ -127,6 +128,7 @@ export function ChatSessionWorkspace({
   const [workspaceDialogPath, setWorkspaceDialogPath] = useState<string>();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sessionLimits, setSessionLimits] = useState<Record<string, number>>({});
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
@@ -443,9 +445,19 @@ export function ChatSessionWorkspace({
       : undefined;
   }
 
+  function showMoreSessions(containerId: string): void {
+    setSessionLimits((current) => ({
+      ...current,
+      [containerId]: (current[containerId] ?? SESSION_PAGE_SIZE) === SESSION_PAGE_SIZE
+        ? SESSION_PAGE_SIZE * 2
+        : Infinity,
+    }));
+  }
+
   function renderSidebarSessionRows(
     sessionsToRender: readonly SessionSummary[],
     containerId: string,
+    paginate = true,
   ) {
     const orderedSessions = orderSidebarItems(
       sessionsToRender,
@@ -457,17 +469,35 @@ export function ChatSessionWorkspace({
       itemId: session.id,
       label: displaySessionTitle(session.title, t),
     }));
-    return orderedSessions.map((session) => renderSidebarSessionRow(
-      session,
-      containerId,
-      currentItems,
-    ));
+    const limit = paginate && !normalizedSearchQuery
+      ? sessionLimits[containerId] ?? SESSION_PAGE_SIZE
+      : Infinity;
+    return (
+      <>
+        {orderedSessions.slice(0, limit).map((session) => renderSidebarSessionRow(
+          session,
+          containerId,
+          currentItems,
+          limit,
+        ))}
+        {orderedSessions.length > limit ? (
+          <button
+            className="react-session-show-more"
+            type="button"
+            onClick={() => showMoreSessions(containerId)}
+          >
+            {t("shell.showMoreSessions")}
+          </button>
+        ) : null}
+      </>
+    );
   }
 
   function renderSidebarSessionRow(
     session: SessionSummary,
     containerId: string,
     currentItems: readonly SidebarOrderItem[],
+    visibleLimit: number,
   ) {
     const confirming = confirmingDeleteSessionId === session.id;
     const dissolving = dissolvingSessionIds.has(session.id);
@@ -520,7 +550,14 @@ export function ChatSessionWorkspace({
             setEntrance("settled");
             actions.onSelectSession(session);
           }}
-          onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, currentItems)}
+          onKeyDown={(event) => {
+            if (event.altKey && event.key === "ArrowDown"
+              && currentItems[visibleLimit - 1]?.itemId === session.id
+              && currentItems.length > visibleLimit) {
+              showMoreSessions(containerId);
+            }
+            moveSidebarItemWithKeyboard(event, reorderItem, currentItems);
+          }}
         >
           <span aria-hidden="true" className="react-session-row__icon-placeholder" />
           <span className="react-session-row__title">{sessionLabel}</span>
@@ -949,6 +986,7 @@ export function ChatSessionWorkspace({
                       {renderSidebarSessionRows(
                         projectGroup.coordinatorSessions,
                         sidebarProjectCoordinatorSessionsId(projectGroup.project.projectGroupId),
+                        false,
                       )}
                     </section>
                   ) : null}

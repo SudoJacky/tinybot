@@ -1,9 +1,15 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:4d87fc632d93d5696af9a45470600a7dea03f37ceea596c49a86013634965b37 -->
+<!-- tinybot-module-fingerprint: sha256:2ee384121e49221fc5537942b383b1f11a1d58a81159ca52b90964b1c68947cb -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+Workspace session lists initially show six rows. Each workspace independently
+reveals twelve rows on the first Show more click and all remaining rows on the
+second. General chats and project member workspaces use the same behavior;
+project coordinator rows remain fully visible. Search shows every matching row
+and clearing it restores the previous reveal limit. Ordering uses the full list,
+and keyboard moves across a reveal limit expand it to retain the focused row.
 `useChatApplication.ts` coordinates submission, session data, turn commands,
 active runtime effects, background subscriptions, and effective-capability
 queries. The page supplies the selected session and composer context and receives

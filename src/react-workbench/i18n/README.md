@@ -1,8 +1,10 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:8fcfc27a26f57ad83ead1acc43739e9e945194b09f4e4bf67ede759f3dda975c -->
+<!-- tinybot-module-fingerprint: sha256:7d0b8e1c34253d6e2a4a06fcb4cf4619519f7c0dd5258df9400ddd557710d929 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
+
+Workspace session lists localize their Show more action in both languages.
 
 The standalone Agent Graph route keeps node kinds, the transient Run input,
 workspace, Agent instructions, Provider/model/effort configuration, catalog

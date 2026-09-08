@@ -1,8 +1,11 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:a16db2b5d9add8a22c2cdd0a553ba70ae010c81226221fd076cdad90d95b004f -->
+<!-- tinybot-module-fingerprint: sha256:091d0cefed23e35e3a451c656a416663fe758c26ad843aa827ce8b1f3b812ea7 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+Workspace session reveal buttons align with session titles and use the sidebar's
+muted text, row hover surface, and keyboard focus styling.
 
 Shared scrollbar tokens keep native overflow thumbs quiet against the current
 theme, with stronger hover and drag states and transparent tracks. Desktop

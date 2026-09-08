@@ -20,6 +20,64 @@ afterEach(() => {
 });
 
 describe("ChatSessionWorkspace", () => {
+  test.each([6, 7, 12, 19])("reveals %s workspace sessions in stages of six, twelve, then all", (count) => {
+    const sessions = workspaceSessions(count);
+    renderWorkspace({ sessions });
+    const group = screen.getByRole("group", { name: "Workspace tinybot" });
+    expect(sessionTitles(group)).toEqual(sessions.slice(0, 6).map((session) => session.title));
+    if (count > 6) {
+      fireEvent.click(within(group).getByRole("button", { name: "Show more" }));
+      expect(sessionTitles(group)).toEqual(sessions.slice(0, 12).map((session) => session.title));
+    }
+    if (count > 12) {
+      fireEvent.click(within(group).getByRole("button", { name: "Show more" }));
+      expect(sessionTitles(group)).toEqual(sessions.map((session) => session.title));
+    }
+    expect(within(group).queryByRole("button", { name: "Show more" })).toBeNull();
+  });
+
+  test("keeps workspace expansion independent and preserves it across search and refresh", () => {
+    const sessions = workspaceSessions(19);
+    const general = sessions.map((session) => ({ ...session, id: `general-${session.id}`, title: `General ${session.title}`, workingDirectory: undefined }));
+    const view = renderWorkspace({ sessions: [...sessions, ...general] });
+    const group = screen.getByRole("group", { name: "Workspace tinybot" });
+    const generalGroup = screen.getByRole("group", { name: "Workspace General chats" });
+    fireEvent.click(within(group).getByRole("button", { name: "Show more" }));
+    expect(sessionTitles(group)).toHaveLength(12);
+    expect(sessionTitles(generalGroup)).toHaveLength(6);
+    fireEvent.click(screen.getByRole("button", { name: /search chats/i }));
+    const search = screen.getByRole("textbox", { name: "Search chats" });
+    fireEvent.change(search, { target: { value: "History" } });
+    expect(sessionTitles(group)).toHaveLength(19);
+    expect(sessionTitles(generalGroup)).toHaveLength(19);
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+    fireEvent.change(search, { target: { value: "" } });
+    view.rerenderSessions([...sessions, ...general]);
+    expect(sessionTitles(group)).toHaveLength(12);
+    expect(sessionTitles(generalGroup)).toHaveLength(6);
+  });
+
+  test("preserves hidden sessions and their order when reordering visible rows", () => {
+    const sessions = workspaceSessions(19);
+    renderWorkspace({ sessions });
+    const group = screen.getByRole("group", { name: "Workspace tinybot" });
+    fireEvent.keyDown(within(group).getByRole("button", { name: "History 1" }), { altKey: true, key: "ArrowUp" });
+    fireEvent.click(within(group).getByRole("button", { name: "Show more" }));
+    fireEvent.click(within(group).getByRole("button", { name: "Show more" }));
+    expect(sessionTitles(group)).toEqual(["History 1", "History 0", ...sessions.slice(2).map((session) => session.title)]);
+  });
+
+  test("keeps a keyboard-reordered session visible when it crosses the reveal limit", () => {
+    renderWorkspace({ sessions: workspaceSessions(19) });
+    const group = screen.getByRole("group", { name: "Workspace tinybot" });
+    const button = within(group).getByRole("button", { name: "History 5" });
+    button.focus();
+    fireEvent.keyDown(button, { altKey: true, key: "ArrowDown" });
+    expect(sessionTitles(group)).toHaveLength(12);
+    expect(sessionTitles(group).slice(5, 7)).toEqual(["History 6", "History 5"]);
+    expect(document.activeElement).toBe(button);
+  });
+
   test("keeps workspace order when session recency changes, including after remount", async () => {
     const first = { ...planningSession(), title: "First workspace chat", updatedAtMs: 30 };
     const older = { ...first, id: "older", title: "Older chat", updatedAtMs: 10 };
@@ -472,6 +530,12 @@ function manySessions(): SessionSummary[] {
     title: `Session ${index}`,
     workingDirectory: `D:\\Code\\group-${index}`,
     updatedAtMs: 60 - index,
+  }));
+}
+
+function workspaceSessions(count: number): SessionSummary[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...planningSession(), id: `history-${index}`, title: `History ${index}`, updatedAtMs: count - index,
   }));
 }
 

@@ -1574,6 +1574,25 @@ button:disabled {
   background: transparent;
 }
 
+.react-session-show-more {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 6px 0 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.react-session-show-more:hover,
+.react-session-show-more:focus-visible {
+  background: var(--color-cream-strong);
+  color: var(--color-ink);
+}
+
 .react-session-row__title,
 .react-session-row__select small {
   overflow: hidden;

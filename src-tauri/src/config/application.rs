@@ -228,6 +228,10 @@ fn expand_tinybot_workspace_path(workspace: &str) -> PathBuf {
 pub(crate) fn native_default_config_snapshot() -> Value {
     serde_json::json!({
         "schemaVersion": 2,
+        "tools": {
+            "web": { "enable": true },
+            "exec": { "enable": true }
+        },
         "agents": {
             "defaults": {
                 "activeProfile": "deepseek-default",

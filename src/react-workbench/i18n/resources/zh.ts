@@ -507,7 +507,7 @@ export const zh = {
     },
     shell: {
       label: "聊天", sessions: "会话", addWorkspace: "添加工作区文件夹", workspaceActions: "工作区和项目操作", searchChats: "搜索会话", expandSidebar: "展开会话侧栏", collapsedNavigation: "折叠会话侧栏快捷操作", collapseSidebar: "收起会话侧栏",
-      newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", generalSessions: "常规会话", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
+      newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", generalSessions: "常规会话", showMoreSessions: "显示更多", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
       delete: "删除 {{name}}", noSessions: "还没有会话。", noSelection: "未选择会话", conversationMenu: "打开会话菜单",
       reorderWorkspace: "调整工作区 {{name}} 的顺序。拖动，或按 Alt+上/下方向键。", reorderProject: "调整项目 {{name}} 的顺序。拖动，或按 Alt+上/下方向键。",
       reorderSession: "调整会话 {{name}} 的顺序。拖动，或按 Alt+上/下方向键。", reorderedBefore: "已将 {{item}} 移到 {{target}} 前面。", reorderedAfter: "已将 {{item}} 移到 {{target}} 后面。",

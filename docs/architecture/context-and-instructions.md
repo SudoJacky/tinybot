@@ -13,7 +13,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d42af8b59e8e5feacfcb3758a35d64cac57d4688e559021eaae6d9fcb5a3d1aa -->
+<!-- tinybot-doc-fingerprint: sha256:acb726b82260f7a8f8d2551fe0a768e6d5b3725dca38590551300bea41e04fc9 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -98,6 +98,10 @@ Tool selection is separate from instruction injection. An omitted
 an explicitly supplied list is an allowlist and may activate deferred tools,
 including same-workspace Agent Graphs. An explicit empty list disables all
 optional tools while retaining runtime-required planning control.
+
+New native configuration explicitly enables Web/browser and Exec tools. The
+settings form also treats absent enable flags as enabled and preserves explicit
+disabled values; capability checks and Turn tool selection still apply.
 
 This gives two distinct scopes:
 
