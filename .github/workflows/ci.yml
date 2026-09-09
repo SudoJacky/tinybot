@@ -15,13 +15,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  desktop:
+  frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      CARGO_HTTP_TIMEOUT: "120"
-      CARGO_NET_RETRY: "10"
-      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
     steps:
       - name: Checkout code
@@ -38,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Test release tooling
-        run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs
+        run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs .github/scripts/resolve-release-build.test.mjs
 
       - name: Test README freshness tooling
         run: node --test .github/scripts/readme-freshness.test.mjs
@@ -64,45 +60,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Set up Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          target: x86_64-unknown-linux-gnu
-
-      - name: Install Tauri Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libglib2.0-dev \
-            libwebkit2gtk-4.1-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
-      - name: Fetch Rust dependencies
-        working-directory: src-tauri
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            if cargo fetch --locked; then
-              exit 0
-            fi
-            sleep $((attempt * 10))
-          done
-          cargo fetch --locked
-
-      - name: Run Rust tests
-        working-directory: src-tauri
-        run: cargo test --locked --lib -- --test-threads=1
-
-  windows-release-cache:
-    # Default-branch caches are readable by release tags; PR caches are not.
-    # Keep the release profile warm without signing or publishing a release.
-    if: github.event_name != 'pull_request'
+  windows:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -121,8 +79,44 @@ jobs:
           target: x86_64-pc-windows-msvc
       - name: Install frontend dependencies
         run: npm ci
-      - name: Run updater tests
+      - name: Check Rust formatting
         working-directory: src-tauri
-        run: cargo test --locked --lib desktop::update::tests -- --test-threads=1
-      - name: Build Windows release executable
-        run: npm run tauri -- build --ci --no-bundle --target x86_64-pc-windows-msvc -- --locked
+        run: cargo fmt --check
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked --lib -- --test-threads=1
+      - name: Verify build version
+        if: github.ref == 'refs/heads/master'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          node .github/scripts/check-release-version.mjs "v$version"
+      - name: Build signed Windows installer
+        if: github.ref == 'refs/heads/master'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri -- build --ci --bundles nsis --target x86_64-pc-windows-msvc -- --locked
+      - name: Save signed installer for this commit
+        if: github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  # Preserve the existing required check name for branch protection.
+  desktop:
+    if: always()
+    needs: [frontend, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all checks to pass
+        env:
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: test "$FRONTEND_RESULT" = success && test "$WINDOWS_RESULT" = success
