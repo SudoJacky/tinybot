@@ -290,14 +290,9 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         &instructions.working_directory,
     )?;
     base_services.save_checkpoint(checkpoint);
-    let services = native_agent_services_with_tool_executor(
-        base_services,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?
-    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        thread_store.clone(),
-    ));
+    let services = base_services.with_context_checkpoint_committer(
+        native_agent_context_checkpoint_committer(thread_store.clone()),
+    );
     let services = match live_trace_sink {
         Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
             thread_store.clone(),
@@ -306,6 +301,11 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         None => services
             .with_trace_sink_if_missing(|| native_agent_trace_sink(thread_store.clone(), None)),
     };
+    let services = native_agent_services_with_tool_executor(
+        services,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         input,

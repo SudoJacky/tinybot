@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:e1c483d9e683931d8664413f5ed044599a2f60cd2fd02cb599ee56764175d51e -->
+<!-- tinybot-module-fingerprint: sha256:1f4377a3b23d6e6f47d370eeff47a37aa5519ca520a15fb8a0a018ba420eb3f0 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -37,6 +37,20 @@ causes. String conversion is reserved for legacy response boundaries and diagnos
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
+
+Provider streaming and tool dispatch require explicit asynchronous implementations
+in both production and tests. The production traits have no synchronous test
+fallback. Deliberately blocking fixtures use the adapters in `test_support.rs`;
+real Provider tests exercise the asynchronous implementation.
+The desktop owner supplies `NativeAgentRuntimeDependencies` with the selected
+Provider, dispatcher, checkpoints, cancellation, MCP, Shell, subagent, task, and
+metrics instances. Turn adapters may attach persistence and live output without
+recreating those shared resources. The service bundle still carries the concrete
+Thread store for bridge callers; it is not a standalone storage-free core bundle.
+The dispatcher contributes application-owned tool definitions during preparation
+and executes them through the ordinary asynchronous scheduling path. Discovery
+and execution preserve structured `AgentError` values. Project-group lookup,
+workspace-thread authorization, and child Turn orchestration live in the bridge.
 
 Provider timing uses a per-invocation monotonic clock. Text, reasoning, or tool
 output marks the first token; provider completion ends the decode interval.
@@ -230,8 +244,7 @@ conditionals throughout those shared runtime modules.
   instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,
   routing, execution, cleanup, and deferred tools.
-- `workspace_threads.rs`: project-group authorization, persistent child Thread
-  execution, follow-up messages, and parent cancellation propagation.
+- `test_support.rs`: test-only service construction and blocking fixture adapters.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
 - `hooks.rs`, `events.rs`, `trace_commit.rs`: runtime hooks, event construction,
   and ordered trace commits.

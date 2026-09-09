@@ -602,10 +602,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     }
                 }
             }
-            if let Some(contributor) =
-                super::workspace_threads::tool_contributor(dependencies, &context)?
-            {
-                tool_registry = tool_registry.with_contributor(Arc::new(contributor))?;
+            for contributor in dependencies.tools.tool_contributors(&context)? {
+                tool_registry = tool_registry.with_contributor(contributor)?;
             }
             for server in mcp_snapshot
                 .as_deref()

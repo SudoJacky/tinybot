@@ -318,7 +318,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
         calls: Arc<Mutex<usize>>,
     }
 
-    impl crate::agent::runtime::NativeAgentProvider for CountingProvider {
+    impl crate::agent::runtime::test_support::BlockingTestProvider for CountingProvider {
         fn complete(
             &self,
             _context: &crate::agent::runtime::AgentTurnContext,
@@ -383,7 +383,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
         calls: Arc<Mutex<usize>>,
     }
 
-    impl crate::agent::runtime::NativeAgentProvider for PersistenceBreakingProvider {
+    impl crate::agent::runtime::test_support::BlockingTestProvider for PersistenceBreakingProvider {
         fn complete(
             &self,
             _context: &crate::agent::runtime::AgentTurnContext,
@@ -451,7 +451,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
 #[derive(Clone)]
 struct UsageNativeAgentProvider;
 
-impl crate::agent::runtime::NativeAgentProvider for UsageNativeAgentProvider {
+impl crate::agent::runtime::test_support::BlockingTestProvider for UsageNativeAgentProvider {
     fn complete(
         &self,
         _context: &crate::agent::runtime::AgentTurnContext,
@@ -477,7 +477,7 @@ fn long_final_content() -> String {
 #[derive(Clone)]
 struct LongFinalNativeAgentProvider;
 
-impl crate::agent::runtime::NativeAgentProvider for LongFinalNativeAgentProvider {
+impl crate::agent::runtime::test_support::BlockingTestProvider for LongFinalNativeAgentProvider {
     fn complete(
         &self,
         _context: &crate::agent::runtime::AgentTurnContext,
@@ -497,7 +497,7 @@ struct RecordingNativeAgentProvider {
     calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
 }
 
-impl crate::agent::runtime::NativeAgentProvider for RecordingNativeAgentProvider {
+impl crate::agent::runtime::test_support::BlockingTestProvider for RecordingNativeAgentProvider {
     fn complete(
         &self,
         context: &crate::agent::runtime::AgentTurnContext,
@@ -521,7 +521,9 @@ struct ToolLoopRecordingNativeAgentProvider {
     calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
 }
 
-impl crate::agent::runtime::NativeAgentProvider for ToolLoopRecordingNativeAgentProvider {
+impl crate::agent::runtime::test_support::BlockingTestProvider
+    for ToolLoopRecordingNativeAgentProvider
+{
     fn complete(
         &self,
         context: &crate::agent::runtime::AgentTurnContext,
@@ -566,7 +568,7 @@ struct MultiExchangeRecallProvider {
     calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
 }
 
-impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider {
+impl crate::agent::runtime::test_support::BlockingTestProvider for MultiExchangeRecallProvider {
     fn complete(
         &self,
         context: &crate::agent::runtime::AgentTurnContext,

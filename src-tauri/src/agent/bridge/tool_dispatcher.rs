@@ -47,6 +47,22 @@ impl WebToolCancellation for NativeAgentCancellationContext {
 }
 
 impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
+    fn tool_contributors(
+        &self,
+        context: &AgentTurnContext,
+    ) -> Result<
+        Vec<Arc<dyn crate::tools::registry::ToolContributor>>,
+        crate::agent::runtime::AgentError,
+    > {
+        let mut contributors: Vec<Arc<dyn crate::tools::registry::ToolContributor>> = Vec::new();
+        if let Some(contributor) =
+            super::workspace_threads::tool_contributor(&self.thread_store, context)?
+        {
+            contributors.push(Arc::new(contributor));
+        }
+        Ok(contributors)
+    }
+
     fn dispatch(
         &self,
         context: &AgentTurnContext,
@@ -87,10 +103,14 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         }
         if matches!(
             &execution_target,
-            Some(ToolExecutionTarget::AgentGraph { .. })
+            Some(
+                ToolExecutionTarget::AgentGraph { .. }
+                    | ToolExecutionTarget::SpawnWorkspaceThread
+                    | ToolExecutionTarget::SendThreadMessage
+            )
         ) {
             return Err(format!(
-                "native tool `{}` requires asynchronous Agent Graph dispatch",
+                "native tool `{}` requires asynchronous turn orchestration",
                 tool_call.name
             ));
         }
@@ -167,28 +187,55 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         context: AgentTurnContext,
         tool_call: PreparedToolCall,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<NativeAgentToolResult, crate::agent::runtime::AgentError>,
+                > + Send,
+        >,
     > {
         Box::pin(async move {
+            let workspace_result = match context.tool_execution_target(&tool_call.name) {
+                Some(ToolExecutionTarget::SpawnWorkspaceThread) => Some(
+                    super::workspace_threads::spawn_workspace_thread(
+                        &self.base_services,
+                        &context,
+                        tool_call.arguments(),
+                    )
+                    .await,
+                ),
+                Some(ToolExecutionTarget::SendThreadMessage) => Some(
+                    super::workspace_threads::send_thread_message(
+                        &self.base_services,
+                        &context,
+                        tool_call.arguments(),
+                    )
+                    .await,
+                ),
+                _ => None,
+            };
+            if let Some(result) = workspace_result {
+                return result
+                    .map(|value| NativeAgentToolResult::generic_success(&tool_call, value));
+            }
             if let Some(result) = self
                 .dispatch_agent_graph_if_needed(&context, &tool_call)
                 .await
             {
-                return result;
+                return result.map_err(Into::into);
             }
             if let Some(result) = self.dispatch_web_if_needed(&context, &tool_call).await {
-                return result;
+                return result.map_err(Into::into);
             }
             if let Some(result) = self
                 .dispatch_mcp_config_if_needed(&context, &tool_call)
                 .await
             {
-                return result;
+                return result.map_err(Into::into);
             }
             if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
-                return result;
+                return result.map_err(Into::into);
             }
-            self.dispatch(&context, &tool_call)
+            self.dispatch(&context, &tool_call).map_err(Into::into)
         })
     }
 }

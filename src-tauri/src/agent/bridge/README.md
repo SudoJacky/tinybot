@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:5647db55ca0690db2c03b8de04499e79846866e5d5432103c65111648debf850 -->
+<!-- tinybot-module-fingerprint: sha256:9046f277a0ecef6e5abf28b407db44ed3139491b3d14fc0da87455871c34ca24 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -59,8 +59,9 @@ Dynamic tool arguments and external tool RPC adapters retain their extension sch
    carries the initiating Turn specification so the runtime can reuse its
    effective Provider settings without a title-only token budget.
 4. Hydrate the runtime history from the canonical Thread projection.
-5. Build tool, context-checkpoint, trace, and workspace command-hook services,
-   selecting the Thread-owned or direct-session trace path.
+5. Install context-checkpoint, trace, and workspace command-hook services,
+   selecting the Thread-owned or direct-session trace path. Construct the tool
+   dispatcher last so child Turns inherit these installed services and live output.
 6. Execute the native agent loop and flush the trace sink.
 7. Persist the terminal boundary or resumable checkpoint as applicable. If
    runtime execution or trace flush fails, persist a failed terminal with the
@@ -102,6 +103,11 @@ when it failed.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
   It also owns Agent-only `mcp.config.*` dispatch because configuration changes
   require asynchronous runtime reconciliation rather than generic Worker RPC.
+- `workspace_threads.rs`: discover project-coordinator tools, authorize targets,
+  create persistent child Threads, send follow-up input, and execute child Turns.
+  The dispatcher owns discovery and execution; the runtime only schedules the
+  calls. Execution rechecks project membership and parent ownership even after
+  discovery. Parent cancellation requests child cancellation and awaits cleanup.
 - `result_projection.rs`: input identity, model, provider, and setting accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.
 

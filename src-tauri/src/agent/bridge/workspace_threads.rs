@@ -1,9 +1,11 @@
-use super::{AgentExecutionStatus, AgentStopReason};
-use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::bridge::{
     execute_thread_turn_with_services, native_agent_string_field, SubmitThreadTurnInput,
 };
+#[cfg(test)]
+use crate::agent::runtime::test_support::BlockingTestProvider;
 use crate::agent::runtime::AgentError;
+use crate::agent::runtime::{AgentExecutionStatus, AgentStopReason};
+use crate::agent::runtime::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::project_groups::ProjectGroup;
 #[cfg(test)]
 use crate::project_groups::SaveProjectGroupInput;
@@ -38,14 +40,11 @@ struct SendThreadMessageArgs {
 }
 
 pub(super) fn tool_contributor(
-    services: &NativeAgentRuntimeServices,
+    thread_store: &WorkspaceThreadStore,
     context: &AgentTurnContext,
 ) -> Result<Option<WorkspaceThreadToolContributor>, AgentError> {
-    let Some(thread_store) = services.optional_thread_store() else {
-        return Ok(None);
-    };
     let Some(project_group) =
-        coordinator_project_group(&thread_store, context.config_snapshot.clone(), context)?
+        coordinator_project_group(thread_store, context.config_snapshot.clone(), context)?
     else {
         return Ok(None);
     };
@@ -523,7 +522,7 @@ mod tests {
         calls: AtomicU64,
     }
 
-    impl NativeAgentProvider for ChildTurnProvider {
+    impl BlockingTestProvider for ChildTurnProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -605,7 +604,7 @@ mod tests {
             workspace_ids: Vec<String>,
         }
 
-        impl NativeAgentProvider for ParallelSpawnProvider {
+        impl BlockingTestProvider for ParallelSpawnProvider {
             fn complete(
                 &self,
                 context: &AgentTurnContext,
@@ -699,24 +698,27 @@ mod tests {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_trace_sink(trace_sink.clone())
         .with_thread_store(store);
 
-        let result = tauri::async_runtime::block_on(run_native_agent_turn_with_workspace_async(
-            &services,
-            json!({
-                "runtime": "rust",
-                "threadId": "parallel-parent-thread",
-                "sessionId": "parallel-parent-thread",
-                "turnId": "parallel-parent-turn",
-                "model": "fixture-model",
-                "maxIterations": 3,
-                "messages": [{ "role": "user", "content": "inspect both workspaces" }],
-            }),
+        let result = tauri::async_runtime::block_on(execute_thread_turn_with_services(
+            services,
+            SubmitThreadTurnInput {
+                thread_id: Some("parallel-parent-thread".to_string()),
+                input: json!({"content": "inspect both workspaces"}),
+                spec: json!({
+                    "runtime": "rust",
+                    "turnId": "parallel-parent-turn",
+                    "model": "fixture-model",
+                    "maxIterations": 3,
+                    "messages": [{ "role": "user", "content": "inspect both workspaces" }],
+                }),
+            },
+            workspace.root.clone(),
             json!({}),
-            &workspace.root,
+            Some(trace_sink.clone()),
         ))
-        .expect("parallel workspace spawns should complete");
+        .expect("parallel workspace spawns should complete")
+        .result;
 
         assert_eq!(result.stop_reason.as_str(), "final_response");
         assert_eq!(result.final_content, "all workspace threads completed");
@@ -751,13 +753,6 @@ mod tests {
         }
 
         impl NativeAgentProvider for PendingWorkspaceTurnProvider {
-            fn complete(
-                &self,
-                _context: &AgentTurnContext,
-            ) -> Result<NativeAgentProviderResponse, String> {
-                panic!("workspace cancellation test must use async provider dispatch");
-            }
-
             fn complete_streaming_async<'a>(
                 self: Arc<Self>,
                 context: &'a AgentTurnContext,
@@ -859,6 +854,12 @@ mod tests {
                 Arc::new(InMemoryNativeAgentCancellation::default()),
             )
             .with_thread_store(store.clone());
+            let services = crate::agent::bridge::native_agent_services_with_tool_executor(
+                services,
+                workspace.root.clone(),
+                json!({}),
+            )
+            .unwrap();
             let run_services = services.clone();
             let workspace_root = workspace.root.clone();
             let run_task = tauri::async_runtime::spawn(async move {
@@ -989,7 +990,7 @@ mod tests {
             json!({}),
         );
         assert!(
-            tool_contributor(&services, &ordinary_context)
+            tool_contributor(&store, &ordinary_context)
                 .expect("ordinary thread lookup should succeed")
                 .is_none(),
             "ordinary workspace threads must not receive project coordination tools"
@@ -1005,7 +1006,7 @@ mod tests {
             json!({}),
         );
         assert!(
-            tool_contributor(&services, &context)
+            tool_contributor(&store, &context)
                 .expect("project group lookup should succeed")
                 .is_some(),
             "project coordinator should receive tools for explicit members"
@@ -1110,10 +1111,37 @@ mod tests {
 
         store
             .project_groups()
+            .save(SaveProjectGroupInput {
+                project_group_id: Some(project_group.project_group_id.clone()),
+                name: "Commerce".to_string(),
+                workspace_ids: vec![workspace.root.display().to_string()],
+            })
+            .expect("project membership should update");
+        let revoked = tauri::async_runtime::block_on(send_thread_message(
+            &services,
+            &context,
+            json!({"threadId": spawned_thread_id, "message": "Must not run after revocation"})
+                .as_object()
+                .unwrap(),
+        ))
+        .expect_err("execution must recheck membership after tool discovery");
+        assert!(revoked
+            .to_string()
+            .contains("is not a member of project group"));
+        let denied_spawn = tauri::async_runtime::block_on(spawn_workspace_thread(
+            &services, &context,
+            json!({"workspaceId": workspace_id(&child_workspace.canonicalize().unwrap()), "message": "Must not spawn after revocation"}).as_object().unwrap(),
+        )).expect_err("spawn must recheck membership after tool discovery");
+        assert!(denied_spawn
+            .to_string()
+            .contains("is not a member of project group"));
+
+        store
+            .project_groups()
             .delete(&project_group.project_group_id)
             .expect("project group should delete");
         assert!(
-            tool_contributor(&services, &context)
+            tool_contributor(&store, &context)
                 .expect("deleted project group lookup should succeed")
                 .is_none(),
             "a retained coordinator thread must lose cross-workspace tools after its group is deleted"

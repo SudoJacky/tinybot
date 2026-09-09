@@ -367,9 +367,7 @@ impl ToolContributor for WorkspaceThreadToolContributor {
                     "additionalProperties": false
                 }),
                 output_schema: result_schema.clone(),
-                execution_target: ToolExecutionTarget::RuntimeControl(
-                    ToolRuntimeControl::SpawnWorkspaceThread,
-                ),
+                execution_target: ToolExecutionTarget::SpawnWorkspaceThread,
             },
             ToolRegistryEntry {
                 tool_id: SEND_THREAD_MESSAGE_METHOD.to_string(),
@@ -396,9 +394,7 @@ impl ToolContributor for WorkspaceThreadToolContributor {
                     "additionalProperties": false
                 }),
                 output_schema: result_schema,
-                execution_target: ToolExecutionTarget::RuntimeControl(
-                    ToolRuntimeControl::SendThreadMessage,
-                ),
+                execution_target: ToolExecutionTarget::SendThreadMessage,
             },
         ]
     }

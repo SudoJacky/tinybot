@@ -9,6 +9,15 @@ use serde_json::Value;
 pub struct FakeNativeAgentToolDispatcher;
 
 impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
+    fn dispatch_async(
+        self: std::sync::Arc<Self>,
+        context: AgentTurnContext,
+        tool_call: PreparedToolCall,
+    ) -> futures_util::future::BoxFuture<'static, Result<NativeAgentToolResult, super::AgentError>>
+    {
+        Box::pin(async move { self.dispatch(&context, &tool_call).map_err(Into::into) })
+    }
+
     fn dispatch(
         &self,
         _context: &AgentTurnContext,
@@ -213,9 +222,13 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
         context: AgentTurnContext,
         tool_call: PreparedToolCall,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<NativeAgentToolResult, crate::agent::runtime::AgentError>,
+                > + Send,
+        >,
     > {
-        Box::pin(async move { self.dispatch(&context, &tool_call) })
+        Box::pin(async move { self.dispatch(&context, &tool_call).map_err(Into::into) })
     }
 }
 

@@ -1,8 +1,9 @@
 use super::*;
+#[cfg(test)]
+use crate::agent::runtime::test_support::BlockingTestProvider;
 use crate::agent::runtime::{
     AgentTurnContext, FakeNativeAgentToolDispatcher, InMemoryNativeAgentCancellation,
-    InMemoryNativeAgentCheckpointStore, NativeAgentProvider, NativeAgentProviderResponse,
-    NativeAgentToolCall,
+    InMemoryNativeAgentCheckpointStore, NativeAgentProviderResponse, NativeAgentToolCall,
 };
 use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
 use crate::protocol::capability::default_desktop_capability_policy;
@@ -16,7 +17,7 @@ struct DataViewProvider {
     calls: AtomicUsize,
 }
 
-impl NativeAgentProvider for DataViewProvider {
+impl BlockingTestProvider for DataViewProvider {
     fn complete(&self, _context: &AgentTurnContext) -> Result<NativeAgentProviderResponse, String> {
         if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
             return Ok(NativeAgentProviderResponse {

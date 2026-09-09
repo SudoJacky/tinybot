@@ -1,6 +1,7 @@
 # Tool Execution and Permissions
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/bridge/tool_dispatcher.rs
+src-tauri/src/agent/bridge/workspace_threads.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/tool_router.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
@@ -11,7 +12,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:360a29f02f6334bb5153292093880d093de76db8c358a479fb0862d35c560445 -->
+<!-- tinybot-doc-fingerprint: sha256:81d664a47521b452c7b6e5e04b8b4dc4f0f27059fd57ac1403a4802241af5214 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -42,9 +43,10 @@ Model tool-call batch
     |-- prepare arguments or return one error result per call ID
     |-- run trusted PreToolUse hooks (deny or replace arguments)
     |-- plan parallel read waves and exclusive mutation waves
+    |-- execute loop-state controls (plan, form, data view) in the runtime
     v
 Injected dispatcher
-    |-- runtime-control tool
+    |-- persistent workspace Thread spawn or follow-up input
     |-- workspace Agent Graph Run
     |-- Worker RPC tool executor
     |-- MCP runtime
@@ -82,6 +84,15 @@ make a Turn workspace-backed. Per-file Graph parse or validation failures are
 diagnosed and skipped at this discovery boundary so valid tools remain usable;
 Graph management operations retain strict validation. Duplicate contributor
 IDs, tool IDs, or methods fail registry construction.
+
+The dispatcher contributes application-owned tools during Turn preparation.
+For workspace-thread tools the bridge queries the current project group; the
+runtime receives ordinary contributors and does not query Thread storage.
+Discovery errors abort preparation with their structured service error intact.
+Spawn and send calls then use the required asynchronous dispatch method, whose
+`AgentError` result preserves service details in the tool-result envelope.
+Execution rechecks membership and parent ownership, so an earlier tool definition
+does not grant access after project membership changes.
 
 ## Exposure and availability
 

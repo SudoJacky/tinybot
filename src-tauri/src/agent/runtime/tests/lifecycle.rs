@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
 
 #[test]
 fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
@@ -7,7 +9,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
         release: Mutex<mpsc::Receiver<()>>,
     }
 
-    impl NativeAgentProvider for BlockingOwnedProvider {
+    impl BlockingTestProvider for BlockingOwnedProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -90,7 +92,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
         calls: Mutex<u32>,
     }
 
-    impl NativeAgentProvider for SpawnWaitProvider {
+    impl BlockingTestProvider for SpawnWaitProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -155,18 +157,22 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
             context: AgentTurnContext,
             tool_call: PreparedToolCall,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentToolResult, crate::agent::runtime::AgentError>,
+                    > + Send,
+            >,
         > {
             let result = self.fallback.dispatch(&context, &tool_call);
             if tool_call.name != "subagent.wait" {
-                return Box::pin(async move { result });
+                return Box::pin(async move { result.map_err(Into::into) });
             }
             let cancellations = self.cancellations.clone();
             let turn_id = context.turn_id.clone();
             Box::pin(async move {
                 cancellations.cancel(&turn_id);
                 tokio::time::sleep(Duration::from_millis(10)).await;
-                result
+                result.map_err(Into::into)
             })
         }
     }
@@ -239,7 +245,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         calls: Mutex<u32>,
     }
 
-    impl NativeAgentProvider for CheckpointAwareProvider {
+    impl BlockingTestProvider for CheckpointAwareProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -284,7 +290,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         checkpoints: Arc<InMemoryNativeAgentCheckpointStore>,
     }
 
-    impl NativeAgentToolDispatcher for CheckpointAwareToolDispatcher {
+    impl BlockingTestToolDispatcher for CheckpointAwareToolDispatcher {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
@@ -419,7 +425,7 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for AcceptanceProvider {
+    impl BlockingTestProvider for AcceptanceProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -670,7 +676,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for RecoveringPlanProvider {
+    impl BlockingTestProvider for RecoveringPlanProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -790,7 +796,7 @@ fn queued_user_message_continuation_becomes_next_turn_input() {
         seen_messages: Mutex<Vec<Vec<Value>>>,
     }
 
-    impl NativeAgentProvider for RecordingProvider {
+    impl BlockingTestProvider for RecordingProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -852,7 +858,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
         seen_messages: Mutex<Vec<Vec<Value>>>,
     }
 
-    impl NativeAgentProvider for ToolThenFinalProvider {
+    impl BlockingTestProvider for ToolThenFinalProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -947,19 +953,6 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     struct StreamingProvider;
 
     impl NativeAgentProvider for StreamingProvider {
-        fn complete(
-            &self,
-            _context: &AgentTurnContext,
-        ) -> Result<NativeAgentProviderResponse, String> {
-            Ok(NativeAgentProviderResponse {
-                final_content: "Hello".to_string(),
-                reasoning_delta: None,
-                usage: None,
-                response_items: Vec::new(),
-                tool_calls: Vec::new(),
-            })
-        }
-
         fn complete_streaming_async<'a>(
             self: Arc<Self>,
             _context: &'a AgentTurnContext,
@@ -1069,7 +1062,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
 fn async_provider_is_not_called_when_turn_was_cancelled_before_request() {
     struct CountingProvider(Arc<AtomicUsize>);
 
-    impl NativeAgentProvider for CountingProvider {
+    impl BlockingTestProvider for CountingProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1129,13 +1122,6 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
     }
 
     impl NativeAgentProvider for PendingStreamingProvider {
-        fn complete(
-            &self,
-            _context: &AgentTurnContext,
-        ) -> Result<NativeAgentProviderResponse, String> {
-            panic!("async provider path should not call the blocking completion method");
-        }
-
         fn complete_streaming_async<'a>(
             self: Arc<Self>,
             _context: &'a AgentTurnContext,
@@ -1250,13 +1236,6 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
     struct FailingProvider(NativeAgentProviderFailureKind);
 
     impl NativeAgentProvider for FailingProvider {
-        fn complete(
-            &self,
-            _context: &AgentTurnContext,
-        ) -> Result<NativeAgentProviderResponse, String> {
-            panic!("async provider path should not call the blocking completion method");
-        }
-
         fn complete_streaming_async<'a>(
             self: Arc<Self>,
             _context: &'a AgentTurnContext,
@@ -1321,7 +1300,7 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
 fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
     struct HangingToolProvider;
 
-    impl NativeAgentProvider for HangingToolProvider {
+    impl BlockingTestProvider for HangingToolProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1376,7 +1355,11 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
             _context: AgentTurnContext,
             _tool_call: PreparedToolCall,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentToolResult, crate::agent::runtime::AgentError>,
+                    > + Send,
+            >,
         > {
             let started = self
                 .started
@@ -1389,7 +1372,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
                 if let Some(started) = started {
                     started.send(()).expect("hanging tool start should send");
                 }
-                std::future::pending::<Result<NativeAgentToolResult, String>>().await
+                std::future::pending::<Result<NativeAgentToolResult, AgentError>>().await
             })
         }
     }
@@ -1477,7 +1460,7 @@ fn trace_context_follows_provider_tool_and_completion_with_tool_hook_rewrite() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for ToolThenFinalProvider {
+    impl BlockingTestProvider for ToolThenFinalProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1524,7 +1507,7 @@ fn trace_context_follows_provider_tool_and_completion_with_tool_hook_rewrite() {
         arguments: Arc<Mutex<Vec<Value>>>,
     }
 
-    impl NativeAgentToolDispatcher for RecordingDispatcher {
+    impl BlockingTestToolDispatcher for RecordingDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1633,7 +1616,7 @@ fn lifecycle_hook_denial_aborts_before_provider_call() {
 
     struct CountingProvider(Arc<AtomicUsize>);
 
-    impl NativeAgentProvider for CountingProvider {
+    impl BlockingTestProvider for CountingProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,

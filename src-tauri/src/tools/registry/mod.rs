@@ -95,6 +95,8 @@ pub enum ToolExecutionTarget {
         graph_id: String,
         graph_revision: String,
     },
+    SpawnWorkspaceThread,
+    SendThreadMessage,
     RuntimeControl(ToolRuntimeControl),
 }
 
@@ -102,8 +104,6 @@ pub enum ToolExecutionTarget {
 pub enum ToolRuntimeControl {
     PublishDataView,
     RequestUserInput,
-    SpawnWorkspaceThread,
-    SendThreadMessage,
     UpdatePlan,
 }
 

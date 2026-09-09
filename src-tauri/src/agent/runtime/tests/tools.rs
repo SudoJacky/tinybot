@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
 
 #[test]
 fn runs_fixture_tool_event_sequence() {
@@ -249,7 +251,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
         seen_messages: Mutex<Vec<Value>>,
     }
 
-    impl NativeAgentProvider for TwoStepProvider {
+    impl BlockingTestProvider for TwoStepProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -339,7 +341,7 @@ fn rejected_tool_batch_records_a_result_for_every_provider_call() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for MixedPolicyProvider {
+    impl BlockingTestProvider for MixedPolicyProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -410,7 +412,7 @@ fn exclusive_runtime_control_runs_as_a_barrier_in_a_mixed_batch() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for MixedControlProvider {
+    impl BlockingTestProvider for MixedControlProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -510,7 +512,7 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for DeferredLookupProvider {
+    impl BlockingTestProvider for DeferredLookupProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -581,7 +583,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for OneToolThenFinalProvider {
+    impl BlockingTestProvider for OneToolThenFinalProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -630,7 +632,11 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
             _context: AgentTurnContext,
             tool_call: PreparedToolCall,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentToolResult, crate::agent::runtime::AgentError>,
+                    > + Send,
+            >,
         > {
             self.async_dispatches.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
@@ -676,7 +682,7 @@ fn repeated_no_progress_call_is_returned_to_model_without_redispatch() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for RepeatingProvider {
+    impl BlockingTestProvider for RepeatingProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -740,7 +746,7 @@ fn repeated_no_progress_call_is_returned_to_model_without_redispatch() {
         dispatches: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for NoProgressDispatcher {
+    impl BlockingTestToolDispatcher for NoProgressDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -909,7 +915,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
         seen_messages: Mutex<Vec<Vec<Value>>>,
     }
 
-    impl NativeAgentProvider for TwoReadOnlyToolsThenFinalProvider {
+    impl BlockingTestProvider for TwoReadOnlyToolsThenFinalProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -959,7 +965,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
         max_running: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for OverlapRecordingDispatcher {
+    impl BlockingTestToolDispatcher for OverlapRecordingDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1037,7 +1043,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for TwoMcpToolsThenFinalProvider {
+    impl BlockingTestProvider for TwoMcpToolsThenFinalProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1085,7 +1091,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
         max_running: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for McpOverlapDispatcher {
+    impl BlockingTestToolDispatcher for McpOverlapDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1168,7 +1174,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for TwoShellReadsThenFinalProvider {
+    impl BlockingTestProvider for TwoShellReadsThenFinalProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1212,7 +1218,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         max_running: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for ShellOverlapDispatcher {
+    impl BlockingTestToolDispatcher for ShellOverlapDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1280,7 +1286,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for TwoFailingToolsProvider {
+    impl BlockingTestProvider for TwoFailingToolsProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1333,7 +1339,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
 
     struct FailingParallelDispatcher;
 
-    impl NativeAgentToolDispatcher for FailingParallelDispatcher {
+    impl BlockingTestToolDispatcher for FailingParallelDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1406,7 +1412,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         seen_messages: Mutex<Vec<Vec<Value>>>,
     }
 
-    impl NativeAgentProvider for MixedToolsThenFinalProvider {
+    impl BlockingTestProvider for MixedToolsThenFinalProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1470,7 +1476,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         write_overlaps: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for ReadWriteLockRecordingDispatcher {
+    impl BlockingTestToolDispatcher for ReadWriteLockRecordingDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1654,7 +1660,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for ReadThenWriteProvider {
+    impl BlockingTestProvider for ReadThenWriteProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1698,7 +1704,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
         write_dispatches: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for CancellingReadDispatcher {
+    impl BlockingTestToolDispatcher for CancellingReadDispatcher {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
@@ -1766,7 +1772,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for FailingWriteThenWriteProvider {
+    impl BlockingTestProvider for FailingWriteThenWriteProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1815,7 +1821,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
         second_write_dispatches: AtomicUsize,
     }
 
-    impl NativeAgentToolDispatcher for FailingWriteDispatcher {
+    impl BlockingTestToolDispatcher for FailingWriteDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1874,7 +1880,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
 fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_late_result() {
     struct SlowReadProvider;
 
-    impl NativeAgentProvider for SlowReadProvider {
+    impl BlockingTestProvider for SlowReadProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -1908,7 +1914,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
         release_rx: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
     }
 
-    impl NativeAgentToolDispatcher for SlowCancellingReadDispatcher {
+    impl BlockingTestToolDispatcher for SlowCancellingReadDispatcher {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
@@ -2011,7 +2017,7 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for ToolThenErrorProvider {
+    impl BlockingTestProvider for ToolThenErrorProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -2622,7 +2628,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
         seen_messages: Mutex<Vec<Vec<Value>>>,
     }
 
-    impl NativeAgentProvider for SpawnThenFinalProvider {
+    impl BlockingTestProvider for SpawnThenFinalProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -2667,7 +2673,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
         fallback: SubagentNativeAgentToolDispatcher,
     }
 
-    impl NativeAgentToolDispatcher for DirectUserInputAfterSpawnDispatcher {
+    impl BlockingTestToolDispatcher for DirectUserInputAfterSpawnDispatcher {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
@@ -2882,7 +2888,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for TwoToolProvider {
+    impl BlockingTestProvider for TwoToolProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -2932,7 +2938,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
 
     struct FailingSecondToolDispatcher;
 
-    impl NativeAgentToolDispatcher for FailingSecondToolDispatcher {
+    impl BlockingTestToolDispatcher for FailingSecondToolDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -3000,7 +3006,7 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for RecoveringProvider {
+    impl BlockingTestProvider for RecoveringProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -3043,7 +3049,7 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
 
     struct FailingDispatcher;
 
-    impl NativeAgentToolDispatcher for FailingDispatcher {
+    impl BlockingTestToolDispatcher for FailingDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -3261,7 +3267,7 @@ fn denied_tool_is_returned_to_the_model_without_tool_dispatch() {
 fn tool_task_panic_remains_terminal() {
     struct OneToolProvider;
 
-    impl NativeAgentProvider for OneToolProvider {
+    impl BlockingTestProvider for OneToolProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -3283,7 +3289,7 @@ fn tool_task_panic_remains_terminal() {
 
     struct PanickingToolDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingToolDispatcher {
+    impl BlockingTestToolDispatcher for PanickingToolDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -3327,7 +3333,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         cancellations: Arc<InMemoryNativeAgentCancellation>,
     }
 
-    impl NativeAgentProvider for CancellingProvider {
+    impl BlockingTestProvider for CancellingProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -3350,7 +3356,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
 
     struct PanickingToolDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingToolDispatcher {
+    impl BlockingTestToolDispatcher for PanickingToolDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -3443,7 +3449,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
         saw_context: Arc<Mutex<bool>>,
     }
 
-    impl NativeAgentProvider for ContextAwareProvider {
+    impl BlockingTestProvider for ContextAwareProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -3475,7 +3481,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
         saw_cancelled_context: Arc<Mutex<bool>>,
     }
 
-    impl NativeAgentToolDispatcher for ContextAwareToolDispatcher {
+    impl BlockingTestToolDispatcher for ContextAwareToolDispatcher {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
@@ -3538,7 +3544,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         calls: Mutex<u32>,
     }
 
-    impl NativeAgentProvider for SingleToolProvider {
+    impl BlockingTestProvider for SingleToolProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -3571,7 +3577,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         cancellations: Arc<InMemoryNativeAgentCancellation>,
     }
 
-    impl NativeAgentToolDispatcher for CancellingToolDispatcher {
+    impl BlockingTestToolDispatcher for CancellingToolDispatcher {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
@@ -3668,7 +3674,7 @@ fn malformed_tool_arguments_are_returned_to_the_model() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for InvalidArgumentsProvider {
+    impl BlockingTestProvider for InvalidArgumentsProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -3712,7 +3718,7 @@ fn malformed_tool_arguments_are_returned_to_the_model() {
 
     struct PanickingDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingDispatcher {
+    impl BlockingTestToolDispatcher for PanickingDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -3772,7 +3778,7 @@ fn malformed_tool_batch_returns_a_result_for_every_call() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for PartiallyInvalidBatchProvider {
+    impl BlockingTestProvider for PartiallyInvalidBatchProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -3831,7 +3837,7 @@ fn malformed_tool_batch_returns_a_result_for_every_call() {
 
     struct PanickingDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingDispatcher {
+    impl BlockingTestToolDispatcher for PanickingDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,

@@ -58,14 +58,9 @@ pub(super) async fn run_agent_with_services(
     let memory_scope_root = instructions.working_directory.clone();
     persist_native_agent_turn_start(&request, &instructions, &thread_store)?;
     hydrate_native_agent_history_for_runtime(&mut request.input, &thread_store)?;
-    let services = native_agent_services_with_tool_executor(
-        base_services,
-        workspace_root.clone(),
-        graph_base_config_snapshot,
-    )?
-    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        thread_store.clone(),
-    ));
+    let services = base_services.with_context_checkpoint_committer(
+        native_agent_context_checkpoint_committer(thread_store.clone()),
+    );
     let services = match live_trace_sink {
         Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
             thread_store.clone(),
@@ -79,6 +74,12 @@ pub(super) async fn run_agent_with_services(
         &crate::config::application::tinybot_data_root(),
         &instructions.working_directory,
     ));
+    // Child Turn orchestration must inherit the installed trace/checkpoint services.
+    let services = native_agent_services_with_tool_executor(
+        services,
+        workspace_root.clone(),
+        graph_base_config_snapshot,
+    )?;
     let session_id = request.input.session_id.clone();
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,

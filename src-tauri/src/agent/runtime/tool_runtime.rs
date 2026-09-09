@@ -20,8 +20,7 @@ use crate::agent::runtime_protocol::{
 };
 use crate::tools::registry::ToolCancellationMode;
 use crate::tools::registry::{
-    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, SEND_THREAD_MESSAGE_METHOD,
-    SPAWN_WORKSPACE_THREAD_METHOD, UPDATE_PLAN_METHOD,
+    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, UPDATE_PLAN_METHOD,
 };
 use futures_util::{future::join_all, FutureExt};
 use serde::Deserialize;
@@ -703,7 +702,10 @@ async fn dispatch_tool_with_cancellation_policy(
     let dispatch_call = tool_call.clone();
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
-    let operation = dispatch_tool_call(&services, context.clone(), dispatch_call);
+    let operation = services
+        .tools
+        .clone()
+        .dispatch_async(context.clone(), dispatch_call);
     tokio::pin!(operation);
     let outcome = tokio::select! {
         biased;
@@ -760,44 +762,6 @@ async fn dispatch_tool_with_cancellation_policy(
         .metrics()
         .increment(&format!("tool.{outcome_label}"));
     outcome
-}
-
-async fn dispatch_tool_call(
-    services: &NativeAgentRuntimeServices,
-    context: AgentTurnContext,
-    tool_call: PreparedToolCall,
-) -> Result<super::NativeAgentToolResult, AgentError> {
-    let raw_result = match tool_call.name.as_str() {
-        SPAWN_WORKSPACE_THREAD_METHOD => Some(
-            super::workspace_threads::spawn_workspace_thread(
-                services,
-                &context,
-                tool_call.arguments(),
-            )
-            .await,
-        ),
-        SEND_THREAD_MESSAGE_METHOD => Some(
-            super::workspace_threads::send_thread_message(
-                services,
-                &context,
-                tool_call.arguments(),
-            )
-            .await,
-        ),
-        _ => None,
-    };
-    match raw_result {
-        Some(Ok(value)) => Ok(super::NativeAgentToolResult::generic_success(
-            &tool_call, value,
-        )),
-        Some(Err(error)) => Err(error.into()),
-        None => services
-            .tools
-            .clone()
-            .dispatch_async(context, tool_call)
-            .await
-            .map_err(AgentError::from),
-    }
 }
 
 async fn execute_planned_tool_call(

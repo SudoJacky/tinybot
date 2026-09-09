@@ -1,4 +1,8 @@
-use crate::agent::runtime::NativeAgentRuntimeServices;
+use crate::agent::runtime::{
+    InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore,
+    InMemoryNativeAgentContextCheckpointCommitter, NativeAgentRuntimeDependencies,
+    NativeAgentRuntimeServices, RustNativeAgentProvider, SubagentNativeAgentToolDispatcher,
+};
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
@@ -72,10 +76,24 @@ impl NativeRuntimeState {
         let subagent_manager = SubagentThreadManager::default();
         let mcp_runtime = McpRuntime::new();
         Self {
-            native_agent_runtime: NativeAgentRuntimeServices::with_subagent_manager(
-                subagent_manager.clone(),
+            native_agent_runtime: NativeAgentRuntimeServices::from_dependencies(
+                NativeAgentRuntimeDependencies {
+                    provider: Arc::new(RustNativeAgentProvider),
+                    tools: Arc::new(SubagentNativeAgentToolDispatcher::new(
+                        subagent_manager.clone(),
+                    )),
+                    checkpoints: Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                    context_checkpoint_committer: Arc::new(
+                        InMemoryNativeAgentContextCheckpointCommitter::default(),
+                    ),
+                    cancellations: Arc::new(InMemoryNativeAgentCancellation::default()),
+                    subagents: subagent_manager.clone(),
+                    mcp_runtime: mcp_runtime.clone(),
+                    shell_runtime: crate::tools::shell::WorkerShellRuntime::default(),
+                    task_runtime: crate::runtime::turn_execution::TurnExecutionRuntime::new(),
+                    metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
+                },
             )
-            .with_mcp_runtime(mcp_runtime.clone())
             .with_thread_store(thread_store.clone()),
             mcp_runtime,
             subagent_manager,

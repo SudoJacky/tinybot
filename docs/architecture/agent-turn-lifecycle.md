@@ -3,18 +3,21 @@
 src-tauri/src/agent/bridge/README.md
 src-tauri/src/agent/bridge/agent_flow.rs
 src-tauri/src/agent/bridge/thread_flow.rs
+src-tauri/src/agent/bridge/workspace_threads.rs
 src-tauri/src/agent/runtime/README.md
+src-tauri/src/agent/runtime/mod.rs
 src-tauri/src/agent/runtime/provider_loop.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
 src-tauri/src/agent/runtime/turn_result.rs
 src-tauri/src/agent/runtime/turn_input.rs
 src-tauri/src/runtime/turn_execution.rs
+src-tauri/src/desktop/state.rs
 src-tauri/src/agent/runtime_protocol/README.md
 src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:fecc870e4eeb74655d15addf77d55be4f229c5d98e6d6b304aa75a76c7de1450 -->
+<!-- tinybot-doc-fingerprint: sha256:c7e828ccf2366c41ef7ad6b3da57ca7fc666d3e3b0c85410709d5bee16da9d7f -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -28,6 +31,15 @@ outcome that follow. Resolving a form continues the same Turn identity.
 - `TurnExecutionRuntime` owns the current live generation, cancellation, and
   terminal-result publication for a Turn ID.
 - `threads::rollout::store` owns canonical durability and reconstruction.
+
+The desktop state owner constructs shared Agent resources explicitly and passes
+`NativeAgentRuntimeDependencies` to the runtime. Provider streaming and tool
+dispatch require asynchronous implementations; production and tests use the same
+execution contracts. Blocking test fixtures have separate adapters.
+The bridge dispatcher supplies project-coordinator tool definitions and performs
+workspace-thread execution. The loop does not call back into the bridge or Thread
+RPC for those tools. Child cancellation still propagates from the parent and waits
+for cleanup, while runtime scheduling retains its cleanup timeout policy.
 
 The provider loop, task owner, bridge, and Graph/workspace-thread callers share
 `AgentTurnResult`. Its required `AgentStopReason` replaces string lookup for
@@ -95,6 +107,11 @@ fails, the bridge persists a failed terminal state with `runtime_error` (or
 `invalid_request` for runtime validation) and the structured error before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
+
+The dispatcher captures its child-Turn services only after checkpoint, trace, and
+command-hook adapters are installed. Form continuation follows the same ordering
+for checkpoint and trace adapters. Capturing the services earlier would omit live
+child timeline output even if child execution and persistence completed normally.
 
 For an empty default-titled Thread, that durable start also gates one detached
 title request. It uses the resolved Provider and model but has no tools and does

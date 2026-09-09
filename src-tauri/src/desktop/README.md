@@ -1,8 +1,13 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:739e5f1f65dc8618fec03247003112c0b8654e5fe59b64e41f3127819bcb628e -->
+<!-- tinybot-module-fingerprint: sha256:6bde6dd80d785c6ba5f6521a8e65671ed1e3224980a116afc8cc978f15fc2c36 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
+
+`state.rs` selects the Agent dependencies and supplies them through
+`NativeAgentRuntimeDependencies`. Desktop state and Agent services share the same
+MCP and subagent instances; service construction does not allocate replacement
+defaults. Shell, task ownership, cancellation, and metrics are selected here too.
 
 `files` is the shared chat-attachment importer for picker and desktop-pet
 drops. It rejects non-files, detects supported images by content, copies images

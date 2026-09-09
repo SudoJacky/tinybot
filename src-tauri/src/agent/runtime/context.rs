@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 impl AgentTurnContext {
     #[cfg(test)]
-    pub(super) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
+    pub(crate) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
         let input = super::AgentTurnInput::from_wire(&spec, &config_snapshot)
             .expect("test turn input must be valid");
         Self::from_input(input, config_snapshot)

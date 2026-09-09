@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
 
 #[test]
 fn strict_patch_search_and_real_dispatch_work_end_to_end() {
@@ -6,7 +8,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for PatchProvider {
+    impl BlockingTestProvider for PatchProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -105,7 +107,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         trace_events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
     }
 
-    impl NativeAgentProvider for RequestInputThenReadProvider {
+    impl BlockingTestProvider for RequestInputThenReadProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -347,7 +349,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for InvalidInputProvider {
+    impl BlockingTestProvider for InvalidInputProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -421,7 +423,7 @@ fn discovered_allowlisted_mcp_tool_is_injected_and_calls_real_server() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for McpDiscoveryProvider {
+    impl BlockingTestProvider for McpDiscoveryProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -747,7 +749,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for DeferredToolProvider {
+    impl BlockingTestProvider for DeferredToolProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -791,7 +793,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 
     struct PanickingDeferredDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingDeferredDispatcher {
+    impl BlockingTestToolDispatcher for PanickingDeferredDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -859,7 +861,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for BatchProvider {
+    impl BlockingTestProvider for BatchProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -908,7 +910,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         dispatched: Arc<Mutex<Vec<String>>>,
     }
 
-    impl NativeAgentToolDispatcher for RecordingBatchDispatcher {
+    impl BlockingTestToolDispatcher for RecordingBatchDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -972,7 +974,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for DeniedProvider {
+    impl BlockingTestProvider for DeniedProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1015,7 +1017,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
 
     struct SuccessDispatcher;
 
-    impl NativeAgentToolDispatcher for SuccessDispatcher {
+    impl BlockingTestToolDispatcher for SuccessDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1464,7 +1466,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         activated: Arc<Mutex<Vec<Vec<String>>>>,
     }
 
-    impl NativeAgentProvider for ToolRegistryProvider {
+    impl BlockingTestProvider for ToolRegistryProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1552,7 +1554,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         calls: Arc<AtomicUsize>,
     }
 
-    impl NativeAgentProvider for CountingProvider {
+    impl BlockingTestProvider for CountingProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,

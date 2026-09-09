@@ -158,7 +158,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
 fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     struct StreamingProvider;
 
-    impl crate::agent::runtime::NativeAgentProvider for StreamingProvider {
+    impl crate::agent::runtime::test_support::BlockingTestProvider for StreamingProvider {
         fn complete(
             &self,
             _context: &crate::agent::runtime::AgentTurnContext,

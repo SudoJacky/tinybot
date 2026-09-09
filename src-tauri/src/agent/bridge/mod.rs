@@ -8,6 +8,7 @@ mod tool_dispatcher;
 mod trace_sink;
 pub(crate) mod turn_request;
 mod webui_continuation;
+mod workspace_threads;
 
 pub(crate) use agent_flow::run_agent_from_wire_with_services;
 pub(crate) use context_checkpoint::native_agent_context_checkpoint_committer;

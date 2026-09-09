@@ -315,11 +315,11 @@ fn workspace_thread_contributor_exposes_exact_result_contract() {
 
     assert_eq!(
         spawn.execution_target,
-        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::SpawnWorkspaceThread)
+        ToolExecutionTarget::SpawnWorkspaceThread
     );
     assert_eq!(
         send.execution_target,
-        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::SendThreadMessage)
+        ToolExecutionTarget::SendThreadMessage
     );
     assert_eq!(
         spawn.input_schema["properties"]["workspaceId"]["enum"],
