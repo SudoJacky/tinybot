@@ -113,7 +113,10 @@ export function useChatSubmission(options: Options) {
     },
     fork(sessionId: string, messageId: string) { return chatStore.branchFromMessage(sessionId, messageId); },
     receiveTimeline(sessionId: string, timeline: ChatTimelineSnapshot) {
-      updateMessages(sessionId, (current) => current.filter((message) => !timeline.turns.some((turn) => turn.userMessage.clientEventId === message.id)));
+      updateMessages(sessionId, (current) => {
+        const remaining = current.filter((message) => !timeline.turns.some((turn) => turn.userMessage.clientEventId === message.id));
+        return remaining.length === current.length ? current : remaining;
+      });
     },
     receiveMessage(sessionId: string, message: ReactChatMessage) {
       updateMessages(sessionId, (current) => current.some((candidate) => candidate.id === message.id)

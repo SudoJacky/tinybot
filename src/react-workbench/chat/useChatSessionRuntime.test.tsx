@@ -35,7 +35,7 @@ describe("useChatSessionRuntime", () => {
     }));
 
     await waitFor(() => expect(result.current.state.status).toBe("ready"));
-    expect(result.current.state.timeline?.sessionId).toBe("session-1");
+    expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("session-1");
     expect(result.current.state.agentUiForms).toEqual([form]);
     expect(effects).toEqual([]);
 
@@ -66,7 +66,7 @@ describe("useChatSessionRuntime", () => {
       listener?.({ timeline: runningTimeline("session-1", "turn-2"), type: "agent_timeline_updated" });
     });
 
-    await waitFor(() => expect(result.current.state.timeline?.turns[0]?.id).toBe("turn-2"));
+    await waitFor(() => expect(result.current.timelineSource.getSnapshot()?.turns[0]?.id).toBe("turn-2"));
     expect(onEffect).toHaveBeenCalledTimes(1);
     expect(onEffect).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "session-1",
@@ -122,7 +122,7 @@ describe("useChatSessionRuntime", () => {
 
     act(() => resolveTimeline?.(timeline("session-1")));
 
-    await waitFor(() => expect(result.current.state.timeline?.sessionId).toBe("session-1"));
+    await waitFor(() => expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("session-1"));
     expect(result.current.state).toMatchObject({ error: "forms unavailable", status: "failed" });
   });
 
@@ -192,3 +192,47 @@ function runningTimeline(sessionId: string, turnId: string): ChatTimelineSnapsho
   };
 }
 
+
+
+test("a terminal snapshot cancels a pending streaming frame", async () => {
+  let receive!: (event: ChatEvent) => void;
+  const store = runtimeStore({ subscribe: vi.fn((_id, listener) => { receive = listener; return () => {}; }) });
+  const onEffect = vi.fn();
+  const { result } = renderHook(() => useChatSessionRuntime({ chatStore: store, sessionId: "session-1", onEffect }));
+  await waitFor(() => expect(result.current.state.status).toBe("ready"));
+  const pending = runningTimeline("session-1", "turn-1");
+  const completed = { ...pending, turns: [{ ...pending.turns[0], status: "completed" as const }] };
+  act(() => {
+    receive({ type: "timeline.patch", timeline: pending });
+    receive({ type: "timeline.patch", timeline: completed });
+  });
+  expect(result.current.timelineSource.getSnapshot()).toBe(completed);
+  await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
+  expect(result.current.timelineSource.getSnapshot()).toBe(completed);
+  expect(onEffect).toHaveBeenCalledOnce();
+});
+
+test("switching sessions cancels pending streaming content and isolates subscriptions", async () => {
+  const listeners = new Map<string, (event: ChatEvent) => void>();
+  const store = runtimeStore({ subscribe: vi.fn((id, listener) => {
+    listeners.set(id, listener);
+    return () => { listeners.delete(id); };
+  }) });
+  const onEffect = vi.fn();
+  const { result, rerender, unmount } = renderHook(({ id }) => useChatSessionRuntime({
+    chatStore: store, sessionId: id, onEffect,
+  }), { initialProps: { id: "session-1" } });
+  await waitFor(() => expect(result.current.state.status).toBe("ready"));
+  const previousSource = result.current.timelineSource;
+  act(() => listeners.get("session-1")!({ type: "timeline.patch", timeline: runningTimeline("session-1", "old-turn") }));
+  rerender({ id: "session-2" });
+  await waitFor(() => expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("session-2"));
+  await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
+  expect(result.current.timelineSource).not.toBe(previousSource);
+  expect(previousSource.getSnapshot()?.turns).toEqual([]);
+  expect(result.current.timelineSource.getSnapshot()?.turns).toEqual([]);
+  expect(onEffect).not.toHaveBeenCalled();
+  expect([...listeners.keys()]).toEqual(["session-2"]);
+  unmount();
+  expect(listeners.size).toBe(0);
+});

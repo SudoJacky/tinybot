@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useMemo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
@@ -53,6 +53,8 @@ export type ChatTimelineActions = {
   onOpenTool?: (toolCall: ToolCallSummary) => void;
 };
 
+const EMPTY_HOOK_RESULTS: HookExecutionResult[] = [];
+
 export function ChatTimeline({
   actions,
   error,
@@ -72,6 +74,15 @@ export function ChatTimeline({
   sessionRunning: boolean;
   turns: readonly ChatTurn[];
 }) {
+  const hooksByTurn = useMemo(() => {
+    const groups = new Map<string, HookExecutionResult[]>();
+    for (const result of hookResults) {
+      const group = groups.get(result.turnId);
+      if (group) group.push(result);
+      else groups.set(result.turnId, [result]);
+    }
+    return groups;
+  }, [hookResults]);
   return (
     <>
       {error ? <p aria-live="assertive" className="react-timeline-error">{error}</p> : null}
@@ -80,7 +91,7 @@ export function ChatTimeline({
           focusError={turn.id === latestFailedTurnId}
           interactiveFormIds={interactiveFormIds}
           key={turn.id}
-          hookResults={hookResults.filter((result) => result.turnId === turn.id)}
+          hookResults={hooksByTurn.get(turn.id) ?? EMPTY_HOOK_RESULTS}
           turn={turn}
           onBranch={actions.onBranch}
           onOpenArtifact={actions.onOpenArtifact}
@@ -108,7 +119,7 @@ async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
 }
 
-function CanonicalChatTurn({
+const CanonicalChatTurn = memo(function CanonicalChatTurn({
   focusError,
   hookResults,
   interactiveFormIds,
@@ -219,7 +230,7 @@ function CanonicalChatTurn({
       {!finalAnswer && metricsFooter ? <div className="react-message__actions">{metricsFooter}</div> : null}
     </section>
   );
-}
+});
 
 function HookExecutionResults({ results }: { results: readonly HookExecutionResult[] }) {
   const { t } = useTranslation("chat");

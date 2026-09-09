@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:054a43dd0a3ff608912c2d281e7924838eeb48c4648c2a7359134cba4b8248c6 -->
+<!-- tinybot-module-fingerprint: sha256:1a1835b15d2ba86ab76afc9d64f4d005ca35ee5ac1564fd130d18cc769213a82 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -9,6 +9,16 @@ Persisted input references use `referenceKind` to distinguish ordinary file
 attachments, managed images, referenced Threads, and browser evidence. Image references preserve their local path,
 MIME type, byte size, and content hash through canonical timeline projection;
 they never store an encoded payload.
+
+`agentTimelineModel` caches each published snapshot. An accepted Item patch
+reprojects only its Turn, retaining unchanged historical Turn references and
+inserting the changed Turn into canonical start order. Live Item revisions can
+advance without changing the durable snapshot revision, so cache invalidation
+tracks Item-array changes rather than the durable revision alone. Duplicate or
+stale patches reuse the snapshot; full loads replace the cache. Hook results are
+projected on load because Item patches do not change runtime events.
+`agentTimelineModel.performance.test.ts` checks a 250-Turn history under 30
+streaming updates and reports elapsed projection time without a timing gate.
 
 The module does not render React views or invoke Tauri directly. Renderer code
 consumes these interfaces from `react-workbench/chat`, while native transport

@@ -10,6 +10,8 @@ import type { DraftSession } from "./sessionTabWorkspace";
 import { useChatSessionRuntime, type ChatSessionRuntimeEffect } from "./useChatSessionRuntime";
 import { useChatSubmission } from "./useChatSubmission";
 import { useChatTurnApplication } from "./useChatTurnApplication";
+import { useChatTimelineSummary } from "./useChatTimelineSummary";
+import type { ContextUsageDefaults } from "./chatContextUsage";
 
 type Options = {
   chatStore: ChatStore;
@@ -21,6 +23,7 @@ type Options = {
   openSessionIds: readonly string[];
   drafts: Readonly<Record<string, DraftSession>>;
   model: { model?: string; modelProvider?: string };
+  contextUsageDefaults: ContextUsageDefaults;
   now(): number;
   t: TFunction<"chat">;
   onDraftConsumed(sessionId: string): void;
@@ -45,15 +48,12 @@ export function useChatApplication(options: Options) {
   const [capabilities, setCapabilities] = useState(() => (
     unavailableThreadEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
-  const { timeline } = runtime.state;
-  const activeTurn = timeline?.sessionId === persistedSessionId
-    ? [...timeline.turns].reverse().find((turn) => ["pending", "running", "awaiting_user"].includes(turn.status))
-    : undefined;
+  const timelineSummary = useChatTimelineSummary(runtime.timelineSource, options.contextUsageDefaults);
   const { application: turns, ...turnState } = useChatTurnApplication({
     dispatch: chatStore.dispatch, submitTurn: submission.submitTurn, refreshSessions: sessions.refresh,
     reportError: runtime.actions.reportError, clearError: runtime.actions.clearError,
     now: options.now, t,
-  }, persistedSessionId, { timeline, capabilities });
+  }, persistedSessionId, { timelineSource: runtime.timelineSource, capabilities });
 
   useEffect(() => {
     if (!persistedSessionId) {
@@ -70,12 +70,12 @@ export function useChatApplication(options: Options) {
       ));
     });
     return () => { cancelled = true; };
-  }, [activeTurn?.id, activeTurn?.status, persistedSessionId, chatStore, t]);
+  }, [timelineSummary.activeTurnId, timelineSummary.activeTurnStatus, persistedSessionId, chatStore, t]);
 
   function receiveTimeline(targetSessionId: string, snapshot: ChatTimelineSnapshot) {
     sessions.receiveTimeline(targetSessionId, snapshot);
     submission.receiveTimeline(targetSessionId, snapshot);
-    turns.receiveTimeline(targetSessionId, snapshot);
+    if (targetSessionId !== persistedSessionId) turns.receiveTimeline(targetSessionId, snapshot);
   }
 
   function receiveRuntimeEffect(effect: ChatSessionRuntimeEffect) {
@@ -140,11 +140,13 @@ export function useChatApplication(options: Options) {
   return {
     state: {
       ...runtime.state, ...turnState,
+      timelineSummary,
       optimisticMessages: submission.optimisticMessages,
       compactingSessionId: submission.compactingSessionId,
       artifactReviewEpoch: submission.artifactReviewEpoch,
     },
     turns,
+    timelineSource: runtime.timelineSource,
     actions: {
       ...runtime.actions,
       send: (input: Parameters<typeof submission.send>[0]) => submission.send(input, session, turns),

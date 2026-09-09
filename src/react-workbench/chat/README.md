@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:105e8e2fad2562b81fe57c7a0a8a5b878888fa7b5efd91896ccf71c91654b4e0 -->
+<!-- tinybot-module-fingerprint: sha256:b92d3d83e6b16901e8d8569b42aea5082401003f6be9583b4ecd838754e56868 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -49,6 +49,17 @@ animations. Background canonical updates load command acknowledgements without
 replacing the active Timeline; obsolete loads and capability responses are
 discarded when their session changes. Its tests exercise these workflows without
 mounting page layout or Sidecar resources.
+`useChatSessionRuntime` publishes frame-batched streaming snapshots through a
+session-scoped `chatTimelineSource`. `LiveChatTimeline` subscribes to full content;
+`useChatTimelineSummary` gives the route stable lifecycle, plan and usage state.
+Text-only updates do not rerender the composer or historical Turn components.
+Canonical Turn memoization relies on preserved model references and grouped Hook
+results. The timeline notifies the page after content commits so follow-to-bottom
+and saved scroll anchors continue working independently of page renders.
+`ChatPage.streaming-performance.test.tsx` measures render counts and checks scroll
+following, reading history, and final-answer delivery. Run it alongside
+`agentTimelineModel.performance.test.ts` for repeatable streaming work counts;
+timing output is informational and has no machine-dependent pass threshold.
 `chatSessionApplication.ts` owns session data, optimistic titles, per-draft
 creation promises, persisted-ID reconciliation, metadata operations, and
 Timeline-derived session status. `useChatSessions.ts` connects its snapshot and
