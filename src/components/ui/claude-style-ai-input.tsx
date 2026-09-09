@@ -7,6 +7,9 @@ import { useTranslation } from "react-i18next";
 import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/chat/reasoningEffort";
 import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import { formatFileMetadata } from "./composerFileMetadata";
+import { ComposerAnnotations } from "./ComposerAnnotations";
+import type { ComposerContextReference } from "./composerContextReference";
+export type { ComposerContextReference } from "./composerContextReference";
 import {
   AlertCircle,
   Archive,
@@ -91,18 +94,6 @@ export interface ComposerSendOptions {
   provider?: string;
   reasoningEffort?: ReasoningEffort;
   selectedTools?: string[];
-}
-
-export interface ComposerContextReference {
-  annotation?: {
-    label: string;
-    text: string;
-  };
-  body?: string;
-  detail: string;
-  id: string;
-  kind: "file" | "terminal" | "reference";
-  label: string;
 }
 
 export interface ComposerSessionMentionOption {
@@ -293,7 +284,7 @@ export function ClaudeStyleAiInput({
   const selectedModelRejectsImages = Boolean(
     selectedModel
     && selectedModel.supportsImageInput !== true
-    && files.some((file) => file.mimeType.startsWith("image/")),
+    && (files.some((file) => file.mimeType.startsWith("image/")) || contextReferences.some((reference) => reference.mimeType?.startsWith("image/"))),
   );
   const imageCompatibilityError = selectedModelRejectsImages
     ? t("composer.imageUnsupported", { model: selectedModel?.name ?? t("composer.model") })
@@ -974,8 +965,10 @@ export function ClaudeStyleAiInput({
               removeLabel={t("composer.remove", { name: reference.label })}
             />
           ))}
-          {contextReferences.map((reference) => (
+          <ComposerAnnotations references={contextReferences.filter((reference) => reference.presentation === "compact-annotation")} onRemove={(id) => onRemoveContextReference?.(id)} />
+          {contextReferences.filter((reference) => reference.presentation !== "compact-annotation").map((reference) => (
             <AttachmentChip
+              imageUrl={reference.imageUrl}
               annotation={reference.annotation}
               body={reference.body}
               detail={reference.detail}
@@ -1810,6 +1803,7 @@ function insertPlainTextAtSelection(editor: HTMLDivElement, text: string): void 
 }
 
 function AttachmentChip({
+  imageUrl,
   annotation,
   body,
   detail,
@@ -1818,6 +1812,7 @@ function AttachmentChip({
   onRemove,
   removeLabel,
 }: {
+  imageUrl?: string;
   annotation?: ComposerContextReference["annotation"];
   body?: string;
   detail: string;
@@ -1839,14 +1834,15 @@ function AttachmentChip({
             <X aria-hidden="true" size={14} />
           </button>
         </div>
-        {body ? <p className="claude-ai-input__attachment-body">{body}</p> : null}
+        {imageUrl ? <a href={imageUrl} target="_blank" rel="noreferrer"><img src={imageUrl} alt={label} style={{ width: "100%", maxHeight: 120, objectFit: "contain" }} /></a> : null}
+        {body ? annotation?.onChange ? <details><summary>{detail}</summary><p className="claude-ai-input__attachment-body">{body}</p></details> : <p className="claude-ai-input__attachment-body">{body}</p> : null}
         {annotation ? (
           <div className="claude-ai-input__attachment-annotation">
             <span className="claude-ai-input__attachment-annotation-label">
               <MessageCircle aria-hidden="true" size={14} />
               {annotation.label}
             </span>
-            <p>{annotation.text}</p>
+            {annotation.onChange ? <textarea aria-label={annotation.label} value={annotation.text} maxLength={8000} onChange={(event) => annotation.onChange?.(event.currentTarget.value)} style={{ width: "100%", minHeight: 56, resize: "vertical", font: "inherit", color: "inherit", background: "transparent", border: "1px solid var(--color-hairline)", borderRadius: 6, padding: 6 }} /> : <p>{annotation.text}</p>}
           </div>
         ) : null}
       </div>

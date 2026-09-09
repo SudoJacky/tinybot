@@ -29,12 +29,12 @@ concurrency:
 
 jobs:
   release-windows-x64:
-    runs-on: windows-latest
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
     env:
-      CARGO_HTTP_TIMEOUT: "120"
-      CARGO_NET_RETRY: "10"
-      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     outputs:
       commit: ${{ steps.source.outputs.commit }}
@@ -50,11 +50,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Verify release version
-        run: node .github/scripts/check-release-version.mjs "$env:RELEASE_TAG"
+        run: node .github/scripts/check-release-version.mjs "$RELEASE_TAG"
 
       - name: Verify release source and tag
         id: source
@@ -80,39 +78,24 @@ jobs:
           "commit=$headCommit" >> $env:GITHUB_OUTPUT
           exit 0
 
-      - name: Set up Rust
-        uses: ./.github/actions/setup-rust
-        with:
-          target: x86_64-pc-windows-msvc
-
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Test release tooling
-        run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs
-
-      - name: Run frontend tests
-        run: npm test
-
-      - name: Test frontend build tooling
-        run: npm run test:frontend-analysis
-
-      - name: Check Rust formatting
-        working-directory: src-tauri
-        run: cargo fmt --check
-
-      - name: Run updater tests
-        working-directory: src-tauri
-        run: cargo test --locked --lib desktop::update::tests -- --test-threads=1
-
-      - name: Build signed Windows installer
+      - name: Wait for successful CI and resolve its installer
+        id: build
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build --ci --bundles nsis --target x86_64-pc-windows-msvc -- --locked
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: node .github/scripts/resolve-release-build.mjs
+
+      - name: Download the verified CI installer
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.build.outputs.artifact-id }}
+          run-id: ${{ steps.build.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ci-installer
+          merge-multiple: true
 
       - name: Prepare and validate updater artifacts
-        run: node .github/scripts/windows-release.mjs prepare src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis release-artifacts
+        run: node .github/scripts/windows-release.mjs prepare ci-installer release-artifacts
 
       - name: Save signed release artifacts
         uses: actions/upload-artifact@v4

@@ -282,6 +282,10 @@ async fn exercise_open_session(
     )
     .await?;
 
+    app.state::<Arc<WindowsBrowserRuntime>>()
+        .verify_annotation_cycle(tab_id)
+        .await?;
+
     let observed = browser_observe(
         runtime_state(app),
         BrowserObserveInput {

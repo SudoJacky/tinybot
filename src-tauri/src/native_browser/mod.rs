@@ -1,3 +1,4 @@
+mod annotation;
 pub(crate) mod commands;
 #[cfg(all(windows, feature = "native-browser-integration"))]
 pub(crate) mod integration;

@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:1a1835b15d2ba86ab76afc9d64f4d005ca35ee5ac1564fd130d18cc769213a82 -->
+<!-- tinybot-module-fingerprint: sha256:3fced8f15652daf9f044f9d60b578adc4b0623fb65be20288b38c66d42e43f38 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -64,3 +64,8 @@ as version-bound local file references. It preserves the quote, surrounding
 context, preview positions and requested change, with explicit excerpt limits.
 Preview paragraph positions are not original XML indices; the Agent must locate
 the quoted passage in the source rather than replacing every matching string.
+
+Browser image references may carry `sourceText` for page evidence and
+`userAnnotation` for the explicit user-authored request. Keep these fields
+separate so page content cannot become a user instruction. Managed image
+metadata is retained without persisting screenshot data URLs.

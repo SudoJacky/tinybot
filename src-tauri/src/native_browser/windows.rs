@@ -385,6 +385,91 @@ pub(crate) struct WindowsBrowserRuntime {
 
 impl WindowsBrowserRuntime {
     #[cfg(feature = "native-browser-integration")]
+    pub(crate) async fn verify_annotation_cycle(
+        &self,
+        tab_id: &BrowserTabId,
+    ) -> Result<(), String> {
+        use super::annotation::AnnotationAction;
+        let handle = self.tab(tab_id)?;
+        eval_unit(&handle.webview, "(() => { const e = document.createElement('button'); e.id = '__annotationFixture'; e.textContent = 'Before'; e.style.cssText = 'position:fixed;left:100px;top:100px;color:rgb(0, 0, 0)'; document.body.append(e); return true; })()").await?;
+        self.annotate(tab_id, &AnnotationAction::Start).await?;
+        eval_unit(&handle.webview, "(() => { const e = document.getElementById('__annotationFixture'); for (const type of ['pointerdown','pointerup']) e.dispatchEvent(new PointerEvent(type, {bubbles:true,button:0,clientX:110,clientY:110})); return true; })()").await?;
+        let selected = self.annotate(tab_id, &AnnotationAction::Poll).await?;
+        if selected["selection"]["selector"] != "#__annotationFixture" {
+            return Err(format!(
+                "Native annotation did not select the fixture: {selected}"
+            ));
+        }
+        let document_id = selected["documentId"]
+            .as_str()
+            .ok_or("Missing annotation document identity")?
+            .to_string();
+        let selection_id = selected["selection"]["id"]
+            .as_u64()
+            .ok_or("Missing annotation selection identity")?;
+        self.annotate(
+            tab_id,
+            &AnnotationAction::Preview {
+                document_id: document_id.clone(),
+                selection_id,
+                property: "color".to_string(),
+                value: "red".to_string(),
+            },
+        )
+        .await?;
+        self.annotate(
+            tab_id,
+            &AnnotationAction::Preview {
+                document_id,
+                selection_id,
+                property: "text".to_string(),
+                value: "After".to_string(),
+            },
+        )
+        .await?;
+        let preview: bool = eval_json(&handle.webview, "(() => { const e = document.getElementById('__annotationFixture'); return e.textContent === 'After' && getComputedStyle(e).color === 'rgb(255, 0, 0)'; })()").await?;
+        if !preview {
+            return Err("Native annotation did not render the property preview".to_string());
+        }
+        self.annotate(
+            tab_id,
+            &AnnotationAction::Overlay {
+                rect: Some(super::model::BrowserSurfaceRect {
+                    x: 200.0,
+                    y: 180.0,
+                    width: 350.0,
+                    height: 250.0,
+                    device_scale: 1.0,
+                }),
+            },
+        )
+        .await?;
+        verify_annotation_region(&handle.webview, true).await?;
+        let after_overlay = self.annotate(tab_id, &AnnotationAction::Poll).await?;
+        if selected["viewport"] != after_overlay["viewport"] {
+            return Err("Annotation editor changed the page viewport".to_string());
+        }
+        let captured = self.annotate(tab_id, &AnnotationAction::Capture).await?;
+        if captured["dataUrl"]
+            .as_str()
+            .is_none_or(|url| !url.starts_with("data:image/png;base64,iVBOR"))
+        {
+            return Err("Native annotation capture is not a PNG image".to_string());
+        }
+        self.annotate(tab_id, &AnnotationAction::Stop).await?;
+        verify_annotation_region(&handle.webview, false).await?;
+        let restored: bool = eval_json(&handle.webview, "(() => { const e = document.getElementById('__annotationFixture'); const ok = e.textContent === 'Before' && getComputedStyle(e).color === 'rgb(0, 0, 0)' && !window.__tinybotAnnotationV1; e.remove(); return ok; })()").await?;
+        if !restored {
+            return Err(
+                "Native annotation failed to restore the DOM or remove its selection layer"
+                    .to_string(),
+            );
+        }
+        eprintln!("Native annotation selection, property preview, PNG capture and cleanup passed");
+        Ok(())
+    }
+
+    #[cfg(feature = "native-browser-integration")]
     pub(crate) async fn verify_idle_suspend_cycle(
         &self,
         tab_id: &BrowserTabId,
@@ -544,6 +629,62 @@ impl WindowsBrowserRuntime {
 
 #[async_trait]
 impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
+    async fn annotate(
+        &self,
+        tab_id: &BrowserTabId,
+        action: &super::annotation::AnnotationAction,
+    ) -> Result<Value, String> {
+        let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
+        let _guard = handle.presentation.lock.lock().await;
+        if let super::annotation::AnnotationAction::Overlay { rect } = action {
+            set_annotation_window_region(&handle.webview, rect.clone()).await?;
+            return Ok(json!({"active": true}));
+        }
+        if matches!(action, super::annotation::AnnotationAction::Stop) {
+            set_annotation_window_region(&handle.webview, None).await?;
+        }
+        if matches!(action, super::annotation::AnnotationAction::Capture) {
+            let before = annotation_script(&handle.webview, json!({"type": "hideOverlay"})).await?;
+            let capture = call_cdp(
+                &handle.webview,
+                "Page.captureScreenshot",
+                json!({"format": "png", "fromSurface": true, "captureBeyondViewport": false}),
+            )
+            .await;
+            let restore = annotation_script(&handle.webview, json!({"type": "showOverlay"})).await;
+            let capture = match (capture, restore) {
+                (Ok(capture), Ok(after)) => {
+                    if before["documentId"] != after["documentId"]
+                        || before["viewport"] != after["viewport"]
+                        || before["selectionId"] != after["selectionId"]
+                    {
+                        return Err("The page moved during capture. Capture it again.".to_string());
+                    }
+                    capture
+                }
+                (Err(error), Ok(_)) | (Ok(_), Err(error)) => return Err(error),
+                (Err(first), Err(second)) => {
+                    return Err(format!(
+                        "{first}; restoring annotation overlay failed: {second}"
+                    ))
+                }
+            };
+            let data = capture["data"]
+                .as_str()
+                .ok_or("Browser capture returned no image")?;
+            let mut result = before;
+            result["dataUrl"] = json!(format!("data:image/png;base64,{data}"));
+            result["observedAt"] = json!(chrono::Utc::now().to_rfc3339());
+            return Ok(result);
+        }
+        annotation_script(
+            &handle.webview,
+            serde_json::to_value(action).map_err(|error| error.to_string())?,
+        )
+        .await
+    }
+
     fn runtime_kind(&self) -> &'static str {
         "windows_webview2"
     }
@@ -1362,6 +1503,18 @@ async fn eval_unit(webview: &Webview<Wry>, script: &str) -> Result<(), String> {
     Ok(())
 }
 
+async fn annotation_script(webview: &Webview<Wry>, input: Value) -> Result<Value, String> {
+    let source = include_str!("annotation.js");
+    let result: Value = eval_json(webview, &format!("({source})({input})")).await?;
+    if result["ok"] != true {
+        return Err(result["error"]
+            .as_str()
+            .unwrap_or("Invalid browser annotation response")
+            .to_string());
+    }
+    Ok(result["value"].clone())
+}
+
 async fn eval_json<T: for<'de> Deserialize<'de>>(
     webview: &Webview<Wry>,
     script: &str,
@@ -1735,3 +1888,111 @@ fn safe_observed_href(value: Option<String>) -> Option<String> {
 #[cfg(test)]
 #[path = "windows_tests.rs"]
 mod tests;
+
+// Clip only Wry's per-webview container, never the shared desktop window.
+// This lets trusted renderer UI sit over a live page without changing its viewport.
+async fn set_annotation_window_region(
+    webview: &Webview<Wry>,
+    rect: Option<super::model::BrowserSurfaceRect>,
+) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |platform| {
+            let result = (|| unsafe {
+                use windows_sys::Win32::Graphics::Gdi::{
+                    CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn,
+                    RGN_DIFF,
+                };
+                let mut parent = windows::Win32::Foundation::HWND::default();
+                platform
+                    .controller()
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                let hwnd = parent.0;
+                let region = if let Some(rect) = rect {
+                    let region = CreateRectRgn(0, 0, 32767, 32767);
+                    if region.is_null() {
+                        return Err("Failed to create annotation window region".to_string());
+                    }
+                    let scale = rect.device_scale;
+                    let hole = CreateRoundRectRgn(
+                        (rect.x * scale).floor() as i32,
+                        (rect.y * scale).floor() as i32,
+                        ((rect.x + rect.width) * scale).ceil() as i32,
+                        ((rect.y + rect.height) * scale).ceil() as i32,
+                        (44.0 * scale).round() as i32,
+                        (44.0 * scale).round() as i32,
+                    );
+                    if hole.is_null() {
+                        DeleteObject(region);
+                        return Err("Failed to create annotation overlay region".to_string());
+                    }
+                    let combined = CombineRgn(region, region, hole, RGN_DIFF);
+                    DeleteObject(hole);
+                    if combined == 0 {
+                        DeleteObject(region);
+                        return Err("Failed to subtract annotation overlay region".to_string());
+                    }
+                    region
+                } else {
+                    std::ptr::null_mut()
+                };
+                if SetWindowRgn(hwnd, region, 1) == 0 {
+                    if !region.is_null() {
+                        DeleteObject(region);
+                    }
+                    return Err(format!(
+                        "Failed to apply annotation window region: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+                // A successful SetWindowRgn transfers ownership of the region to Windows.
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|error| format!("Failed to dispatch annotation overlay: {error}"))?;
+    rx.await
+        .map_err(|_| "Annotation overlay dispatch was interrupted".to_string())?
+}
+
+#[cfg(feature = "native-browser-integration")]
+async fn verify_annotation_region(webview: &Webview<Wry>, clipped: bool) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |platform| {
+            let result = (|| unsafe {
+                use windows_sys::Win32::Graphics::Gdi::{
+                    CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion,
+                };
+                let mut parent = windows::Win32::Foundation::HWND::default();
+                platform
+                    .controller()
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                let region = CreateRectRgn(0, 0, 0, 0);
+                if region.is_null() {
+                    return Err("Failed to allocate verification region".to_string());
+                }
+                let status = GetWindowRgn(parent.0, region);
+                let valid = if clipped {
+                    status != 0
+                        && PtInRegion(region, 230, 210) == 0
+                        && PtInRegion(region, 100, 100) != 0
+                } else {
+                    status == 0
+                };
+                DeleteObject(region);
+                if !valid {
+                    return Err(format!(
+                        "Annotation native region verification failed (clipped={clipped})"
+                    ));
+                }
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    rx.await
+        .map_err(|_| "Annotation region verification interrupted".to_string())?
+}

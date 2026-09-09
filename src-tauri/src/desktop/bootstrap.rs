@@ -372,6 +372,7 @@ pub(crate) fn run() {
             crate::native_browser::commands::browser_restart_tab,
             crate::native_browser::commands::browser_update_surface,
             crate::native_browser::commands::browser_observe,
+            crate::native_browser::commands::browser_annotate,
             crate::native_browser::commands::browser_interact,
             crate::native_browser::commands::browser_resolve_policy_request,
             crate::native_browser::commands::browser_delete_profile,

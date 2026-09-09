@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:a45d33e66577d7b977b20bc305441234012dbaa973bda75de4a353b7f9d67ce2 -->
+<!-- tinybot-doc-fingerprint: sha256:b2dd052ee17b0ce7a527556733635dea50d5682de704b87994bff82b7a0902bf -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -201,3 +201,8 @@ Read the settings control-center projection:
 ```ts
 const snapshot = await invoke("get_settings_snapshot");
 ```
+
+The typed native browser adapter also exposes user page annotation through
+`browser_annotate`. See [Native Browser session runtime](tools-and-processes.md#native-browser-session-runtime)
+for its action contract and ownership restrictions. This desktop command is
+separate from model-facing browser tools.

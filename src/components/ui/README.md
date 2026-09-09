@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:600d28e10da55787f8bc2adbc34c676ffa7b42877bcdb28d1fa137a69ad231cf -->
+<!-- tinybot-module-fingerprint: sha256:c0e575d6aee6b52b689d4ff20808a440ea0814961d6d7f40c79548b5f4787a7f -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -63,3 +63,13 @@ while already inert. No route-specific dialog flags enter native resource owners
 Mutation and resize observers track relevant overlay changes; finite overlay
 motion is measured per frame, while unrelated streaming text does not trigger
 geometry reads. Native hosts expose `data-occlusion` for inspection.
+
+Browser annotation references share one compact count chip. Hover or focus
+opens a viewport-bounded detail popover; click pins it for comment editing.
+Escape and outside clicks dismiss it. Each entry shows a local crop, element
+label, editable request, property differences, and removal. Raw evidence stays
+out of the visible card. The portal participates in native-surface occlusion.
+Context-reference images retain ordinary model image-input validation.
+The composer and annotation preview share the `composerContextReference` data
+contract so the preview does not depend on its parent input component. The input
+module re-exports this type for callers using its public interface.

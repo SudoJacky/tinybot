@@ -550,6 +550,8 @@ pub struct BrowserControlSnapshot {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserSessionSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotation_tab_id: Option<BrowserTabId>,
     pub kind: &'static str,
     pub contract: &'static str,
     pub browser_session_id: BrowserSessionId,

@@ -15,7 +15,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:493f63f9aef78c250699ad572831b7aca1866460a123595450a5ed0b67ac421f -->
+<!-- tinybot-doc-fingerprint: sha256:3be56e5684c20c40ded2d270c70fc1c550aa47e3282f176a007e35c43316c5d2 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -142,10 +142,13 @@ evidence into the visible message text:
 
 The Thread command preserves `references` in the Agent input and turn metadata. The thread runtime
 persists them on the canonical `user_message`, so reloads keep the same visible
-reference chips. Immediately before a provider request, non-image references
-with a supported `referenceKind` are appended to the provider-only user content
-inside an explicit untrusted-evidence block. Image references are validated and
-converted into provider-native image content separately. The stored and
+reference chips. Immediately before a provider request, supported references
+with textual context are appended to provider-only user content in an explicit
+untrusted-evidence block. This includes image references carrying page evidence
+in `sourceText`. Optional `userAnnotation` is serialized separately in the
+user annotation requests section as an explicit user-authored instruction.
+Image references are also validated and converted into provider-native image
+content separately. The stored and
 user-visible message content remains unchanged. Provider
 injection accepts at most 16 such references and 64 KiB of serialized reference
 data per message. Exceeding either limit fails the provider request visibly

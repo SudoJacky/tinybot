@@ -62,6 +62,7 @@ impl Default for BrowserRuntimeState {
 }
 
 struct BrowserSessionRecord {
+    annotation_tab: Option<BrowserTabId>,
     id: BrowserSessionId,
     owner_session_id: String,
     operation_id: String,
@@ -152,6 +153,99 @@ pub(crate) struct BrowserSessionManager {
 }
 
 impl BrowserSessionManager {
+    pub(crate) async fn annotate(
+        &self,
+        input: super::annotation::BrowserAnnotationInput,
+    ) -> Result<serde_json::Value, String> {
+        use super::annotation::AnnotationAction;
+        super::annotation::validate_action(&input.action)?;
+        let starting = matches!(input.action, AnnotationAction::Start);
+        let stopping = matches!(input.action, AnnotationAction::Stop);
+        if starting {
+            self.require_ready_tab(&input.browser_session_id, &input.tab_id)?;
+            self.cancel_tab_command(
+                &input.tab_id,
+                BrowserCommandStatus::Cancelled,
+                "user_annotation",
+                "User entered browser annotation mode",
+            );
+        }
+        let lock = self.command_lock(&input.tab_id)?;
+        let _guard = lock.lock().await;
+        {
+            let mut state = self.lock_state();
+            let session = ready_session_mut(&mut state, &input.browser_session_id)?;
+            require_tab(session, &input.tab_id)?;
+            if starting {
+                let tab = require_tab(session, &input.tab_id)?;
+                if session.active_tab_id != input.tab_id || tab.loading {
+                    return Err(
+                        "Wait for the active page to finish loading before annotating".to_string(),
+                    );
+                }
+                if session.annotation_tab.is_some()
+                    || session.control.state == BrowserControlState::UserRequired
+                {
+                    return Err(
+                        "Finish the current browser handoff or annotation first".to_string()
+                    );
+                }
+                session.annotation_tab = Some(input.tab_id.clone());
+                session.control.state = BrowserControlState::UserRequired;
+                session.control.reason = Some("Browser annotation is active".to_string());
+                session.control.active_command_id = None;
+                session.control.control_epoch = session.control.control_epoch.saturating_add(1);
+                bump_revision(&mut state);
+            } else if session.annotation_tab.as_ref() != Some(&input.tab_id) {
+                if stopping {
+                    return Ok(serde_json::json!({"active": false}));
+                }
+                return Err("Browser annotation is not active for this tab".to_string());
+            }
+        }
+        if starting {
+            self.publish_snapshot(&input.browser_session_id);
+        }
+        let result = self.adapter.annotate(&input.tab_id, &input.action).await;
+        if stopping && result.is_ok() || starting && result.is_err() {
+            let mut state = self.lock_state();
+            if let Some(session) = state.sessions.get_mut(&input.browser_session_id) {
+                session.annotation_tab = None;
+                session.control.state = BrowserControlState::Idle;
+                session.control.reason = None;
+                session.control.control_epoch = session.control.control_epoch.saturating_add(1);
+                if let Some(tab) = session.tabs.get_mut(&input.tab_id) {
+                    mark_agent_snapshot_dirty(tab, true);
+                }
+                bump_revision(&mut state);
+            }
+            drop(state);
+            self.publish_snapshot(&input.browser_session_id);
+        }
+        if result.is_err() || starting || stopping {
+            self.diagnostic(
+                if result.is_err() {
+                    "browser.annotation.failed"
+                } else if starting {
+                    "browser.annotation.started"
+                } else {
+                    "browser.annotation.stopped"
+                },
+                Some(input.browser_session_id),
+                Some(input.tab_id),
+                None,
+                None,
+                None,
+                result
+                    .as_ref()
+                    .err()
+                    .map(|error| BTreeMap::from([("error".to_string(), serde_json::json!(error))]))
+                    .unwrap_or_default(),
+            );
+        }
+        result
+    }
+
     pub(crate) fn new(
         adapter: Arc<dyn BrowserRuntimeAdapter>,
         profile_root: PathBuf,
@@ -550,6 +644,7 @@ impl BrowserSessionManager {
                 agent_snapshot_dirty: true,
             };
             let session = BrowserSessionRecord {
+                annotation_tab: None,
                 id: session_id.clone(),
                 owner_session_id: owner_session_id.clone(),
                 operation_id: format!("native-browser-session-{session_id}"),
@@ -670,6 +765,7 @@ impl BrowserSessionManager {
         self: &Arc<Self>,
         input: BrowserCreateTabInput,
     ) -> Result<BrowserNativeSnapshot, String> {
+        self.require_annotation_finished(&input.browser_session_id)?;
         let url = safe_browser_url(input.url.as_deref().unwrap_or("about:blank"))?;
         let (tab_id, profile) = {
             let mut state = self.lock_state();
@@ -773,6 +869,7 @@ impl BrowserSessionManager {
         session_id: &BrowserSessionId,
         tab_id: &BrowserTabId,
     ) -> Result<BrowserNativeSnapshot, String> {
+        self.require_annotation_finished(session_id)?;
         let surface = {
             let mut state = self.lock_state();
             let session = ready_session_mut(&mut state, session_id)?;
@@ -807,6 +904,7 @@ impl BrowserSessionManager {
         session_id: &BrowserSessionId,
         tab_id: &BrowserTabId,
     ) -> Result<BrowserNativeSnapshot, String> {
+        self.require_annotation_finished(session_id)?;
         let started = Instant::now();
         {
             let mut state = self.lock_state();
@@ -905,6 +1003,7 @@ impl BrowserSessionManager {
         tab_id: &BrowserTabId,
         url: &str,
     ) -> Result<BrowserNativeSnapshot, String> {
+        self.require_annotation_finished(session_id)?;
         let url = safe_browser_url(url)?;
         let started = Instant::now();
         {
@@ -951,6 +1050,7 @@ impl BrowserSessionManager {
         session_id: &BrowserSessionId,
         tab_id: &BrowserTabId,
     ) -> Result<(), String> {
+        self.require_annotation_finished(session_id)?;
         self.require_ready_tab(session_id, tab_id)?;
         self.adapter.back(tab_id).await
     }
@@ -960,6 +1060,7 @@ impl BrowserSessionManager {
         session_id: &BrowserSessionId,
         tab_id: &BrowserTabId,
     ) -> Result<(), String> {
+        self.require_annotation_finished(session_id)?;
         self.require_ready_tab(session_id, tab_id)?;
         self.adapter.forward(tab_id).await
     }
@@ -969,6 +1070,7 @@ impl BrowserSessionManager {
         session_id: &BrowserSessionId,
         tab_id: &BrowserTabId,
     ) -> Result<(), String> {
+        self.require_annotation_finished(session_id)?;
         self.require_ready_tab(session_id, tab_id)?;
         self.adapter.reload(tab_id).await
     }
@@ -2102,6 +2204,14 @@ impl BrowserSessionManager {
         }
     }
 
+    fn require_annotation_finished(&self, session_id: &BrowserSessionId) -> Result<(), String> {
+        let state = self.lock_state();
+        if ready_session(&state, session_id)?.annotation_tab.is_some() {
+            return Err("Finish browser annotation before changing tabs or navigating".to_string());
+        }
+        Ok(())
+    }
+
     fn require_ready_tab(
         &self,
         session_id: &BrowserSessionId,
@@ -2715,6 +2825,7 @@ fn snapshot_from_state(
             observed_at,
         },
         data: BrowserSessionSnapshot {
+            annotation_tab_id: session.annotation_tab.clone(),
             kind: "browser_session",
             contract: "browser_session_v1",
             browser_session_id: session.id.clone(),
@@ -2852,6 +2963,12 @@ fn plan_browser_interaction(
     tab: &BrowserTabRecord,
     input: &BrowserInteractionInput,
 ) -> Result<BrowserPlatformAction, BrowserInteractionRejection> {
+    if session.annotation_tab.is_some() {
+        return Err(BrowserInteractionRejection {
+            metric: Some("browser.command.rejected.annotation"),
+            reason: "Finish browser annotation before resuming Agent control".to_string(),
+        });
+    }
     if input.snapshot_id.is_some() && session.active_tab_id != input.tab_id {
         return Err(BrowserInteractionRejection {
             metric: Some("browser.command.rejected.inactive_agent_tab"),

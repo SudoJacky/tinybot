@@ -1,6 +1,7 @@
 export type AgentInputReferenceKind = "browser" | "file" | "image" | "thread";
 
 export type AgentInputReference = {
+  userAnnotation?: string;
   contentHash?: string;
   kind: "browser" | "recent" | "reference";
   referenceKind?: AgentInputReferenceKind;

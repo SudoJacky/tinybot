@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:643502c3066870e26a8d258984a9253f60afcb3eed906d0cef0ff794c4daa7a9 -->
+<!-- tinybot-module-fingerprint: sha256:739e5f1f65dc8618fec03247003112c0b8654e5fe59b64e41f3127819bcb628e -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -106,3 +106,7 @@ own log paths, ZIP layout, or upload behavior.
 Bootstrap also registers `worker_thread_artifact_review` for the main
 workbench. The command resolves Thread context and delegates snapshot
 operations; bootstrap does not own review state.
+
+Browser annotation uses the registered `browser_annotate` command. Bootstrap
+only forwards the typed input; native browser ownership, validation, temporary
+DOM previews, and capture remain in `native_browser`.

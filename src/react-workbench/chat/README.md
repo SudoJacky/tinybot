@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:160550ea8022fa945591b6b48dbf77b2ac3fdd4d7f0642e98068b585a8250655 -->
+<!-- tinybot-module-fingerprint: sha256:cafe12dd20c99c1c542ef42403764cb62a21890803e2500d7258aed5f06aead3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -441,3 +441,14 @@ destination compilation step, before CommonMark consumes punctuation escapes
 such as `\.`. Ordinary prose and external URLs keep standard escaping. Link
 activation logs both the decoded href and resolved workspace path for diagnosis;
 the native workspace path guard remains authoritative.
+
+Browser annotations enter the composer as managed image references with page
+evidence in `sourceText` and the editable request in `userAnnotation`. Chat
+preserves the current draft, exposes preview/removal controls, and submits
+these references only when the user sends the composer.
+Browser references use the compact annotation group with editable hover/click
+details; the raw `sourceText` evidence is never used as its visible body.
+
+Composer submission waits for Sidecar to finish active browser annotation and
+restore native control before dispatching the Agent Turn. Failure preserves the
+composer draft and prevents dispatch.

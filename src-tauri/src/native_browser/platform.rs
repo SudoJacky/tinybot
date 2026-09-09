@@ -150,6 +150,13 @@ pub(crate) enum BrowserPlatformAction {
 
 #[async_trait]
 pub(crate) trait BrowserRuntimeAdapter: Send + Sync {
+    async fn annotate(
+        &self,
+        _tab_id: &BrowserTabId,
+        _action: &super::annotation::AnnotationAction,
+    ) -> Result<serde_json::Value, String> {
+        Err("Browser annotations are unavailable on this platform".to_string())
+    }
     fn runtime_kind(&self) -> &'static str;
     fn runtime_version(&self) -> &'static str;
     fn capabilities(&self) -> BrowserRuntimeCapabilities;

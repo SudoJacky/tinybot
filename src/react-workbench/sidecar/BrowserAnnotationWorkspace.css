@@ -1,0 +1,47 @@
+.browser-annotation-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.browser-annotation-page { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.browser-annotation-editor footer button, .browser-annotation-error button { border: 1px solid var(--color-hairline); background: var(--color-panel); color: var(--color-ink); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+.browser-annotation-editor { position: absolute; z-index: 2; display: flex; flex-direction: column; width: min(350px, calc(100% - 16px)); max-height: calc(100% - 16px); border: 1px solid var(--color-hairline); border-radius: 22px; background: var(--color-panel); color: var(--color-ink); overflow: hidden; font-size: 12px; box-sizing: border-box; }
+.browser-annotation-comment-row { display: flex; flex-shrink: 0; align-items: center; gap: 5px; min-height: 48px; padding: 7px 8px; }
+.browser-annotation-comment-row textarea { flex: 1; min-width: 0; height: 30px; max-height: 80px; resize: none; padding: 6px 2px; border: 0; background: transparent; color: inherit; font: inherit; line-height: 18px; }
+.browser-annotation-comment-row textarea:focus { outline: none; }
+.browser-annotation-round { display: inline-flex; flex: 0 0 28px; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--color-surface-soft); color: var(--color-ink); padding: 0; cursor: pointer; }
+.browser-annotation-send { background: var(--color-primary); color: var(--color-on-primary, white); }
+.browser-annotation-editor button:disabled { opacity: .4; cursor: default; }
+.browser-annotation-editor button:focus-visible, .browser-annotation-properties input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.browser-annotation-element { display: flex; align-items: center; gap: 12px; padding: 7px 14px; background: var(--color-surface-soft); }
+.browser-annotation-element select { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--color-muted); font: inherit; text-overflow: ellipsis; }
+.browser-annotation-properties { min-height: 0; max-height: 250px; overflow: auto; padding: 8px 14px; display: grid; gap: 8px; }
+.annotation-property { display: grid; grid-template-columns: minmax(70px, .65fr) minmax(0, 1.35fr); align-items: start; gap: 10px; color: var(--color-muted); }
+.annotation-property > span { padding-top: 7px; }
+.browser-annotation-properties input { min-width: 0; width: 100%; box-sizing: border-box; height: 29px; border: 1px solid var(--color-hairline); border-radius: 9px; padding: 4px 8px; background: var(--color-panel); color: var(--color-ink); font: inherit; }
+.browser-annotation-editor footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--color-hairline); color: var(--color-muted); font-size: 11px; }
+.browser-annotation-error { display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--color-danger); font-size: 12px; overflow-wrap: anywhere; }
+.browser-annotation-image { position: absolute; inset: 0; display: flex; background: var(--color-canvas); }
+.browser-annotation-image__viewport { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.browser-annotation-image svg { display: block; max-width: 100%; max-height: 100%; width: 100%; touch-action: none; user-select: none; cursor: crosshair; }
+.browser-annotation-drag { align-self: stretch; flex: 0 0 16px; display: grid; place-content: center; border: 0; padding: 0; background: transparent; color: var(--color-muted); cursor: grab; touch-action: none; }
+.browser-annotation-drag:active { cursor: grabbing; }
+.annotation-value-control, .annotation-color-control, .annotation-field { min-width: 0; }
+.annotation-number { display: flex; align-items: center; border: 1px solid var(--color-hairline); border-radius: 8px; overflow: hidden; }
+.annotation-number input { flex: 1; border: 0; border-radius: 0; }
+.annotation-number select, .annotation-number > span { flex: 0 0 auto; border: 0; padding: 3px; max-width: 48px; background: transparent; font: inherit; color: var(--color-muted); }
+.annotation-number select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.annotation-scrubbable { cursor: ns-resize; touch-action: none; }
+.annotation-scrubbable:focus { cursor: text; }
+.annotation-value-control input[type="range"] { display: block; height: 18px; padding: 0; border: 0; accent-color: var(--color-primary); cursor: ew-resize; }
+.annotation-spacing { position: relative; min-width: 0; margin: 2px 0 0; padding: 8px; border: 1px solid var(--color-hairline); border-radius: 10px; }
+.annotation-spacing legend { padding: 0 4px; color: var(--color-muted); }
+.annotation-link { position: absolute; top: -15px; right: 8px; display: grid; place-content: center; width: 26px; height: 24px; border: 1px solid var(--color-hairline); border-radius: 6px; background: var(--color-panel); color: var(--color-muted); cursor: pointer; }
+.annotation-link[aria-pressed="true"] { color: var(--color-primary); background: var(--color-surface-soft); }
+.annotation-spacing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.annotation-spacing-grid > div > span { display: block; margin: 0 0 4px 2px; color: var(--color-muted); font-size: 11px; }
+.annotation-color-row { display: flex; gap: 5px; align-items: center; }
+.annotation-color-row > input.annotation-color-swatch { flex: 0 0 26px; height: 26px; padding: 2px; border: 1px solid var(--color-hairline); border-radius: 6px; cursor: pointer; }
+.annotation-color-row > input { flex: 1; }
+.annotation-color-picker { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.annotation-color-picker > span { font-size: 11px; color: var(--color-muted); }
+.annotation-color-picker > .annotation-value-control { flex: 1; }
+.annotation-invalid { display: block; color: var(--color-danger); padding-top: 4px; font-size: 11px; }
+.annotation-expanded-content { display: flex; flex-direction: column; min-height: 0; }
+.annotation-expanded-content[hidden] { display: none; }

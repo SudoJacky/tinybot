@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:ca63629781c2a8f333090e2c0f4a0332c8c24f39bad270b6c0684021bb701117 -->
+<!-- tinybot-module-fingerprint: sha256:e1c483d9e683931d8664413f5ed044599a2f60cd2fd02cb599ee56764175d51e -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -434,3 +434,10 @@ cancellation clears the checkpoint and returns `form_cancelled`.
 For frontend-visible shapes and event names, see the
 [Agent runtime API](../../../../docs/api/agent-runtime.md) and
 [Tauri event reference](../../../../docs/api/events.md).
+
+## User annotation references
+
+`provider_adapter.rs` retains page evidence on image references alongside the
+provider-native image content. It serializes `sourceText` as untrusted attached
+evidence and optional `userAnnotation` separately as a user-authored change
+request. Existing reference count and serialized-size limits apply to both.

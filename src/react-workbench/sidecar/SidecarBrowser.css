@@ -1,4 +1,5 @@
 .react-sidecar-browser-runtime {
+  container-type: inline-size;
   position: relative;
   display: flex;
   flex-direction: column;
