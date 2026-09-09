@@ -3,6 +3,8 @@ use super::super::usage::{
     prepare_provider_request,
 };
 use super::*;
+#[cfg(test)]
+use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
 
 #[test]
 fn runs_fixture_streaming_final_answer_with_frontend_events() {
@@ -1155,7 +1157,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
         contexts: Arc<Mutex<Vec<Vec<Value>>>>,
     }
 
-    impl NativeAgentProvider for ToolThenFinishProvider {
+    impl BlockingTestProvider for ToolThenFinishProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1191,7 +1193,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
 
     struct ReadDispatcher;
 
-    impl NativeAgentToolDispatcher for ReadDispatcher {
+    impl BlockingTestToolDispatcher for ReadDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1373,9 +1375,10 @@ fn rust_provider_dispatches_the_request_used_for_the_final_estimate() {
     context.set_prepared_provider_request(request);
     context.messages.clear();
 
-    let response = RustNativeAgentProvider
-        .complete(&context)
-        .expect("provider should dispatch the retained request");
+    let response = tauri::async_runtime::block_on(
+        Arc::new(RustNativeAgentProvider).complete_streaming_async(&context, &mut |_| {}),
+    )
+    .expect("provider should dispatch the retained request");
 
     assert_eq!(response.final_content, "fixture answer");
 }
@@ -1576,7 +1579,7 @@ fn responses_usage_is_normalized_for_existing_usage_consumers() {
 fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage() {
     struct NoUsageProvider;
 
-    impl NativeAgentProvider for NoUsageProvider {
+    impl BlockingTestProvider for NoUsageProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,

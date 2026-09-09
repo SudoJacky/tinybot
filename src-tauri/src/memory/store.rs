@@ -18,16 +18,10 @@ pub(crate) struct MemoryStore {
 }
 
 impl MemoryStore {
-    pub(crate) fn for_workspace(workspace_root: &Path) -> Self {
-        #[cfg(not(test))]
-        let data_root = crate::config::application::tinybot_data_root();
-        #[cfg(test)]
-        let data_root = workspace_root.join(".tinybot");
-        #[cfg(not(test))]
-        let _ = workspace_root;
+    pub(crate) fn new(data_root: &Path) -> Self {
         Self {
-            database_path: data_root.join("state").join("memory.sqlite"),
-            markdown_path: data_root.join("memory").join("raw_memories.md"),
+            database_path: data_root.join("state/memory.sqlite"),
+            markdown_path: data_root.join("memory/raw_memories.md"),
         }
     }
 

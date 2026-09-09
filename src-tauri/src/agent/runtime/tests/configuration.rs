@@ -1,5 +1,7 @@
 use super::*;
 use crate::agent::runtime::provider_protocol::ProviderProtocolAdapter;
+#[cfg(test)]
+use crate::agent::runtime::test_support::BlockingTestProvider;
 
 #[test]
 fn defaults_context_window_strategy_to_compact() {
@@ -434,9 +436,10 @@ fn rust_provider_selects_responses_adapter_only_for_internal_api_mode() {
         }),
     );
 
-    let response = RustNativeAgentProvider
-        .complete(&context)
-        .expect("fixture Responses turn should complete");
+    let response = tauri::async_runtime::block_on(
+        Arc::new(RustNativeAgentProvider).complete_streaming_async(&context, &mut |_| {}),
+    )
+    .expect("fixture Responses turn should complete");
 
     assert_eq!(response.final_content, "Responses answer");
     assert!(!response.response_items.is_empty());
@@ -457,7 +460,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
         working_directories: Arc<Mutex<Vec<Option<PathBuf>>>>,
     }
 
-    impl NativeAgentProvider for CapturingProvider {
+    impl BlockingTestProvider for CapturingProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,

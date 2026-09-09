@@ -9,50 +9,9 @@ use super::{
 use serde_json::Value;
 use std::sync::Arc;
 
-pub(super) struct RustNativeAgentProvider;
+pub(crate) struct RustNativeAgentProvider;
 
 impl NativeAgentProvider for RustNativeAgentProvider {
-    #[cfg(test)]
-    fn complete(&self, context: &AgentTurnContext) -> Result<NativeAgentProviderResponse, String> {
-        let mut observer = |_event: NativeAgentProviderStreamEvent| {};
-        self.complete_streaming(context, &mut observer)
-    }
-
-    #[cfg(test)]
-    fn complete_streaming(
-        &self,
-        context: &AgentTurnContext,
-        observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
-    ) -> Result<NativeAgentProviderResponse, String> {
-        let provider_config = agent_provider_config(context);
-        let adapter = ProviderProtocolAdapter::resolve(context, &provider_config)?;
-        let request = context
-            .prepared_provider_request()
-            .cloned()
-            .map(Ok)
-            .unwrap_or_else(|| adapter.build_request(context))?;
-        let mut provider_observer =
-            |event: crate::agent::provider::NativeProviderStreamEvent| match event {
-                crate::agent::provider::NativeProviderStreamEvent::ToolCallDelta => {
-                    observer(NativeAgentProviderStreamEvent::ToolCallDelta)
-                }
-                crate::agent::provider::NativeProviderStreamEvent::MessagePhase(phase) => {
-                    observer(NativeAgentProviderStreamEvent::MessagePhase(
-                        parse_message_phase(&phase),
-                    ));
-                }
-                crate::agent::provider::NativeProviderStreamEvent::ContentDelta(delta) => {
-                    observer(NativeAgentProviderStreamEvent::ContentDelta(delta));
-                }
-                crate::agent::provider::NativeProviderStreamEvent::ReasoningDelta(delta) => {
-                    observer(NativeAgentProviderStreamEvent::ReasoningDelta(delta));
-                }
-            };
-        let completion = adapter.complete(&provider_config, &request, &mut provider_observer)?;
-        emit_completion_phase(&completion, adapter, observer);
-        provider_response_from_completion(context, adapter, completion)
-    }
-
     fn complete_streaming_async<'a>(
         self: Arc<Self>,
         context: &'a AgentTurnContext,

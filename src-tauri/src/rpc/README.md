@@ -3,7 +3,7 @@
 Turn-persistence dispatch adapts wire parameters to the typed workspace store
 service. Internal Agent persistence calls that service directly, sharing its
 lifecycle lock, canonical writes, projection synchronization, and recovery.
-<!-- tinybot-module-fingerprint: sha256:430d24325db24e87a92ab79b8cd96f64318303d8f6738a6ba161629f753440e9 -->
+<!-- tinybot-module-fingerprint: sha256:016eb43b8337b8ef2d687ebbab6de61e874713e4489fa34abd143eed3d9c705b -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -83,6 +83,8 @@ Runtime lifecycle changes belong to the application lifecycle owner.
 - Unknown methods fail explicitly; dispatch must not silently no-op.
 - Tool methods validate typed parameters, capability grants, and availability
   before dispatch.
+- Generic tool execution rejects runtime controls, Agent Graphs, and workspace
+  Thread orchestration targets. Their execution requires the owning Agent path.
 - The generic tool executor maps authoritative Turn context to `ownerId` for
   retained Shell process operations instead of forwarding `sessionId`, whose
   legacy Shell alias identifies a process rather than an Agent session.

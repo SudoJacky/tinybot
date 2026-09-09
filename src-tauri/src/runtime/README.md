@@ -1,5 +1,5 @@
 # Native Runtime Services
-<!-- tinybot-module-fingerprint: sha256:34c7d5867f84f0ce4658f260a8a1410f24a4fc83cf5f52114b271543b932eda5 -->
+<!-- tinybot-module-fingerprint: sha256:c6f6ba4f93edd9ac52f45c288aeea1f6bc586f8081b250ba0c32c105f4ca0478 -->
 
 `runtime` owns process-local services that must outlive an individual backend
 request: turn execution ownership, shared MCP connections, startup/shutdown
@@ -54,9 +54,11 @@ Startup reconciliation runs before the runtime accepts new agent work. It:
 4. Records a queryable recovery report or a visible startup failure.
 
 Shutdown stops accepting new work, requests cancellation, drains owned agent
-tasks, cleans up shell processes, MCP connections, and subagents, then flushes
+tasks, cancels and joins application-owned Memory workers, cleans up shell
+processes, MCP connections, and subagents, then flushes
 or shuts down Thread persistence. All stage failures remain in the lifecycle
-report.
+report, including a separate `memory` stage. Pending Memory jobs remain durable
+and resume on the heartbeat after runtime startup succeeds.
 
 ## Invariants
 

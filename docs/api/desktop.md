@@ -11,13 +11,15 @@ src-tauri/src/desktop_terminal.rs
 src-tauri/src/desktop_commands/config.rs
 src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
+src-tauri/src/desktop_commands/runtime.rs
+src-tauri/src/runtime/lifecycle.rs
 src-tauri/src/agent/provider/completion.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:7168e408f6cb8172bd447ec354d34890162ad6d7e6fb97f89e4f272f020600d3 -->
+<!-- tinybot-doc-fingerprint: sha256:6a379f9369035d4cde752ca92d66a633dea2d255018b95fa1c376a2a30ccf95c -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -32,6 +34,11 @@ active; explicit tray exit or updater installation runs its bounded shutdown pat
 renderer commands for managing a separate backend process, and the runtime cannot be configured to
 remain alive after the App exits.
 
+Storage initialization receives explicit workspace and application-data paths.
+A legacy-storage migration failure aborts construction with those paths in the
+error. Workspace rebinding uses the same initializer and records a startup failure;
+startup on an already initialized store does not repeat migration.
+
 The internal lifecycle state records native-runtime recovery and cleanup. Startup pauses new agent
 continuations while the process-local Thread index is rebuilt from canonical Rollouts and checked for
 consistency. The startup report keeps the compatibility fields `sessionLogIndex` and
@@ -43,6 +50,12 @@ later Rollout/index mismatch. A persisted `running` turn with no live owner is t
 `stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
+
+Shutdown cancels and joins the application-owned Memory workers before closing
+Thread persistence. Its internal report includes a `memory` stage with
+`completed` and `detail`; failures also appear in the shared `failures` list.
+Unfinished extraction jobs remain durable and are retried by the heartbeat after
+restart. Failure to initialize Memory storage aborts startup with diagnostics.
 
 ## Windows Desktop Pet Windows
 

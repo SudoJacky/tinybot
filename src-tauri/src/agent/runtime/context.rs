@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 impl AgentTurnContext {
     #[cfg(test)]
-    pub(super) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
+    pub(crate) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
         let input = super::AgentTurnInput::from_wire(&spec, &config_snapshot)
             .expect("test turn input must be valid");
         Self::from_input(input, config_snapshot)
@@ -66,20 +66,11 @@ impl AgentTurnContext {
         self.metrics = services.metrics.clone();
     }
 
-    pub(crate) fn evaluate_hook(
+    pub(crate) async fn evaluate_hook(
         &self,
         invocation: AgentHookInvocation,
     ) -> Result<AgentHookEvaluation, String> {
-        self.hooks.evaluate(invocation, &self.metrics)
-    }
-
-    pub(crate) async fn evaluate_command_hook(
-        &self,
-        invocation: AgentHookInvocation,
-    ) -> Result<AgentHookEvaluation, String> {
-        self.hooks
-            .evaluate_command_hooks(invocation, &self.metrics)
-            .await
+        self.hooks.evaluate(invocation, &self.metrics).await
     }
 
     pub(crate) fn hook_permission_mode(&self) -> String {

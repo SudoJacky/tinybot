@@ -1,4 +1,6 @@
 use super::{AgentTurnSettings, DEFAULT_NATIVE_AGENT_MAX_ITERATIONS};
+#[cfg(test)]
+use crate::agent::runtime::test_support::BlockingTestProvider;
 use crate::agent::runtime_protocol::{AgentContinuationInput, AgentTraceContext};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -318,7 +320,7 @@ mod tests {
         use super::super::*;
         use std::sync::Arc;
         struct UnexpectedProvider;
-        impl NativeAgentProvider for UnexpectedProvider {
+        impl BlockingTestProvider for UnexpectedProvider {
             fn complete(
                 &self,
                 _: &AgentTurnContext,

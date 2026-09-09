@@ -199,6 +199,7 @@ mod configuration;
 mod context;
 mod interactions;
 mod lifecycle;
+mod tool_adapters;
 mod tools;
 
 fn runtime_transcript(result: &Value) -> Vec<Value> {

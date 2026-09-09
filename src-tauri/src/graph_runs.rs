@@ -1,7 +1,12 @@
+use crate::agent::bridge::AgentApplicationServices;
+#[cfg(test)]
+use crate::agent::bridge::TestApplicationServices;
 use crate::agent::bridge::{execute_thread_turn_with_services, SubmitThreadTurnInput};
 use crate::agent::router;
+use crate::agent::runtime::NativeAgentCancellationContext;
+#[cfg(test)]
+use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::{AgentResultError, AgentStopReason};
-use crate::agent::runtime::{NativeAgentCancellationContext, NativeAgentRuntimeServices};
 #[cfg(test)]
 use crate::agent_graphs::AgentLoopReasoningEffort;
 use crate::agent_graphs::{
@@ -186,7 +191,7 @@ pub(crate) fn list(
 
 pub(crate) async fn start(
     data_root: &Path,
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     input: StartAgentGraphRunInput,
@@ -219,7 +224,7 @@ pub(crate) async fn start(
     };
     write_run(data_root, &run)?;
 
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let mut current_input = graph_input;
     let mut cursor = single_outgoing_edge(&plan, &plan.input_node_id)?
         .target
@@ -285,7 +290,7 @@ pub(crate) async fn start(
                     tokio::select! {
                         biased;
                         _ = cancellation.cancelled() => {
-                            base_services.cancel(&turn_id);
+                            base_services.runtime.cancel(&turn_id);
                             let _ = (&mut result).await;
                             return finish_cancelled_run(data_root, run, Some(index));
                         }

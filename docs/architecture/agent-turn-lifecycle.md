@@ -2,19 +2,27 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/bridge/README.md
 src-tauri/src/agent/bridge/agent_flow.rs
+src-tauri/src/agent/bridge/application.rs
+src-tauri/src/agent/bridge/command_hooks.rs
+src-tauri/src/agent/bridge/tool_catalog.rs
+src-tauri/src/agent/bridge/webui_continuation.rs
 src-tauri/src/agent/bridge/thread_flow.rs
+src-tauri/src/agent/bridge/workspace_threads.rs
 src-tauri/src/agent/runtime/README.md
+src-tauri/src/agent/runtime/mod.rs
+src-tauri/src/agent/runtime/hooks.rs
 src-tauri/src/agent/runtime/provider_loop.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
 src-tauri/src/agent/runtime/turn_result.rs
 src-tauri/src/agent/runtime/turn_input.rs
 src-tauri/src/runtime/turn_execution.rs
+src-tauri/src/desktop/state.rs
 src-tauri/src/agent/runtime_protocol/README.md
 src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:fecc870e4eeb74655d15addf77d55be4f229c5d98e6d6b304aa75a76c7de1450 -->
+<!-- tinybot-doc-fingerprint: sha256:9acb94eaea607edbf77eef9db7fdb556600eccc061bb34625959e0732395e8de -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -28,6 +36,21 @@ outcome that follow. Resolving a form continues the same Turn identity.
 - `TurnExecutionRuntime` owns the current live generation, cancellation, and
   terminal-result publication for a Turn ID.
 - `threads::rollout::store` owns canonical durability and reconstruction.
+
+Desktop state initializes the Thread store with explicit workspace and data paths;
+legacy migration errors abort initialization. It owns application resources and
+passes only Provider, dispatcher, checkpoints, cancellation, tasks and metrics as
+`NativeAgentRuntimeDependencies`. `AgentApplicationServices` carries the shared
+Thread, MCP, Shell, browser and subagent resources outside the core runtime.
+Ordinary and resumed form Turns use one `prepare_turn` assembly path. Persistence,
+trace and hooks are installed before the dispatcher captures child-Turn services.
+Provider streaming, tool preparation and tool dispatch cross asynchronous
+interfaces. Blocking test fixtures have separate adapters.
+The bridge dispatcher discovers Graph/MCP/workspace-thread contributions and
+performs application-specific execution. Discovery cancellation preserves its
+phase and transport details before provider execution. Child cancellation still
+propagates from the parent and waits for cleanup, while runtime scheduling retains
+its cleanup timeout policy.
 
 The provider loop, task owner, bridge, and Graph/workspace-thread callers share
 `AgentTurnResult`. Its required `AgentStopReason` replaces string lookup for
@@ -96,6 +119,11 @@ fails, the bridge persists a failed terminal state with `runtime_error` (or
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
 
+The dispatcher captures its child-Turn services only after checkpoint, trace, and
+command-hook adapters are installed. Form continuation follows the same ordering
+for checkpoint and trace adapters. Capturing the services earlier would omit live
+child timeline output even if child execution and persistence completed normally.
+
 For an empty default-titled Thread, that durable start also gates one detached
 title request. It uses the resolved Provider and model but has no tools and does
 not enter or block the Agent Loop. Failure is recorded in native diagnostics and
@@ -150,7 +178,12 @@ call as an ordering barrier. `update_plan` is such a barrier, so a plan update
 may precede ordinary calls in the same response without rejecting the batch.
 
 The bridge loads additive global and effective-working-directory command hooks
-for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied
+for each Turn, adapting the engine to the same asynchronous `AgentHook`
+interface used by in-process hooks. The core owns effect merging and conflict
+decisions without depending on the command engine. Invalid configuration or
+trust-store loading fails preparation with diagnostics and marks a newly
+started durable Turn failed before a provider request.
+`UserPromptSubmit` runs after the durable Turn start, so a denied
 prompt still produces a recoverable terminal Turn. `PreToolUse` may deny or
 replace normalized arguments before dispatch; `PostToolUse` may replace only
 the next model-visible observation; `PostCompact` runs after replacement

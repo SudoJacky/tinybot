@@ -326,9 +326,9 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
 
     let artifact: ArtifactRef;
     try {
-      artifact = assistantFileArtifact(resolveAssistantFileLink(link.href, activeSession.workingDirectory));
+      artifact = assistantFileArtifact(resolveAssistantFileLink(link.href, activeSession.workingDirectory, link.sourcePath));
       logRendererEvent("info", "artifact.file_link.resolved", {
-        href: link.href, path: artifact.fetchPath, sessionId: activeSession.id,
+        href: link.href, sourcePath: link.sourcePath, path: artifact.fetchPath, sessionId: activeSession.id,
       });
     } catch (error) {
       artifact = assistantFileArtifact({ path: link.href, title: assistantFileLinkTitle(link.href) });
@@ -345,6 +345,7 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
       console.error("[artifact-preview] workspace file link resolution failed", {
         error,
         href: link.href,
+        sourcePath: link.sourcePath,
         sessionId: activeSession.id,
         workspaceRoot: activeSession.workingDirectory,
       });
@@ -612,7 +613,7 @@ function ArtifactDetails({
       {markdownContent ? (
         <article aria-label={markdownContent.title} className="react-artifact-detail__document" role="document">
           <AssistantMarkdown
-            onOpenFileLink={onOpenFileLink}
+            onOpenFileLink={(link) => onOpenFileLink({ ...link, sourcePath: localThreadId ? artifact.fetchPath : undefined })}
             streaming={false}
             text={markdownContent.text}
           />

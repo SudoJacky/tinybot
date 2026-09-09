@@ -44,3 +44,4 @@ docs/superpowers/
 *.tmp
 *.temp
 .VSCodeCounter/
+output/

@@ -121,27 +121,6 @@ impl ProviderProtocolAdapter {
         }
     }
 
-    #[cfg(test)]
-    pub fn complete(
-        self,
-        provider_config: &Value,
-        request: &Value,
-        observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
-    ) -> Result<Value, String> {
-        match self {
-            Self::ChatCompletions => crate::agent::provider::complete_chat_for_agent_with_observer(
-                provider_config,
-                request,
-                observer,
-            ),
-            Self::Responses => crate::agent::provider::complete_responses_for_agent_with_observer(
-                provider_config,
-                request,
-                observer,
-            ),
-        }
-    }
-
     pub async fn complete_async(
         self,
         provider_config: &Value,

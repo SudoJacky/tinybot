@@ -323,7 +323,10 @@ impl WorkerRpcRouter {
                     "session_id": params.session_id,
                 }),
             ),
-            ToolExecutionTarget::RuntimeControl(_) | ToolExecutionTarget::AgentGraph { .. } => {
+            ToolExecutionTarget::RuntimeControl(_)
+            | ToolExecutionTarget::AgentGraph { .. }
+            | ToolExecutionTarget::SpawnWorkspaceThread
+            | ToolExecutionTarget::SendThreadMessage => {
                 return Err(WorkerProtocolError::new(
                     WorkerProtocolErrorCode::InvalidProtocol,
                     "runtime-owned tools cannot be dispatched through tool_executor.execute",

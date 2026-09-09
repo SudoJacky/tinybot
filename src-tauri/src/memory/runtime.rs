@@ -1,13 +1,14 @@
-use super::model::{extract_memories, select_diff, TurnEvidence};
+use super::model::{MemoryModel, TurnEvidence};
 use super::store::{MemoryStore, PendingMemoryTurn};
 use crate::threads::turn::AgentTurnStatus;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 const MEMORY_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_PENDING_EXTRACTIONS_PER_TICK: usize = 10;
@@ -16,148 +17,221 @@ struct WorkspaceMemoryRuntime {
     store: MemoryStore,
     thread_store: WorkspaceThreadStore,
     thread_store_path: String,
-    latest_config: Mutex<Value>,
-    phase_lock: tokio::sync::Mutex<()>,
-    heartbeat_started: AtomicBool,
+    latest_config: Arc<Mutex<Value>>,
+    model: Arc<dyn MemoryModel>,
+    cancellation: CancellationToken,
 }
 
-static MEMORY_RUNTIMES: OnceLock<Mutex<HashMap<PathBuf, Arc<WorkspaceMemoryRuntime>>>> =
-    OnceLock::new();
+struct MemoryWorker {
+    store: MemoryStore,
+    thread_store_path: String,
+    config: Arc<Mutex<Value>>,
+    sender: mpsc::UnboundedSender<PendingMemoryTurn>,
+    cancellation: CancellationToken,
+    task: tauri::async_runtime::JoinHandle<()>,
+}
 
-pub(crate) fn start_workspace_runtime(
-    workspace_root: PathBuf,
-    thread_store: WorkspaceThreadStore,
-    config_snapshot: Value,
-) {
-    match workspace_runtime(&workspace_root, thread_store, config_snapshot) {
-        Ok(runtime) => runtime.start_heartbeat(),
-        Err(error) => report_failure("startup", &workspace_root, None, None, &error),
+#[derive(Default)]
+struct MemoryRuntimeState {
+    workers: HashMap<(PathBuf, PathBuf), MemoryWorker>,
+    stopped: bool,
+    shutting_down: bool,
+}
+
+/// Application-owned workers. Accepted jobs are durable before they enter the queue.
+#[derive(Clone)]
+pub(crate) struct MemoryRuntime {
+    state: Arc<Mutex<MemoryRuntimeState>>,
+    model: Arc<dyn MemoryModel>,
+    heartbeat_interval: Duration,
+}
+
+impl MemoryRuntime {
+    pub(crate) fn new(model: Arc<dyn MemoryModel>) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(MemoryRuntimeState::default())),
+            model,
+            heartbeat_interval: MEMORY_HEARTBEAT_INTERVAL,
+        }
     }
-}
 
-pub(crate) fn schedule_turn_extraction(
-    workspace_root: PathBuf,
-    thread_store: WorkspaceThreadStore,
-    config_snapshot: Value,
-    thread_id: String,
-    turn_id: String,
-    workspace_path: String,
-) {
-    let runtime = match workspace_runtime(&workspace_root, thread_store, config_snapshot) {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            report_failure(
-                "phase1_schedule",
-                &workspace_root,
-                Some(&thread_id),
-                Some(&turn_id),
-                &error,
-            );
-            return;
-        }
-    };
-    runtime.start_heartbeat();
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = runtime
-            .enqueue_and_process(thread_id.clone(), turn_id.clone(), workspace_path)
-            .await
-        {
-            report_failure(
-                "phase1",
-                &workspace_root,
-                Some(&thread_id),
-                Some(&turn_id),
-                &error,
-            );
-        }
-    });
-}
-
-fn workspace_runtime(
-    workspace_root: &Path,
-    thread_store: WorkspaceThreadStore,
-    config_snapshot: Value,
-) -> Result<Arc<WorkspaceMemoryRuntime>, String> {
-    let key = std::fs::canonicalize(workspace_root).map_err(|error| {
-        format!(
-            "failed to canonicalize memory runtime workspace `{}`: {error}",
-            workspace_root.display()
-        )
-    })?;
-    let runtimes = MEMORY_RUNTIMES.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut runtimes = runtimes
-        .lock()
-        .map_err(|_| "memory runtime registry lock is poisoned".to_string())?;
-    if let Some(runtime) = runtimes.get(&key) {
-        *runtime
-            .latest_config
+    pub(crate) fn start(&self, threads: WorkspaceThreadStore, config: Value) -> Result<(), String> {
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| "memory runtime config lock is poisoned".to_string())? = config_snapshot;
-        return Ok(runtime.clone());
-    }
-    let store = MemoryStore::for_workspace(&key);
-    store.initialize()?;
-    let thread_store_path = super::normalized_workspace_path(&key)?;
-    let runtime = Arc::new(WorkspaceMemoryRuntime {
-        store,
-        thread_store,
-        thread_store_path,
-        latest_config: Mutex::new(config_snapshot),
-        phase_lock: tokio::sync::Mutex::new(()),
-        heartbeat_started: AtomicBool::new(false),
-    });
-    runtimes.insert(key, runtime.clone());
-    Ok(runtime)
-}
-
-impl WorkspaceMemoryRuntime {
-    fn start_heartbeat(self: &Arc<Self>) {
-        if self.heartbeat_started.swap(true, Ordering::AcqRel) {
-            return;
+            .map_err(|_| "memory runtime lock is poisoned")?;
+        if state.shutting_down {
+            return Err("memory workers are still shutting down".into());
         }
-        let runtime = self.clone();
-        tauri::async_runtime::spawn(async move {
-            let mut interval = tokio::time::interval(MEMORY_HEARTBEAT_INTERVAL);
-            interval.tick().await;
-            loop {
-                interval.tick().await;
-                if let Err(error) = runtime.run_heartbeat().await {
-                    report_failure(
-                        "heartbeat",
-                        runtime.store_workspace_root(),
-                        None,
-                        None,
-                        &error,
-                    );
-                }
-            }
-        });
+        self.worker(&mut state, threads, config)?;
+        state.stopped = false;
+        Ok(())
     }
 
-    async fn enqueue_and_process(
+    pub(crate) fn schedule_turn_extraction(
         &self,
+        threads: WorkspaceThreadStore,
+        config: Value,
         thread_id: String,
         turn_id: String,
         workspace_path: String,
     ) -> Result<(), String> {
-        self.store.enqueue_turn(
-            &self.thread_store_path,
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "memory runtime lock is poisoned")?;
+        if state.stopped {
+            return Err("memory runtime is not accepting extractions".into());
+        }
+        let worker = self.worker(&mut state, threads, config)?;
+        worker.store.enqueue_turn(
+            &worker.thread_store_path,
             &thread_id,
             &turn_id,
             &workspace_path,
         )?;
-        let _guard = self.phase_lock.lock().await;
-        let pending = PendingMemoryTurn {
-            thread_store_path: self.thread_store_path.clone(),
-            thread_id,
-            turn_id,
-            workspace_path,
+        worker
+            .sender
+            .send(PendingMemoryTurn {
+                thread_store_path: worker.thread_store_path.clone(),
+                thread_id,
+                turn_id,
+                workspace_path,
+            })
+            .map_err(|_| "memory worker exited; extraction remains queued in storage".to_string())
+    }
+
+    fn worker<'a>(
+        &self,
+        state: &'a mut MemoryRuntimeState,
+        threads: WorkspaceThreadStore,
+        config: Value,
+    ) -> Result<&'a MemoryWorker, String> {
+        let root = std::fs::canonicalize(threads.workspace_root()).map_err(|error| {
+            format!(
+                "failed to resolve memory workspace `{}`: {error}",
+                threads.workspace_root().display()
+            )
+        })?;
+        let key = (root.clone(), threads.data_root().to_path_buf());
+        if !state.workers.contains_key(&key) {
+            let store = MemoryStore::new(threads.data_root());
+            store.initialize()?;
+            let thread_store_path = super::normalized_workspace_path(&root)?;
+            let latest_config = Arc::new(Mutex::new(config.clone()));
+            let cancellation = CancellationToken::new();
+            let (sender, receiver) = mpsc::unbounded_channel();
+            let runtime = WorkspaceMemoryRuntime {
+                store: store.clone(),
+                thread_store: threads,
+                thread_store_path: thread_store_path.clone(),
+                latest_config: latest_config.clone(),
+                model: self.model.clone(),
+                cancellation: cancellation.clone(),
+            };
+            let task = tauri::async_runtime::spawn(runtime.run(receiver, self.heartbeat_interval));
+            state.workers.insert(
+                key.clone(),
+                MemoryWorker {
+                    store,
+                    thread_store_path,
+                    config: latest_config,
+                    sender,
+                    cancellation,
+                    task,
+                },
+            );
+        }
+        let worker = state.workers.get(&key).expect("worker was inserted");
+        if worker.sender.is_closed() {
+            return Err("memory worker has exited unexpectedly".into());
+        }
+        *worker
+            .config
+            .lock()
+            .map_err(|_| "memory config lock is poisoned")? = config;
+        Ok(worker)
+    }
+
+    pub(crate) async fn shutdown(&self, timeout: Duration) -> Result<(), String> {
+        // Prevent a new generation from starting until every old worker has exited.
+        let tasks = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "memory runtime lock is poisoned")?;
+            if state.shutting_down {
+                return Err("memory shutdown is already in progress".into());
+            }
+            state.stopped = true;
+            state.shutting_down = true;
+            for worker in state.workers.values() {
+                worker.cancellation.cancel();
+            }
+            std::mem::take(&mut state.workers)
         };
-        self.process_pending_turn(&pending).await
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut failures = Vec::new();
+        for ((workspace, _), mut worker) in tasks {
+            match tokio::time::timeout_at(deadline, &mut worker.task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failures.push(format!(
+                    "memory worker `{}` failed: {error}",
+                    workspace.display()
+                )),
+                Err(_) => {
+                    worker.task.abort();
+                    let _cancelled = worker.task.await;
+                    failures.push(format!("memory worker `{}` exceeded shutdown timeout; pending extractions remain durable", workspace.display()));
+                }
+            }
+        }
+        self.state
+            .lock()
+            .map_err(|_| "memory runtime lock is poisoned")?
+            .shutting_down = false;
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
+    }
+}
+
+impl WorkspaceMemoryRuntime {
+    async fn run(
+        self,
+        mut receiver: mpsc::UnboundedReceiver<PendingMemoryTurn>,
+        heartbeat_interval: Duration,
+    ) {
+        let mut interval = tokio::time::interval(heartbeat_interval);
+        interval.tick().await;
+        loop {
+            let work = async {
+                tokio::select! {
+                    pending = receiver.recv() => {
+                        let Some(pending) = pending else { return false; };
+                        if let Err(error) = self.process_pending_turn(&pending).await {
+                            report_failure("phase1", self.store_workspace_root(), Some(&pending.thread_id), Some(&pending.turn_id), &error);
+                        }
+                    }
+                    _ = interval.tick() => {
+                        if let Err(error) = self.run_heartbeat().await {
+                            report_failure("heartbeat", self.store_workspace_root(), None, None, &error);
+                        }
+                    }
+                }
+                true
+            };
+            tokio::select! {
+                biased;
+                _ = self.cancellation.cancelled() => break,
+                keep_running = work => if !keep_running { break; },
+            }
+        }
     }
 
     async fn run_heartbeat(&self) -> Result<(), String> {
-        let _guard = self.phase_lock.lock().await;
         for pending in self
             .store
             .pending_turns(&self.thread_store_path, MAX_PENDING_EXTRACTIONS_PER_TICK)?
@@ -187,13 +261,18 @@ impl WorkspaceMemoryRuntime {
         }
         let config = self.config_snapshot()?;
         increment_metric("memory.phase1.model.started");
-        let memories = extract_memories(&config, &evidence)
+        let memories = self
+            .model
+            .extract(&config, &evidence)
             .await
             .map_err(|error| {
                 increment_metric("memory.phase1.model.failed");
                 error
             })?;
         increment_metric("memory.phase1.model.completed");
+        if self.cancellation.is_cancelled() {
+            return Err("memory extraction cancelled".into());
+        }
         let inserted = self.store.complete_extraction(pending, &memories)?;
         increment_metric("memory.phase1.fragments.inserted");
         if inserted == 0 {
@@ -208,11 +287,14 @@ impl WorkspaceMemoryRuntime {
         };
         let config = self.config_snapshot()?;
         increment_metric("memory.phase2.model.started");
-        let diff = select_diff(&config, &input).await.map_err(|error| {
+        let diff = self.model.select(&config, &input).await.map_err(|error| {
             increment_metric("memory.phase2.model.failed");
             error
         })?;
         increment_metric("memory.phase2.model.completed");
+        if self.cancellation.is_cancelled() {
+            return Err("memory selection cancelled".into());
+        }
         let changed = self.store.apply_selection_diff(&input, &diff)?;
         increment_metric(if changed {
             "memory.phase2.diff.changed"
@@ -352,3 +434,15 @@ fn report_failure(
 pub(super) fn successful_tool_result_for_test(result: &Value) -> bool {
     successful_tool_result(result)
 }
+
+impl Drop for MemoryRuntimeState {
+    fn drop(&mut self) {
+        for worker in self.workers.values() {
+            worker.cancellation.cancel();
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

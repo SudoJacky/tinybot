@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const BUILTIN_IDENTITY_PRECEDENCE: u32 = 100;
 const WORKSPACE_SYSTEM_PRECEDENCE: u32 = 300;
@@ -20,11 +16,7 @@ const SELECTED_SKILL_PRECEDENCE: u32 = 700;
 const COLLABORATION_PRECEDENCE: u32 = 800;
 const AGENT_ROLE_PRECEDENCE: u32 = 810;
 const RUNTIME_ENVIRONMENT_PRECEDENCE: u32 = 900;
-const PROJECT_INSTRUCTION_MAX_BYTES: usize = 64 * 1024;
 const WORKSPACE_SYSTEM_MAX_BYTES: usize = 128 * 1024;
-const WORKSPACE_PROFILE_MAX_BYTES: usize = 64 * 1024;
-const PROJECT_INSTRUCTION_FILE_NAME: &str = "AGENTS.md";
-const PROJECT_INSTRUCTION_OVERRIDE_FILE_NAME: &str = "AGENTS.override.md";
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -103,81 +95,56 @@ pub struct TurnInstructionInput {
     pub selected_skills: Vec<String>,
 }
 
-impl TurnInstructionInput {
-    pub(crate) fn from_wire(spec: &Value, workspace_root: &Path) -> Result<Self, String> {
-        Ok(Self {
-            working_directory: instruction_working_directory(spec, workspace_root)?,
-            developer: optional_turn_instruction(
-                spec,
-                &["developerInstructions", "developer_instructions"],
-                "developer instructions",
-            )?,
-            collaboration: optional_turn_instruction(
-                spec,
-                &["collaborationMode", "collaboration_mode"],
-                "collaboration mode instructions",
-            )?,
-            agent_role: optional_turn_instruction(
-                spec,
-                &["agentRole", "agent_role"],
-                "agent role instructions",
-            )?,
-            memory_snapshot: long_term_memory_snapshot(spec)?,
-            selected_skills: selected_skill_names(spec)?,
-        })
-    }
+#[derive(Clone, Debug)]
+pub(crate) struct LoadedInstructionFile {
+    pub path: PathBuf,
+    pub scope_root: PathBuf,
+    pub kind: InstructionSourceKind,
+    pub content: String,
+    pub truncated: bool,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
-pub struct InstructionComposer {
-    project_instruction_max_bytes: usize,
-    plugin_store: crate::plugins::PluginStore,
+pub(crate) struct InstructionSkill {
+    pub name: String,
+    pub description: String,
+    pub path: PathBuf,
+    pub root: PathBuf,
+    pub content: String,
 }
 
-impl Default for InstructionComposer {
-    fn default() -> Self {
-        Self {
-            project_instruction_max_bytes: PROJECT_INSTRUCTION_MAX_BYTES,
-            plugin_store: crate::plugins::PluginStore::default_global(),
-        }
-    }
+#[derive(Clone, Debug)]
+pub(crate) struct LoadedInstructionSources {
+    pub loaded_at_ms: u64,
+    pub system_content: String,
+    pub profiles: Vec<LoadedInstructionFile>,
+    pub projects: Vec<LoadedInstructionFile>,
+    pub workspace_skills: Vec<InstructionSkill>,
+    pub plugin_skills: Vec<InstructionSkill>,
+    pub plugin_root: PathBuf,
 }
+
+/// Pure composition: contents, catalogs and timestamps are supplied by the caller.
+pub(crate) struct InstructionComposer;
 
 impl InstructionComposer {
-    #[cfg(test)]
-    pub fn compose(
-        &self,
-        workspace_root: &Path,
-        spec: &Value,
-    ) -> Result<ComposedInstructions, String> {
-        self.compose_with_config(workspace_root, spec, &Value::Null)
-    }
-
-    pub fn compose_with_config(
-        &self,
-        workspace_root: &Path,
-        spec: &Value,
-        _config_snapshot: &Value,
-    ) -> Result<ComposedInstructions, String> {
-        self.compose_input(
-            workspace_root,
-            &TurnInstructionInput::from_wire(spec, workspace_root)?,
-        )
-    }
-
-    pub(crate) fn compose_input(
+    pub(crate) fn compose(
         &self,
         workspace_root: &Path,
         input: &TurnInstructionInput,
+        loaded: LoadedInstructionSources,
     ) -> Result<ComposedInstructions, String> {
         let working_directory = input.working_directory.clone();
-        let loaded_at_ms = current_unix_ms();
-        let system_content =
-            crate::system_prompt::load_or_create_system_prompt_for_working_directory(
-                workspace_root,
-                &working_directory,
-            )?;
-        crate::tool_notes::create_default_tool_notes_if_missing(workspace_root)?;
+        let LoadedInstructionSources {
+            loaded_at_ms,
+            system_content,
+            profiles,
+            projects,
+            workspace_skills,
+            plugin_skills,
+            plugin_root,
+        } = loaded;
         if system_content.len() > WORKSPACE_SYSTEM_MAX_BYTES {
             return Err(format!(
                 "workspace system instructions exceed the {WORKSPACE_SYSTEM_MAX_BYTES}-byte limit: `{}`",
@@ -232,61 +199,39 @@ impl InstructionComposer {
             false,
         );
 
-        for (file_name, kind, precedence) in [
-            (
-                "SOUL.md",
-                InstructionSourceKind::WorkspaceSoul,
-                WORKSPACE_SOUL_PRECEDENCE,
-            ),
-            (
-                "USER.md",
-                InstructionSourceKind::WorkspaceUser,
-                WORKSPACE_USER_PRECEDENCE,
-            ),
-            (
-                crate::tool_notes::TOOL_NOTES_FILE_NAME,
-                InstructionSourceKind::WorkspaceTools,
-                WORKSPACE_TOOLS_PRECEDENCE,
-            ),
-        ] {
-            let path = workspace_root.join(file_name);
-            let Some((content, warnings)) = read_optional_workspace_instruction(&path)? else {
-                continue;
+        for file in profiles {
+            let precedence = match file.kind {
+                InstructionSourceKind::WorkspaceSoul => WORKSPACE_SOUL_PRECEDENCE,
+                InstructionSourceKind::WorkspaceUser => WORKSPACE_USER_PRECEDENCE,
+                InstructionSourceKind::WorkspaceTools => WORKSPACE_TOOLS_PRECEDENCE,
+                _ => return Err("invalid workspace profile instruction kind".into()),
             };
             push_instruction_source(
                 &mut messages,
                 &mut sources,
-                kind,
-                path,
-                workspace_root.to_path_buf(),
+                file.kind,
+                file.path,
+                file.scope_root,
                 precedence,
                 loaded_at_ms,
-                content,
-                false,
-                warnings,
+                file.content,
+                file.truncated,
+                file.warnings,
                 false,
             );
         }
-
-        let mut remaining_bytes = self.project_instruction_max_bytes;
-        for (depth, candidate) in project_instruction_paths(&working_directory)?
-            .into_iter()
-            .enumerate()
-        {
-            let (content, truncated, warnings, consumed_bytes) =
-                read_project_instruction(&candidate.path, remaining_bytes)?;
-            remaining_bytes = remaining_bytes.saturating_sub(consumed_bytes);
+        for (depth, file) in projects.into_iter().enumerate() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
-                candidate.kind,
-                candidate.path,
-                candidate.scope_root,
+                file.kind,
+                file.path,
+                file.scope_root,
                 PROJECT_INSTRUCTION_PRECEDENCE.saturating_add(depth as u32),
                 loaded_at_ms,
-                content,
-                truncated,
-                warnings,
+                file.content,
+                file.truncated,
+                file.warnings,
                 true,
             );
         }
@@ -313,8 +258,6 @@ impl InstructionComposer {
         }
 
         let selected_skills = input.selected_skills.clone();
-        let workspace_skills =
-            crate::workspace_extensions::discover_workspace_skills(&working_directory)?;
         if !workspace_skills.is_empty() {
             push_instruction_source(
                 &mut messages,
@@ -330,20 +273,13 @@ impl InstructionComposer {
                 false,
             );
         }
-        let plugin_skills = self
-            .plugin_store
-            .enabled()
-            .map_err(|error| format!("failed to discover Agent Plugin skills: {error}"))?
-            .into_iter()
-            .flat_map(|plugin| plugin.skills)
-            .collect::<Vec<_>>();
         if !plugin_skills.is_empty() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
                 InstructionSourceKind::PluginSkillCatalog,
                 PathBuf::from("plugins:skill-catalog"),
-                crate::config::application::tinybot_data_root().join("plugins"),
+                plugin_root,
                 PLUGIN_SKILL_CATALOG_PRECEDENCE,
                 loaded_at_ms,
                 render_plugin_skill_catalog(&plugin_skills),
@@ -354,15 +290,12 @@ impl InstructionComposer {
         }
         let mut activated = Vec::new();
         for selected in &selected_skills {
-            if let Some(skill) = plugin_skills
-                .iter()
-                .find(|skill| skill.qualified_name() == *selected)
-            {
+            if let Some(skill) = plugin_skills.iter().find(|skill| skill.name == *selected) {
                 activated.push((
                     skill.path.clone(),
                     skill.root.clone(),
                     skill.content.clone(),
-                    format!("Agent Plugin skill activation: {}", skill.qualified_name()),
+                    format!("Agent Plugin skill activation: {}", skill.name),
                 ));
             } else if let Some(skill) = workspace_skills
                 .iter()
@@ -458,15 +391,9 @@ impl InstructionComposer {
             rendered_prompt,
         })
     }
-
-    #[cfg(test)]
-    pub(crate) fn with_plugin_store_root(mut self, root: PathBuf) -> Self {
-        self.plugin_store = crate::plugins::PluginStore::new(root);
-        self
-    }
 }
 
-fn render_plugin_skill_catalog(skills: &[crate::plugins::PluginSkill]) -> String {
+fn render_plugin_skill_catalog(skills: &[InstructionSkill]) -> String {
     let mut content = String::from(
         "# Available Agent Plugin skills\n\n\
          The following globally enabled Agent Skills are available in every workspace. \
@@ -477,7 +404,7 @@ fn render_plugin_skill_catalog(skills: &[crate::plugins::PluginSkill]) -> String
     for skill in skills {
         content.push_str(&format!(
             "\n- `{}`: {} (file: `{}`)",
-            skill.qualified_name(),
+            skill.name,
             skill.description,
             skill.path.display()
         ));
@@ -485,9 +412,7 @@ fn render_plugin_skill_catalog(skills: &[crate::plugins::PluginSkill]) -> String
     content
 }
 
-fn render_workspace_skill_catalog(
-    skills: &[crate::workspace_extensions::WorkspaceSkill],
-) -> String {
+fn render_workspace_skill_catalog(skills: &[InstructionSkill]) -> String {
     let mut content = String::from(
         "# Available workspace skills\n\n\
          The following Agent Skills apply to the current working directory. \
@@ -504,120 +429,6 @@ fn render_workspace_skill_catalog(
         ));
     }
     content
-}
-
-fn long_term_memory_snapshot(spec: &Value) -> Result<Option<String>, String> {
-    let value = std::iter::once(spec)
-        .chain(spec.get("metadata"))
-        .find_map(|source| {
-            source
-                .get("longTermMemorySnapshot")
-                .or_else(|| source.get("long_term_memory_snapshot"))
-        });
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let content = value
-        .as_str()
-        .ok_or_else(|| "long-term memory snapshot must be a string".to_string())?;
-    if content.trim().is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(content.to_string()))
-    }
-}
-
-fn selected_skill_names(spec: &Value) -> Result<Vec<String>, String> {
-    let value = std::iter::once(spec)
-        .chain(spec.get("metadata"))
-        .find_map(|source| {
-            ["selectedSkills", "selected_skills"]
-                .iter()
-                .find_map(|key| source.get(*key))
-        });
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    let values = value
-        .as_array()
-        .ok_or_else(|| "selected skills must be an array of names".to_string())?;
-    let mut names = Vec::with_capacity(values.len());
-    for value in values {
-        let name = value
-            .as_str()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "selected skills must contain non-empty strings".to_string())?;
-        if !name.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
-        }) {
-            return Err(format!("selected skill name is invalid: `{name}`"));
-        }
-        if names.iter().any(|existing| existing == name) {
-            return Err(format!("selected skill is duplicated: `{name}`"));
-        }
-        names.push(name.to_string());
-    }
-    Ok(names)
-}
-
-fn optional_turn_instruction(
-    spec: &Value,
-    keys: &[&str],
-    label: &str,
-) -> Result<Option<String>, String> {
-    let value = std::iter::once(spec)
-        .chain(spec.get("metadata"))
-        .find_map(|source| keys.iter().find_map(|key| source.get(*key)));
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    value
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .map(Some)
-        .ok_or_else(|| format!("{label} must be a non-empty string"))
-}
-
-fn read_optional_workspace_instruction(
-    path: &Path,
-) -> Result<Option<(String, Vec<String>)>, String> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(format!(
-                "failed to inspect workspace instructions `{}`: {error}",
-                path.display()
-            ));
-        }
-    };
-    if !metadata.is_file() {
-        return Err(format!(
-            "workspace instruction path is not a file: `{}`",
-            path.display()
-        ));
-    }
-    if metadata.len() > WORKSPACE_PROFILE_MAX_BYTES as u64 {
-        return Err(format!(
-            "workspace instructions exceed the {WORKSPACE_PROFILE_MAX_BYTES}-byte limit: `{}`",
-            path.display()
-        ));
-    }
-    let content = fs::read_to_string(path).map_err(|error| {
-        format!(
-            "failed to read workspace instructions `{}`: {error}",
-            path.display()
-        )
-    })?;
-    let warnings = if content.trim().is_empty() {
-        vec!["workspace instruction source is empty".to_string()]
-    } else {
-        Vec::new()
-    };
-    Ok(Some((content, warnings)))
 }
 
 impl ComposedInstructions {
@@ -649,139 +460,6 @@ impl ComposedInstructions {
             })
             .collect()
     }
-}
-
-struct ProjectInstructionCandidate {
-    path: PathBuf,
-    scope_root: PathBuf,
-    kind: InstructionSourceKind,
-}
-
-fn instruction_working_directory(spec: &Value, workspace_root: &Path) -> Result<PathBuf, String> {
-    let candidate = instruction_string_field(spec, "cwd")
-        .or_else(|| instruction_string_field(spec, "workingDirectory"))
-        .or_else(|| instruction_string_field(spec, "working_directory"))
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| instruction_string_field(metadata, "cwd"))
-        })
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| instruction_string_field(metadata, "workingDirectory"))
-        })
-        .or_else(|| {
-            spec.get("metadata")
-                .and_then(|metadata| instruction_string_field(metadata, "working_directory"))
-        })
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace_root.to_path_buf());
-    crate::runtime::working_directory::resolve_existing_working_directory(
-        workspace_root,
-        &candidate,
-    )
-}
-
-fn project_instruction_paths(
-    working_directory: &Path,
-) -> Result<Vec<ProjectInstructionCandidate>, String> {
-    let mut candidates = Vec::new();
-    for directory in crate::workspace_extensions::project_scope_directories(working_directory)? {
-        if let Some((path, kind)) = instruction_candidate_in_directory(&directory)? {
-            candidates.push(ProjectInstructionCandidate {
-                path,
-                scope_root: directory,
-                kind,
-            });
-        }
-    }
-    Ok(candidates)
-}
-
-fn instruction_candidate_in_directory(
-    directory: &Path,
-) -> Result<Option<(PathBuf, InstructionSourceKind)>, String> {
-    for (name, kind) in [
-        (
-            PROJECT_INSTRUCTION_OVERRIDE_FILE_NAME,
-            InstructionSourceKind::ProjectOverride,
-        ),
-        (
-            PROJECT_INSTRUCTION_FILE_NAME,
-            InstructionSourceKind::ProjectAgents,
-        ),
-    ] {
-        let path = directory.join(name);
-        match fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() => return Ok(Some((path, kind))),
-            Ok(_) => {
-                return Err(format!(
-                    "project instruction path is not a file: `{}`",
-                    path.display()
-                ));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "failed to inspect project instruction path `{}`: {error}",
-                    path.display()
-                ));
-            }
-        }
-    }
-    Ok(None)
-}
-
-fn read_project_instruction(
-    path: &Path,
-    remaining_bytes: usize,
-) -> Result<(String, bool, Vec<String>, usize), String> {
-    let file = fs::File::open(path).map_err(|error| {
-        format!(
-            "failed to read project instructions `{}`: {error}",
-            path.display()
-        )
-    })?;
-    let original_len = file
-        .metadata()
-        .map_err(|error| {
-            format!(
-                "failed to inspect project instructions `{}`: {error}",
-                path.display()
-            )
-        })?
-        .len();
-    let read_limit = remaining_bytes.saturating_add(1) as u64;
-    let mut data = Vec::with_capacity(remaining_bytes.saturating_add(1));
-    file.take(read_limit)
-        .read_to_end(&mut data)
-        .map_err(|error| {
-            format!(
-                "failed to read project instructions `{}`: {error}",
-                path.display()
-            )
-        })?;
-    let truncated = original_len > remaining_bytes as u64 || data.len() > remaining_bytes;
-    data.truncate(remaining_bytes);
-    let consumed_bytes = data.len();
-    let mut warnings = Vec::new();
-    if truncated {
-        warnings.push(format!(
-            "project instructions were truncated from {original_len} to {consumed_bytes} bytes"
-        ));
-    }
-    let content = match String::from_utf8(data) {
-        Ok(content) => content,
-        Err(error) => {
-            warnings.push(
-                "project instructions contained invalid UTF-8 and were decoded lossily".to_string(),
-            );
-            String::from_utf8_lossy(error.as_bytes()).into_owned()
-        }
-    };
-    if content.trim().is_empty() {
-        warnings.push("project instruction source is empty".to_string());
-    }
-    Ok((content, truncated, warnings, consumed_bytes))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -826,27 +504,108 @@ fn push_instruction_source(
     }
 }
 
-fn instruction_string_field(value: &Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
 fn content_hash(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn current_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
-#[path = "instructions_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    fn inputs() -> (TurnInstructionInput, LoadedInstructionSources) {
+        let root = PathBuf::from("virtual-workspace");
+        (
+            TurnInstructionInput {
+                working_directory: root.clone(),
+                developer: Some("developer".into()),
+                collaboration: None,
+                agent_role: None,
+                memory_snapshot: None,
+                selected_skills: vec!["plugin:skill".into()],
+            },
+            LoadedInstructionSources {
+                loaded_at_ms: 42,
+                system_content: "system".into(),
+                profiles: vec![],
+                projects: vec![LoadedInstructionFile {
+                    path: root.join("AGENTS.md"),
+                    scope_root: root.clone(),
+                    kind: InstructionSourceKind::ProjectAgents,
+                    content: "project".into(),
+                    truncated: true,
+                    warnings: vec!["truncated input".into()],
+                }],
+                workspace_skills: vec![],
+                plugin_skills: vec![InstructionSkill {
+                    name: "plugin:skill".into(),
+                    description: "skill description".into(),
+                    path: root.join("SKILL.md"),
+                    root: root.clone(),
+                    content: "skill body".into(),
+                }],
+                plugin_root: root.join("plugins"),
+            },
+        )
+    }
+
+    #[test]
+    fn loaded_values_determine_content_and_preserve_provenance() {
+        let (input, loaded) = inputs();
+        let first = InstructionComposer
+            .compose(&input.working_directory, &input, loaded.clone())
+            .unwrap();
+        let mut later = loaded;
+        later.loaded_at_ms = 99;
+        let second = InstructionComposer
+            .compose(&input.working_directory, &input, later)
+            .unwrap();
+        assert_eq!(first.rendered_prompt(), second.rendered_prompt());
+        assert_eq!(first.content_hash, second.content_hash);
+        assert!(first
+            .sources
+            .windows(2)
+            .all(|pair| pair[0].precedence < pair[1].precedence));
+        assert!(first.sources.iter().all(|source| source.loaded_at_ms == 42));
+        let project = first
+            .sources
+            .iter()
+            .find(|s| s.kind == InstructionSourceKind::ProjectAgents)
+            .unwrap();
+        assert!(project.truncated);
+        assert_eq!(first.diagnostics()[0].message, "truncated input");
+        assert!(first
+            .messages
+            .iter()
+            .all(|item| item.source_index < first.sources.len()));
+        assert!(first.rendered_prompt().contains("skill body"));
+        let catalog = first
+            .sources
+            .iter()
+            .find(|s| s.kind == InstructionSourceKind::PluginSkillCatalog)
+            .unwrap();
+        assert_eq!(
+            catalog.scope_root,
+            input
+                .working_directory
+                .join("plugins")
+                .display()
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn loaded_values_reject_missing_skills_and_oversized_system_instructions() {
+        let (input, mut loaded) = inputs();
+        loaded.plugin_skills.clear();
+        assert!(InstructionComposer
+            .compose(&input.working_directory, &input, loaded.clone())
+            .unwrap_err()
+            .contains("does not exist or is disabled"));
+        loaded.system_content = "x".repeat(WORKSPACE_SYSTEM_MAX_BYTES + 1);
+        assert!(InstructionComposer
+            .compose(&input.working_directory, &input, loaded)
+            .unwrap_err()
+            .contains("exceed"));
+    }
+}

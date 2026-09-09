@@ -20,7 +20,7 @@ src-tauri/src/workspace/types.rs
 src-tauri/src/workspace/artifact_review.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:e8ad966a3d9a8d8b388d5623e337c08f6d3922f853623f1f8501d2fc69b11346 -->
+<!-- tinybot-doc-fingerprint: sha256:57e75a32d98a78989684f4518afd178ce982b7f35c35844cb4de2c0a4d048f9a -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),

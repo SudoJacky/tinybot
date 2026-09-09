@@ -1,9 +1,17 @@
 # Command Hooks
-<!-- tinybot-module-fingerprint: sha256:f97bb076395b40648d928872672dcd10b3f519c2ce1bd7121d8f0d610e41ba2c -->
+<!-- tinybot-module-fingerprint: sha256:d7f3d99eff5954699fbebbde9f7302e35bfa82e9426de33082c2338b61110766 -->
 
 `command_hooks` discovers, validates, reviews, and runs user-defined lifecycle
 commands. Tinybot loads `hooks.json` from the global data directory and the
 active workspace's `.tinybot` directory. Sources are additive.
+
+The application bridge loads the engine for each Turn and adapts it to the
+runtime's asynchronous `AgentHook` interface. The Agent core receives neutral
+effects and run diagnostics; it does not discover configuration or construct
+command processes. Missing optional configuration is valid, but invalid
+configuration or an unreadable trust store fails preparation with source
+diagnostics. A newly started durable Turn is marked failed before any provider
+request. Catalog inspection still returns diagnostics for the settings UI.
 
 The first supported Codex-compatible events are `UserPromptSubmit`,
 `PreToolUse`, `PostToolUse`, and `PostCompact`. Each command receives one JSON

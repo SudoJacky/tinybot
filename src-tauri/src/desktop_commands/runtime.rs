@@ -14,37 +14,33 @@ pub(crate) fn start_native_runtime_with_workspace_root(
     let data_root = crate::config::application::tinybot_data_root();
     #[cfg(test)]
     let data_root = workspace_root.join(".tinybot");
-    if let Err(error) =
-        crate::threads::workspace_store::migrate_legacy_thread_storage(&workspace_root, &data_root)
-    {
-        let message = error.message;
-        {
-            let mut runtime = lock_runtime(shared);
-            runtime.last_error = Some(message.clone());
-        }
-        push_log(shared, &message);
-        return Err(message);
-    }
     let (agent_task_runtime, shell_runtime, thread_store, startup_reconciled) = {
         let mut runtime = lock_runtime(shared);
         if runtime.thread_store.workspace_root() != workspace_root
             || runtime.thread_store.data_root() != data_root
         {
             let thread_store =
-                crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
+                match crate::desktop::state::NativeRuntimeState::initialize_thread_store(
                     workspace_root.clone(),
                     data_root,
-                    crate::protocol::capability::default_desktop_capability_policy(),
-                );
-            runtime.thread_store = thread_store.clone();
-            runtime.native_agent_runtime = runtime
-                .native_agent_runtime
-                .clone()
-                .with_thread_store(thread_store);
+                ) {
+                    Ok(store) => store,
+                    Err(message) => {
+                        runtime.last_error = Some(message.clone());
+                        runtime
+                            .lifecycle_status
+                            .record_startup_failure(message.clone());
+                        drop(runtime);
+                        push_log(shared, &message);
+                        return Err(message);
+                    }
+                };
+            runtime.thread_store = thread_store;
+            runtime.lifecycle_status.startup_reconciled = false;
         }
         (
             runtime.native_agent_runtime.task_runtime(),
-            runtime.native_agent_runtime.shell_runtime(),
+            runtime.shell_runtime.clone(),
             runtime.thread_store.clone(),
             runtime.lifecycle_status.startup_reconciled,
         )
@@ -77,11 +73,22 @@ pub(crate) fn start_native_runtime_with_workspace_root(
         }
     }
     #[cfg(not(test))]
-    crate::memory::start_workspace_runtime(
-        workspace_root,
-        thread_store.clone(),
-        crate::config::application::native_runtime_config_snapshot(),
-    );
+    {
+        let memory = lock_runtime(shared).memory_runtime.clone();
+        if let Err(message) = memory.start(
+            thread_store.clone(),
+            crate::config::application::native_runtime_config_snapshot(),
+        ) {
+            let mut runtime = lock_runtime(shared);
+            runtime.last_error = Some(message.clone());
+            runtime
+                .lifecycle_status
+                .record_startup_failure(message.clone());
+            drop(runtime);
+            push_log(shared, &message);
+            return Err(message);
+        }
+    }
     if let Err(error) = shell_runtime.resume_accepting() {
         let message = format!("runtime resume failed: {}", error.message);
         {
@@ -132,8 +139,9 @@ async fn shutdown_native_runtime_async_with_timeout(
         let runtime = lock_runtime(shared);
         RuntimeLifecycle::new(
             runtime.native_agent_runtime.task_runtime(),
-            runtime.native_agent_runtime.shell_runtime(),
+            runtime.shell_runtime.clone(),
             runtime.mcp_runtime.clone(),
+            runtime.memory_runtime.clone(),
             runtime.subagent_manager.clone(),
             runtime.thread_store.clone(),
         )

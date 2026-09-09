@@ -106,15 +106,20 @@ impl fmt::Debug for CommandHookEngine {
 }
 
 impl CommandHookEngine {
-    pub(crate) fn load(data_root: &Path, workspace_root: &Path) -> Self {
+    pub(crate) fn load(data_root: &Path, workspace_root: &Path) -> Result<Self, String> {
         let workspace_root = absolute_path(workspace_root);
-        let hooks = load_resolved_hooks(data_root, &workspace_root)
-            .map(|catalog| catalog.hooks)
-            .unwrap_or_default();
-        Self {
-            workspace_root,
-            hooks,
+        let catalog = load_resolved_hooks(data_root, &workspace_root)?;
+        if !catalog.diagnostics.is_empty() {
+            return Err(format!(
+                "command hook configuration is invalid: {}",
+                serde_json::to_string(&catalog.diagnostics)
+                    .map_err(|error| format!("failed to encode hook diagnostics: {error}"))?
+            ));
         }
+        Ok(Self {
+            workspace_root,
+            hooks: catalog.hooks,
+        })
     }
 
     pub(crate) async fn evaluate(&self, request: &CommandHookRequest) -> CommandHookEvaluation {

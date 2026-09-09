@@ -63,6 +63,7 @@ pub(crate) struct RuntimeShutdownReport {
     pub(crate) agent_tasks: ShutdownReport,
     pub(crate) shell: ShellProcessCleanupReport,
     pub(crate) mcp: LifecycleStageReport,
+    pub(crate) memory: LifecycleStageReport,
     pub(crate) subagents: SubagentShutdownReport,
     pub(crate) state_persistence: LifecycleStageReport,
     pub(crate) failures: Vec<LifecycleFailure>,
@@ -131,6 +132,7 @@ pub(crate) struct RuntimeLifecycle {
     agent_tasks: TurnExecutionRuntime,
     shell: WorkerShellRuntime,
     mcp: McpRuntime,
+    memory: crate::memory::MemoryRuntime,
     subagents: SubagentThreadManager,
     threads: WorkspaceThreadStore,
 }
@@ -140,6 +142,7 @@ impl RuntimeLifecycle {
         agent_tasks: TurnExecutionRuntime,
         shell: WorkerShellRuntime,
         mcp: McpRuntime,
+        memory: crate::memory::MemoryRuntime,
         subagents: SubagentThreadManager,
         threads: WorkspaceThreadStore,
     ) -> Self {
@@ -147,6 +150,7 @@ impl RuntimeLifecycle {
             agent_tasks,
             shell,
             mcp,
+            memory,
             subagents,
             threads,
         }
@@ -171,6 +175,24 @@ impl RuntimeLifecycle {
                 ),
             });
         }
+
+        let memory = match self.memory.shutdown(timeout).await {
+            Ok(()) => LifecycleStageReport {
+                completed: true,
+                detail: "memory workers stopped; pending extractions remain durable".into(),
+            },
+            Err(message) => {
+                failures.push(LifecycleFailure {
+                    stage: "memory".into(),
+                    code: "shutdown_failed".into(),
+                    message: message.clone(),
+                });
+                LifecycleStageReport {
+                    completed: false,
+                    detail: message,
+                }
+            }
+        };
 
         let shell = self.shell.shutdown();
         failures.extend(
@@ -290,6 +312,7 @@ impl RuntimeLifecycle {
             agent_tasks,
             shell,
             mcp,
+            memory,
             subagents,
             state_persistence,
             failures,

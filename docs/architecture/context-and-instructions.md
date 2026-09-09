@@ -1,6 +1,7 @@
 # Context and Instructions
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/README.md
+src-tauri/src/agent/instruction_sources.rs
 src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/instructions.rs
@@ -13,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:90233d2d24a16bf968d463b76ef1ac1bcfa8f998d824ca468b3894898a8237d6 -->
+<!-- tinybot-doc-fingerprint: sha256:0bb07d75feb1f3e8359ace1855f48c7eaa2993bf2b0381b7fea8043d7de495b7 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -50,7 +51,12 @@ exist and must be a directory.
 
 ## Instruction order
 
-`InstructionComposer` renders instruction sources in increasing precedence:
+`InstructionLoader` resolves filesystem sources, bounded project reads and enabled
+plugin catalogs using the application's data path. Its `LoadedInstructionSources`
+contains contents, paths, warnings, truncation flags and the load timestamp.
+`InstructionComposer` consumes those values without filesystem, plugin-store or
+clock access. Skill selection, precedence, provenance and content hashes can be
+verified using in-memory inputs. It renders sources in increasing precedence:
 
 1. Built-in Tinybot identity.
 2. Turn-scoped developer instructions, when present.

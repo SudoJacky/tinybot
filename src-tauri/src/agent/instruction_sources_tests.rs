@@ -6,7 +6,7 @@ fn allows_a_working_directory_outside_the_workspace_root() {
     let outside = fixture.root.with_extension("outside");
     fs::create_dir_all(&outside).expect("outside working directory fixture should create");
 
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .compose(
             &fixture.root,
             &serde_json::json!({ "workingDirectory": &outside }),
@@ -25,9 +25,9 @@ fn reports_truncation_and_invalid_utf8_without_hiding_the_source() {
         b"abc\xFFdef",
     )
     .expect("invalid UTF-8 project instructions should write");
-    let composer = InstructionComposer {
+    let composer = InstructionLoader {
         project_instruction_max_bytes: 5,
-        ..InstructionComposer::default()
+        ..InstructionLoader::default()
     };
 
     let composed = composer
@@ -63,7 +63,7 @@ fn composes_editable_workspace_identity_user_and_tool_instructions() {
 
     let plugin_store_root = fixture.root.join("plugin-store");
     fs::create_dir_all(&plugin_store_root).expect("empty plugin store should create");
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .with_plugin_store_root(plugin_store_root)
         .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
         .expect("editable workspace instructions should compose");
@@ -114,7 +114,7 @@ fn composes_explicit_turn_developer_instructions_before_workspace_system() {
     )
     .expect("workspace system instructions should write");
 
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .compose(
             &fixture.root,
             &serde_json::json!({
@@ -150,7 +150,7 @@ fn composes_selected_agent_plugin_skill_with_provenance() {
         "Review the actual diff before reporting.",
     );
 
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .with_plugin_store_root(plugin_store_root)
         .compose(
             &fixture.root,
@@ -184,7 +184,7 @@ fn composes_thread_memory_after_workspace_instructions_and_before_turn_context()
     )
     .expect("workspace user instructions should write");
 
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .compose(
             &fixture.root,
             &serde_json::json!({
@@ -217,7 +217,7 @@ fn exposes_enabled_plugin_skill_metadata_without_eagerly_loading_its_body() {
         "Follow private workspace rules.",
     );
 
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .with_plugin_store_root(plugin_store_root.clone())
         .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
         .expect("plugin skill catalog should compose");
@@ -231,7 +231,7 @@ fn exposes_enabled_plugin_skill_metadata_without_eagerly_loading_its_body() {
     crate::plugins::PluginStore::new(plugin_store_root.clone())
         .set_enabled("workspace-tools", false)
         .expect("plugin should disable");
-    let disabled = InstructionComposer::default()
+    let disabled = InstructionLoader::default()
         .with_plugin_store_root(plugin_store_root)
         .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
         .expect("disabled plugin should still compose");
@@ -264,7 +264,7 @@ fn exposes_workspace_agent_skills_from_the_working_directory_hierarchy() {
     )
     .expect("nested workspace skill should write");
 
-    let catalog = InstructionComposer::default()
+    let catalog = InstructionLoader::default()
         .compose(&fixture.root, &serde_json::json!({ "cwd": nested }))
         .expect("workspace skill catalog should compose");
     assert!(catalog.rendered_prompt().contains("review-work"));
@@ -274,7 +274,7 @@ fn exposes_workspace_agent_skills_from_the_working_directory_hierarchy() {
         .rendered_prompt()
         .contains("Preserve API compatibility."));
 
-    let selected = InstructionComposer::default()
+    let selected = InstructionLoader::default()
         .compose(
             &fixture.root,
             &serde_json::json!({
@@ -292,7 +292,7 @@ fn exposes_workspace_agent_skills_from_the_working_directory_hierarchy() {
 fn composes_identity_role_collaboration_and_runtime_facts() {
     let fixture = InstructionFixture::new("turn-world-state");
 
-    let composed = InstructionComposer::default()
+    let composed = InstructionLoader::default()
         .compose(
             &fixture.root,
             &serde_json::json!({

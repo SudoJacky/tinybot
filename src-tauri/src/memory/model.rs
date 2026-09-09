@@ -299,3 +299,35 @@ pub(super) fn model_config_for_test(config_snapshot: &Value) -> Result<Value, St
 pub(super) fn parse_diff_for_test(content: &str) -> Result<SelectionDiff, String> {
     parse_selection_diff(content)
 }
+
+/// Model work can be cancelled by dropping its future; implementations must not detach requests.
+pub(crate) trait MemoryModel: Send + Sync + 'static {
+    fn extract<'a>(
+        &'a self,
+        config: &'a Value,
+        evidence: &'a TurnEvidence,
+    ) -> futures_util::future::BoxFuture<'a, Result<Vec<ExtractedMemory>, String>>;
+    fn select<'a>(
+        &'a self,
+        config: &'a Value,
+        input: &'a Phase2Input,
+    ) -> futures_util::future::BoxFuture<'a, Result<SelectionDiff, String>>;
+}
+
+pub(crate) struct NativeMemoryModel;
+impl MemoryModel for NativeMemoryModel {
+    fn extract<'a>(
+        &'a self,
+        config: &'a Value,
+        evidence: &'a TurnEvidence,
+    ) -> futures_util::future::BoxFuture<'a, Result<Vec<ExtractedMemory>, String>> {
+        Box::pin(extract_memories(config, evidence))
+    }
+    fn select<'a>(
+        &'a self,
+        config: &'a Value,
+        input: &'a Phase2Input,
+    ) -> futures_util::future::BoxFuture<'a, Result<SelectionDiff, String>> {
+        Box::pin(select_diff(config, input))
+    }
+}

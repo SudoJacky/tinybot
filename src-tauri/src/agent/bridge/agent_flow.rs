@@ -1,14 +1,15 @@
+use super::AgentApplicationServices;
 use crate::agent::bridge::{
     hydrate_native_agent_history_for_runtime, hydrate_native_agent_memory_snapshot_for_runtime,
-    native_agent_context_checkpoint_committer, native_agent_services_with_tool_executor,
-    native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_turn_start, persist_native_agent_turn_terminal_if_present,
-    reject_native_agent_terminal_turn_reentry,
+    persist_native_agent_checkpoint_if_present, persist_native_agent_turn_start,
+    persist_native_agent_turn_terminal_if_present, reject_native_agent_terminal_turn_reentry,
 };
+use crate::agent::instruction_sources::InstructionLoader;
 use crate::agent::runtime::AgentError;
+#[cfg(test)]
+use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::{
-    run_native_agent_turn_with_workspace_and_instructions_async, InstructionComposer,
-    NativeAgentRuntimeServices, NativeAgentTraceSink,
+    run_native_agent_turn_with_workspace_and_instructions_async, NativeAgentTraceSink,
 };
 #[cfg(not(test))]
 use crate::agent::runtime::{AgentExecutionStatus, AgentStopReason};
@@ -21,7 +22,7 @@ use std::sync::Arc;
 mod tests;
 
 pub(crate) async fn run_agent_from_wire_with_services(
-    services: NativeAgentRuntimeServices,
+    services: AgentApplicationServices,
     spec: serde_json::Value,
     workspace_root: PathBuf,
     config: serde_json::Value,
@@ -32,13 +33,13 @@ pub(crate) async fn run_agent_from_wire_with_services(
 }
 
 pub(super) async fn run_agent_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     mut request: super::turn_request::AgentTurnRequest,
     workspace_root: PathBuf,
     mut config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<AgentTurnResult, AgentError> {
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let trace_context = request.input.trace_context.clone();
     if let Some(mut rejection) =
         reject_native_agent_terminal_turn_reentry(&request.input, &thread_store)?
@@ -47,8 +48,8 @@ pub(super) async fn run_agent_with_services(
         return Ok(rejection);
     }
     hydrate_native_agent_memory_snapshot_for_runtime(&mut request, &thread_store)?;
-    let instructions =
-        InstructionComposer::default().compose_input(&workspace_root, &request.instructions)?;
+    let instructions = InstructionLoader::new(thread_store.data_root().join("plugins"))
+        .compose_input(&workspace_root, &request.instructions)?;
     let graph_base_config_snapshot = config_snapshot.clone();
     crate::workspace_extensions::merge_workspace_mcp_servers(
         &mut config_snapshot,
@@ -58,27 +59,23 @@ pub(super) async fn run_agent_with_services(
     let memory_scope_root = instructions.working_directory.clone();
     persist_native_agent_turn_start(&request, &instructions, &thread_store)?;
     hydrate_native_agent_history_for_runtime(&mut request.input, &thread_store)?;
-    let services = native_agent_services_with_tool_executor(
-        base_services,
-        workspace_root.clone(),
-        graph_base_config_snapshot,
-    )?
-    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        thread_store.clone(),
-    ));
-    let services = match live_trace_sink {
-        Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
-            thread_store.clone(),
-            Some(live_trace_sink),
-        )),
-        None => services
-            .with_trace_sink_if_missing(|| native_agent_trace_sink(thread_store.clone(), None)),
-    };
     #[cfg(not(test))]
-    let services = services.with_command_hooks(crate::command_hooks::CommandHookEngine::load(
-        &crate::config::application::tinybot_data_root(),
-        &instructions.working_directory,
-    ));
+    let memory_runtime = base_services.memory_runtime.clone();
+    let services = base_services
+        .prepare_turn(
+            &workspace_root,
+            &instructions.working_directory,
+            graph_base_config_snapshot,
+            live_trace_sink,
+        )
+        .map_err(|error| {
+            persist_failed_agent_turn(
+                &request.input.session_id,
+                &trace_context,
+                &thread_store,
+                error.into(),
+            )
+        })?;
     let session_id = request.input.session_id.clone();
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
@@ -120,6 +117,7 @@ pub(super) async fn run_agent_with_services(
     persist_native_agent_checkpoint_if_present(&result, &thread_store)?;
     #[cfg(not(test))]
     schedule_completed_turn_memory_extraction(
+        &memory_runtime,
         &trace_context,
         &result,
         &workspace_root,
@@ -152,6 +150,7 @@ fn persist_failed_agent_turn(
 
 #[cfg(not(test))]
 fn schedule_completed_turn_memory_extraction(
+    memory_runtime: &crate::memory::MemoryRuntime,
     trace_context: &crate::agent::runtime_protocol::AgentTraceContext,
     result: &AgentTurnResult,
     workspace_root: &std::path::Path,
@@ -179,12 +178,16 @@ fn schedule_completed_turn_memory_extraction(
             return;
         }
     };
-    crate::memory::schedule_turn_extraction(
-        workspace_root.to_path_buf(),
+    if let Err(error) = memory_runtime.schedule_turn_extraction(
         thread_store.clone(),
         config_snapshot.clone(),
         thread_id,
         turn_id,
         workspace_path,
-    );
+    ) {
+        eprintln!(
+            "memory_phase1_schedule_failed workspace={} error={error}",
+            workspace_root.display()
+        );
+    }
 }

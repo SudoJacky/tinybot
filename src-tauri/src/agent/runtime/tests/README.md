@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:db15d14b5fd34f65f80b3c66f056b74a2eb41abe00c6f05889505a5e497fc983 -->
+<!-- tinybot-module-fingerprint: sha256:41c190fa21582d96b435f415b1351f1a1a438a7fd9ce1f6e38b799d16d9c3125 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -22,7 +22,14 @@ exercising multi-request summaries, unsplittable-unit failures, and durable
 checkpoint installation. Fixture model output validates runtime behavior;
 semantic retention quality requires separate real-model conversation evaluation.
 
-Shared fixtures and helpers live in `mod.rs`.
+Shared fixtures and helpers live in `mod.rs`. Deliberately blocking Provider and
+dispatcher fixtures implement the test-only contracts in `../test_support.rs`,
+which adapt them to the production asynchronous interfaces.
+`tool_adapters.rs` verifies workspace-tool discovery and dispatch without a Thread
+store, failure before Provider invocation when discovery fails, and structured
+service errors retained in tool results. Persistence, project membership,
+parallel child Turns, and parent cancellation are tested in
+`../../bridge/workspace_threads.rs` using the production dispatcher.
 
 Lifecycle coverage verifies prompt, before-tool, and after-tool hook stages and
 confirms that normalized before-tool replacements reach dispatch. It also

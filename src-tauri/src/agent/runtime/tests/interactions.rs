@@ -1,4 +1,8 @@
 use super::*;
+#[cfg(test)]
+use crate::agent::bridge::TestApplicationServices;
+#[cfg(test)]
+use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
 
 #[test]
 fn strict_patch_search_and_real_dispatch_work_end_to_end() {
@@ -6,7 +10,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for PatchProvider {
+    impl BlockingTestProvider for PatchProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -58,7 +62,6 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         persistence_workspace.root.clone(),
         json!({}),
     )
-    .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
@@ -105,7 +108,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         trace_events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
     }
 
-    impl NativeAgentProvider for RequestInputThenReadProvider {
+    impl BlockingTestProvider for RequestInputThenReadProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -347,7 +350,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for InvalidInputProvider {
+    impl BlockingTestProvider for InvalidInputProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -421,7 +424,7 @@ fn discovered_allowlisted_mcp_tool_is_injected_and_calls_real_server() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for McpDiscoveryProvider {
+    impl BlockingTestProvider for McpDiscoveryProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -521,23 +524,24 @@ lines.on("line", (line) => {
         }}}
     });
     let trace_sink = Arc::new(RecordingTraceSink::default());
+    let app = NativeAgentRuntimeServices::new(
+        Arc::new(McpDiscoveryProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
+        workspace.root.clone(),
+        crate::protocol::capability::default_desktop_capability_policy(),
+    ));
+    let mcp_runtime = app.mcp_runtime.clone();
     let services = crate::agent::bridge::native_agent_services_with_tool_executor(
-        NativeAgentRuntimeServices::new(
-            Arc::new(McpDiscoveryProvider {
-                calls: AtomicUsize::new(0),
-            }),
-            Arc::new(FakeNativeAgentToolDispatcher),
-            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(InMemoryNativeAgentCancellation::default()),
-        )
-        .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
-            workspace.root.clone(),
-            crate::protocol::capability::default_desktop_capability_policy(),
-        )),
+        app,
         workspace.root.clone(),
         config.clone(),
     )
-    .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
@@ -564,7 +568,7 @@ lines.on("line", (line) => {
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "real MCP complete");
     assert_eq!(completed["toolsUsed"], json!(["mcp.4:docs.4:echo"]));
-    tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
+    tauri::async_runtime::block_on(mcp_runtime.shutdown())
         .expect("agent MCP fixture should shut down");
     let global_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     assert!(
@@ -747,7 +751,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for DeferredToolProvider {
+    impl BlockingTestProvider for DeferredToolProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -791,7 +795,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 
     struct PanickingDeferredDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingDeferredDispatcher {
+    impl BlockingTestToolDispatcher for PanickingDeferredDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -859,7 +863,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for BatchProvider {
+    impl BlockingTestProvider for BatchProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -908,7 +912,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         dispatched: Arc<Mutex<Vec<String>>>,
     }
 
-    impl NativeAgentToolDispatcher for RecordingBatchDispatcher {
+    impl BlockingTestToolDispatcher for RecordingBatchDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -972,7 +976,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for DeniedProvider {
+    impl BlockingTestProvider for DeniedProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1015,7 +1019,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
 
     struct SuccessDispatcher;
 
-    impl NativeAgentToolDispatcher for SuccessDispatcher {
+    impl BlockingTestToolDispatcher for SuccessDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
@@ -1464,7 +1468,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         activated: Arc<Mutex<Vec<Vec<String>>>>,
     }
 
-    impl NativeAgentProvider for ToolRegistryProvider {
+    impl BlockingTestProvider for ToolRegistryProvider {
         fn complete(
             &self,
             context: &AgentTurnContext,
@@ -1552,7 +1556,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         calls: Arc<AtomicUsize>,
     }
 
-    impl NativeAgentProvider for CountingProvider {
+    impl BlockingTestProvider for CountingProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,

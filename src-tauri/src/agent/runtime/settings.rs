@@ -189,7 +189,7 @@ impl AgentTurnSettings {
         }
     }
 
-    pub(super) fn capability_policy(&self) -> Result<CapabilityPolicy, String> {
+    pub(crate) fn capability_policy(&self) -> Result<CapabilityPolicy, String> {
         self.validate()?;
         match self.permission_profile.as_deref().unwrap_or("local-worker") {
             "local-worker" => Ok(default_desktop_capability_policy()),

@@ -12,8 +12,6 @@ use super::usage::{
 use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
-#[cfg(test)]
-use super::InstructionComposer;
 use super::{
     AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnInput, AgentTurnMetrics,
     AgentTurnResult,
@@ -23,18 +21,17 @@ use super::{
     NativeAgentContextCheckpointCommit, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
     NativeAgentProviderResponse, NativeAgentProviderStreamEvent, NativeAgentRuntimeServices,
 };
+#[cfg(test)]
+use crate::agent::instruction_sources::InstructionLoader;
 use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentAssistantMessagePhase, AgentEventKind, AgentRuntimePhase, ModelOutputEvent,
     PendingAgentEvent, TerminalEvent,
 };
 use crate::runtime::turn_execution::StartAgentTurn;
-use crate::tools::registry::{
-    AgentGraphToolContributor, McpToolContributor, WorkerToolRegistryRpc,
-};
+use crate::tools::registry::WorkerToolRegistryRpc;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
@@ -92,11 +89,7 @@ pub async fn run_native_agent_turn_with_workspace_async(
     mut config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<AgentTurnResult, AgentError> {
-    let instructions = InstructionComposer::default().compose_with_config(
-        workspace_root,
-        &spec,
-        &config_snapshot,
-    )?;
+    let instructions = InstructionLoader::default().compose(workspace_root, &spec)?;
     crate::workspace_extensions::merge_workspace_mcp_servers(
         &mut config_snapshot,
         &instructions.working_directory,
@@ -202,11 +195,14 @@ async fn run_owned_native_agent_turn_async(
                 AgentHookStage::TurnAbort,
                 identity.trace_context.clone(),
             );
-            identity.evaluate_hook(invocation).map_err(|hook_error| {
-                error
-                    .clone()
-                    .combine(AgentError::from(hook_error).context("turn abort hook failed"))
-            })?;
+            identity
+                .evaluate_hook(invocation)
+                .await
+                .map_err(|hook_error| {
+                    error
+                        .clone()
+                        .combine(AgentError::from(hook_error).context("turn abort hook failed"))
+                })?;
             return Err(error);
         }
     };
@@ -236,7 +232,7 @@ async fn run_owned_native_agent_turn_async(
         .metrics()
         .record_duration("turn.durationMs", duration);
     let invocation = AgentHookInvocation::lifecycle(stage, identity.trace_context.clone());
-    let evaluation = identity.evaluate_hook(invocation.clone())?;
+    let evaluation = identity.evaluate_hook(invocation.clone()).await?;
     append_hook_evaluation_to_result(&mut result, services, &identity, &invocation, &evaluation)?;
     result.trace_context = Some(identity.trace_context.clone());
     result.turn_metrics = Some(AgentTurnMetrics {
@@ -522,119 +518,53 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 ),
             ));
         }
-        if let Some(workspace_root) = workspace_root {
-            let capability_policy = context.settings.capability_policy()?;
-            let mcp_workspace_root = context
-                .settings
-                .working_directory
-                .as_deref()
-                .unwrap_or(workspace_root);
-            let cancellation = context.cancellation.clone().map(|cancellation| {
-                Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
-            });
-            let mcp_snapshot = if capability_policy
-                .allows(&crate::protocol::capability::WorkerCapability::McpCall)
+        if workspace_root.is_some() {
+            let catalog = match dependencies
+                .tools
+                .prepare_tools(&context, &config_snapshot)
+                .await?
             {
-                match dependencies
-                    .mcp_runtime
-                    .registry_snapshot(mcp_workspace_root, &config_snapshot, cancellation)
-                    .await
-                {
-                    Ok(snapshot) => Some(snapshot),
-                    Err(error) if error.cancelled => {
-                        let checkpoint = save_phase_checkpoint(
-                            dependencies,
-                            &context,
-                            crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
-                            super::checkpoint_types::PhaseCheckpointInput {
-                                payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
-                                    super::checkpoint_types::ExecutionCheckpoint {
-                                        cancelled: Some(true),
-                                        phase: Some("mcp_discovery".into()),
-                                        server: Some(error.server),
-                                        transport: Some(error.transport),
-                                        ..Default::default()
-                                    },
-                                ),
-                                ..Default::default()
-                            },
-                        );
-                        return Ok(PreparedNativeAgentTurnExecution::Finished(
-                            cancelled_result(
-                                dependencies,
-                                &context.turn_id,
-                                &context.session_id,
-                                checkpoint,
+                super::NativeAgentToolPreparation::Ready(catalog) => catalog,
+                super::NativeAgentToolPreparation::Cancelled {
+                    phase,
+                    server,
+                    transport,
+                } => {
+                    let checkpoint = save_phase_checkpoint(
+                        dependencies,
+                        &context,
+                        crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+                        super::checkpoint_types::PhaseCheckpointInput {
+                            payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                                super::checkpoint_types::ExecutionCheckpoint {
+                                    cancelled: Some(true),
+                                    phase: Some(phase),
+                                    server: server,
+                                    transport: transport,
+                                    ..Default::default()
+                                },
                             ),
-                        ));
-                    }
-                    Err(error) => {
-                        return Err(format!(
-                            "MCP registry snapshot failed for server `{}` over {}: {}",
-                            error.server, error.transport, error.message
-                        )
-                        .into());
-                    }
+                            ..Default::default()
+                        },
+                    );
+                    return Ok(PreparedNativeAgentTurnExecution::Finished(
+                        cancelled_result(
+                            dependencies,
+                            &context.turn_id,
+                            &context.session_id,
+                            checkpoint,
+                        ),
+                    ));
                 }
-            } else {
-                None
             };
-            let mut tool_registry =
-                WorkerToolRegistryRpc::new_with_config(capability_policy, config_snapshot);
-            let graph_node_turn = ["graphRunId", "graph_run_id"]
-                .iter()
-                .any(|key| context.metadata.get(*key).is_some());
-            if !graph_node_turn && context.controls.declares_working_directory {
-                if let Some(definition_workspace_root) =
-                    context.settings.working_directory.as_deref()
-                {
-                    let definition_workspace =
-                        crate::workspace_registry::canonical_workspace(definition_workspace_root)?;
-                    let discovery =
-                        crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
-                    if !discovery.graphs.is_empty() {
-                        tool_registry = tool_registry.with_contributor(Arc::new(
-                            AgentGraphToolContributor::new(
-                                crate::workspace_registry::workspace_id(&definition_workspace),
-                                discovery.graphs,
-                            )?,
-                        ))?;
-                    }
-                }
+            let mut tool_registry = WorkerToolRegistryRpc::new_with_config(
+                context.settings.capability_policy()?,
+                config_snapshot,
+            );
+            for contributor in catalog.contributors {
+                tool_registry = tool_registry.with_contributor(contributor)?;
             }
-            if let Some(contributor) =
-                super::workspace_threads::tool_contributor(dependencies, &context)?
-            {
-                tool_registry = tool_registry.with_contributor(Arc::new(contributor))?;
-            }
-            for server in mcp_snapshot
-                .as_deref()
-                .into_iter()
-                .flat_map(|snapshot| snapshot.servers.iter())
-                .filter(|server| server.available && server.tools.iter().any(|tool| tool.allowed))
-            {
-                tool_registry = tool_registry
-                    .with_contributor(Arc::new(McpToolContributor::from_registry(server)?))?;
-            }
-            if let (Some(snapshot), Some(selected_tools)) = (
-                mcp_snapshot.as_deref(),
-                context.settings.selected_tools.as_mut(),
-            ) {
-                let unavailable_mcp_tools = snapshot
-                    .servers
-                    .iter()
-                    .filter(|server| !server.available)
-                    .flat_map(|server| server.tools.iter().map(|tool| tool.id.as_str()))
-                    .collect::<std::collections::BTreeSet<_>>();
-                let dropped_concrete_mcp = selected_tools
-                    .iter()
-                    .any(|tool_id| unavailable_mcp_tools.contains(tool_id.as_str()));
-                selected_tools.retain(|tool_id| {
-                    !unavailable_mcp_tools.contains(tool_id.as_str())
-                        && (!dropped_concrete_mcp
-                            || tool_id != crate::tools::registry::MCP_CALL_TOOL_METHOD)
-                });
-            }
+            context.settings.selected_tools = catalog.selected_tools;
             context.tool_router =
                 super::tool_router::NativeToolRouter::new(tool_registry.list_tools().tools);
         }
@@ -710,7 +640,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 context.hook_permission_mode(),
                 prompt,
             );
-            let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+            let evaluation = context.evaluate_hook(invocation.clone()).await?;
             state.apply_hook_evaluation(&mut context, &evaluation)?;
             state.emit_hook_evaluation(&invocation, &evaluation)?;
             if let Some(reason) = evaluation.denied_reason {
@@ -729,7 +659,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
         );
-        let turn_start_evaluation = context.evaluate_hook(turn_start_invocation.clone())?;
+        let turn_start_evaluation = context.evaluate_hook(turn_start_invocation.clone()).await?;
         state.emit_hook_evaluation(&turn_start_invocation, &turn_start_evaluation)?;
         if let Some(reason) = turn_start_evaluation.denied_reason {
             return Ok(PreparedNativeAgentTurnExecution::Finished(
@@ -875,10 +805,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     self.context.hook_permission_mode(),
                     trigger.to_string(),
                 );
-                let evaluation = self
-                    .context
-                    .evaluate_command_hook(invocation.clone())
-                    .await?;
+                let evaluation = self.context.evaluate_hook(invocation.clone()).await?;
                 self.state
                     .apply_hook_evaluation(&mut self.context, &evaluation)?;
                 self.state.emit_hook_evaluation(&invocation, &evaluation)?;
@@ -950,7 +877,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
         );
         let before_provider_evaluation = self
             .context
-            .evaluate_hook(before_provider_invocation.clone())?;
+            .evaluate_hook(before_provider_invocation.clone())
+            .await?;
         self.state
             .emit_hook_evaluation(&before_provider_invocation, &before_provider_evaluation)?;
         if let Some(reason) = before_provider_evaluation.denied_reason {
@@ -1058,7 +986,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
         );
         let after_provider_evaluation = self
             .context
-            .evaluate_hook(after_provider_invocation.clone())?;
+            .evaluate_hook(after_provider_invocation.clone())
+            .await?;
         self.state
             .emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation)?;
         if attempt.stream.observer_cancelled {

@@ -1,13 +1,20 @@
+mod command_hooks;
+#[cfg(test)]
+pub(crate) use application::TestApplicationServices;
+mod application;
+pub(crate) use application::AgentApplicationServices;
 mod agent_flow;
 mod context_checkpoint;
 mod history;
 mod persistence;
 mod result_projection;
 mod thread_flow;
+mod tool_catalog;
 mod tool_dispatcher;
 mod trace_sink;
 pub(crate) mod turn_request;
 mod webui_continuation;
+mod workspace_threads;
 
 pub(crate) use agent_flow::run_agent_from_wire_with_services;
 pub(crate) use context_checkpoint::native_agent_context_checkpoint_committer;

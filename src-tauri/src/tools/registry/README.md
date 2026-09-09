@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:c74093ca439bcb3ee863d9f8832179cba87bf0001f6eaa0794e986820f0c6840 -->
+<!-- tinybot-module-fingerprint: sha256:c1635b4384415d7174dd3d9f73348e8fd46944650709c79f457b27c5f289839c -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -15,6 +15,11 @@ workspace, Graph ID, and revision; their provider schema exposes only the
 transient Run input. Dynamic contributors must enforce their eligibility scope
 so coordinator-only or cross-workspace tools do not appear in ordinary
 Threads.
+
+Workspace-thread spawn and send entries have dedicated execution targets handled
+by the Agent bridge dispatcher. They are not loop-state runtime controls. Their
+schemas, capability grants, parallelism, and cancellation policy remain registry
+metadata; the bridge rechecks project membership and parent ownership on execution.
 
 Provider-visible schemas include nested contracts used by native validation.
 For `publish_data_view`, this includes supported view kinds and the table

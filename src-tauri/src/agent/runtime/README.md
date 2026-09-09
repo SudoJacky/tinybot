@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:e1c483d9e683931d8664413f5ed044599a2f60cd2fd02cb599ee56764175d51e -->
+<!-- tinybot-module-fingerprint: sha256:3b3c373016c8c8ce7dd4c96a274f534b2dcdf34589d5819cb93180efa01b517c -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -38,6 +38,20 @@ The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
 
+Provider streaming and tool dispatch require explicit asynchronous implementations
+in both production and tests. The production traits have no synchronous test
+fallback. Deliberately blocking fixtures use the adapters in `test_support.rs`;
+real Provider tests exercise the asynchronous implementation.
+The desktop owner supplies `NativeAgentRuntimeDependencies` with the selected
+Provider, dispatcher, checkpoints, cancellation, MCP, Shell, subagent, task, and
+metrics instances. Turn adapters may attach persistence and live output without
+recreating those shared resources. The service bundle still carries the concrete
+Thread store for bridge callers; it is not a standalone storage-free core bundle.
+The dispatcher contributes application-owned tool definitions during preparation
+and executes them through the ordinary asynchronous scheduling path. Discovery
+and execution preserve structured `AgentError` values. Project-group lookup,
+workspace-thread authorization, and child Turn orchestration live in the bridge.
+
 Provider timing uses a per-invocation monotonic clock. Text, reasoning, or tool
 output marks the first token; provider completion ends the decode interval.
 Usage and its optional `modelTiming` are persisted before executing tools so
@@ -48,18 +62,14 @@ without streaming output carry null timings and do not fabricate throughput.
 
 - Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
-- Catalog project-local `.agents/skills` and `.codex/skills` alongside enabled Agent Plugin skills,
-  injecting full Skill content only for explicit selections.
+- Compose already loaded instruction sources and skill catalogs, injecting full
+  Skill content only for explicit selections; filesystem and plugin loading live
+  in `agent::instruction_sources`.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
-- Catalog saved Agent Graphs only for an ordinary Turn's explicitly declared
-  working directory, and suppress them for Graph-created Agent node Turns and
-  Turns that only inherit the backend workspace fallback. Invalid Graph files
-  are skipped with diagnostics during tool discovery instead of aborting the
-  Turn; the management listing path remains strict.
-- Expose persistent cross-workspace Thread tools only to eligible project-group
-  coordinator Turns.
+- Request an asynchronous tool catalog from the injected dispatcher and preserve
+  cancellation checkpoints from preparation before any provider call.
 - Evaluate hooks around provider, turn, thread, and context-compaction stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
@@ -83,8 +93,8 @@ decide which durable conversation store a caller uses.
    then hydrates typed input fields
    and provides `NativeAgentRuntimeServices`, the typed input, the
    effective configuration, workspace context, and composed instructions.
-2. `provider_loop.rs` merges project-local MCP definitions for the effective
-   working directory and prepares the typed history from legacy messages.
+2. `provider_loop.rs` consumes the effective configuration already merged by the
+   bridge and asks the dispatcher to prepare tool contributions and selection.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.
@@ -112,8 +122,10 @@ decide which durable conversation store a caller uses.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
-MCP discovery and calls use the effective working directory as their runtime
-key and stdio default cwd.
+The bridge owns Graph and MCP discovery. The core holds no MCP, Shell, browser,
+subagent-manager or Thread-store resources. Its dependencies are Provider, tool
+dispatcher, checkpoints, cancellation, task ownership and metrics; trace sinks
+and hooks are installed per Turn.
 
 Tool selection distinguishes omission from an explicit list. Omission keeps
 the default model tools, while an explicit allowlist can activate deferred
@@ -230,8 +242,7 @@ conditionals throughout those shared runtime modules.
   instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,
   routing, execution, cleanup, and deferred tools.
-- `workspace_threads.rs`: project-group authorization, persistent child Thread
-  execution, follow-up messages, and parent cancellation propagation.
+- `test_support.rs`: test-only service construction and blocking fixture adapters.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
 - `hooks.rs`, `events.rs`, `trace_commit.rs`: runtime hooks, event construction,
   and ordered trace commits.
@@ -277,7 +288,11 @@ Model-visible context comes from composed instructions, restored conversation
 history, and active hooks. Long-term memory is an instruction source.
 
 Typed in-process hooks run at provider, turn, thread, tool, and
-context-compaction boundaries. A typed hook error, malformed diagnostic, or
+context-compaction boundaries through one asynchronous `AgentHook` interface.
+The bridge adapts the command engine into this same pipeline; the core only
+merges neutral decisions, effects, and run diagnostics. Registrations have
+executor identities so child and resumed Turns replace their inherited command
+executor without running it twice. A typed hook error, malformed diagnostic, or
 invalid decision at an active stage fails the turn. Before-tool hooks run after
 registry and capability validation and may replace normalized arguments or
 return a model-visible denied result without dispatching the tool.

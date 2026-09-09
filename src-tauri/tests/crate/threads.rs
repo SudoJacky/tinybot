@@ -7,7 +7,7 @@ fn persist_native_agent_turn_start(
     let root = workspace.root.clone();
     let request =
         crate::agent::bridge::turn_request::AgentTurnRequest::from_wire(spec, &config, &root)?;
-    let instructions = crate::agent::runtime::InstructionComposer::default()
+    let instructions = crate::agent::instruction_sources::InstructionLoader::default()
         .compose_input(&root, &request.instructions)?;
     crate::agent::bridge::persist_native_agent_turn_start(&request, &instructions, store)
 }
@@ -158,7 +158,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
 fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     struct StreamingProvider;
 
-    impl crate::agent::runtime::NativeAgentProvider for StreamingProvider {
+    impl crate::agent::runtime::test_support::BlockingTestProvider for StreamingProvider {
         fn complete(
             &self,
             _context: &crate::agent::runtime::AgentTurnContext,

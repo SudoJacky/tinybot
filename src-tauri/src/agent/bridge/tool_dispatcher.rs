@@ -1,9 +1,9 @@
+use super::AgentApplicationServices;
 use crate::agent::runtime::{
     AgentTurnContext, NativeAgentCancellationContext, NativeAgentRuntimeServices,
     NativeAgentToolDispatcher, NativeAgentToolResult, NativeToolNextAction, NativeToolOutcome,
     NativeToolRetry, PreparedToolCall,
 };
-use crate::collaboration::subagents::SubagentThreadManager;
 use crate::config::application::{
     default_tinybot_config_path, native_config_snapshot, native_runtime_config_snapshot,
 };
@@ -16,9 +16,7 @@ use crate::rpc::call_rust_state_service_with_mcp_runtime;
 use crate::runtime::mcp::{
     configured_mcp_servers, mcp_tool_is_enabled, McpRuntime, McpRuntimeError, McpRuntimeErrorKind,
 };
-use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::registry::ToolExecutionTarget;
-use crate::tools::shell::WorkerShellRuntime;
 use crate::tools::web::{self, WebToolCancellation};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,14 +24,9 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct NativeAgentToolExecutorDispatcher {
     workspace_root: PathBuf,
-    thread_store: WorkspaceThreadStore,
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     base_config_snapshot: serde_json::Value,
     fallback: Arc<dyn NativeAgentToolDispatcher>,
-    mcp_runtime: McpRuntime,
-    shell_runtime: WorkerShellRuntime,
-    subagent_manager: SubagentThreadManager,
-    browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
 }
 
 impl WebToolCancellation for NativeAgentCancellationContext {
@@ -47,6 +40,26 @@ impl WebToolCancellation for NativeAgentCancellationContext {
 }
 
 impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
+    fn prepare_tools<'a>(
+        &'a self,
+        context: &'a AgentTurnContext,
+        config_snapshot: &'a serde_json::Value,
+    ) -> futures_util::future::BoxFuture<
+        'a,
+        Result<
+            crate::agent::runtime::NativeAgentToolPreparation,
+            crate::agent::runtime::AgentError,
+        >,
+    > {
+        Box::pin(super::tool_catalog::prepare_tools(
+            context,
+            config_snapshot,
+            &self.workspace_root,
+            &self.base_services.thread_store,
+            &self.base_services.mcp_runtime,
+        ))
+    }
+
     fn dispatch(
         &self,
         context: &AgentTurnContext,
@@ -87,10 +100,14 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         }
         if matches!(
             &execution_target,
-            Some(ToolExecutionTarget::AgentGraph { .. })
+            Some(
+                ToolExecutionTarget::AgentGraph { .. }
+                    | ToolExecutionTarget::SpawnWorkspaceThread
+                    | ToolExecutionTarget::SendThreadMessage
+            )
         ) {
             return Err(format!(
-                "native tool `{}` requires asynchronous Agent Graph dispatch",
+                "native tool `{}` requires asynchronous turn orchestration",
                 tool_call.name
             ));
         }
@@ -136,12 +153,12 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             ),
         };
         let executor_result = call_rust_state_service_with_mcp_runtime(
-            &self.thread_store,
+            &self.base_services.thread_store,
             tool_workspace_root,
             context.config_snapshot.clone(),
-            self.mcp_runtime.clone(),
-            self.shell_runtime.clone(),
-            self.subagent_manager.clone(),
+            self.base_services.mcp_runtime.clone(),
+            self.base_services.shell_runtime.clone(),
+            self.base_services.subagent_manager.clone(),
             WorkerRequest::new(
                 format!("{}:tool:{}", context.trace_context.request_id, tool_call.id),
                 context.trace_context.trace_id.clone(),
@@ -167,28 +184,55 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         context: AgentTurnContext,
         tool_call: PreparedToolCall,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+        Box<
+            dyn std::future::Future<
+                    Output = Result<NativeAgentToolResult, crate::agent::runtime::AgentError>,
+                > + Send,
+        >,
     > {
         Box::pin(async move {
+            let workspace_result = match context.tool_execution_target(&tool_call.name) {
+                Some(ToolExecutionTarget::SpawnWorkspaceThread) => Some(
+                    super::workspace_threads::spawn_workspace_thread(
+                        &self.base_services,
+                        &context,
+                        tool_call.arguments(),
+                    )
+                    .await,
+                ),
+                Some(ToolExecutionTarget::SendThreadMessage) => Some(
+                    super::workspace_threads::send_thread_message(
+                        &self.base_services,
+                        &context,
+                        tool_call.arguments(),
+                    )
+                    .await,
+                ),
+                _ => None,
+            };
+            if let Some(result) = workspace_result {
+                return result
+                    .map(|value| NativeAgentToolResult::generic_success(&tool_call, value));
+            }
             if let Some(result) = self
                 .dispatch_agent_graph_if_needed(&context, &tool_call)
                 .await
             {
-                return result;
+                return result.map_err(Into::into);
             }
             if let Some(result) = self.dispatch_web_if_needed(&context, &tool_call).await {
-                return result;
+                return result.map_err(Into::into);
             }
             if let Some(result) = self
                 .dispatch_mcp_config_if_needed(&context, &tool_call)
                 .await
             {
-                return result;
+                return result.map_err(Into::into);
             }
             if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
-                return result;
+                return result.map_err(Into::into);
             }
-            self.dispatch(&context, &tool_call)
+            self.dispatch(&context, &tool_call).map_err(Into::into)
         })
     }
 }
@@ -271,6 +315,7 @@ impl NativeAgentToolExecutorDispatcher {
                     .as_deref()
                     .unwrap_or(&self.workspace_root);
                 if let Err(error) = self
+                    .base_services
                     .mcp_runtime
                     .reconcile(workspace_root, &config_snapshot)
                     .await
@@ -294,7 +339,7 @@ impl NativeAgentToolExecutorDispatcher {
                     )));
                 };
                 let status = refresh_mcp_server_status(
-                    &self.mcp_runtime,
+                    &self.base_services.mcp_runtime,
                     workspace_root,
                     &name,
                     server_config,
@@ -352,7 +397,7 @@ impl NativeAgentToolExecutorDispatcher {
                     .as_deref()
                     .unwrap_or(&self.workspace_root);
                 let status = refresh_mcp_server_status(
-                    &self.mcp_runtime,
+                    &self.base_services.mcp_runtime,
                     workspace_root,
                     &name,
                     server_config,
@@ -397,7 +442,7 @@ impl NativeAgentToolExecutorDispatcher {
             )));
         };
         let run = crate::graph_runs::start(
-            self.thread_store.data_root(),
+            self.base_services.thread_store.data_root(),
             self.base_services.clone(),
             self.workspace_root.clone(),
             self.base_config_snapshot.clone(),
@@ -425,7 +470,7 @@ impl NativeAgentToolExecutorDispatcher {
         if !web::is_web_tool(&tool_call.name) {
             return None;
         }
-        let runtime = match self.browser_runtime.clone() {
+        let runtime = match self.base_services.browser_runtime.clone() {
             Some(runtime) => runtime,
             None => {
                 return Some(Err(
@@ -572,6 +617,7 @@ impl NativeAgentToolExecutorDispatcher {
             .clone()
             .map(|cancellation| Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>);
         let result = self
+            .base_services
             .mcp_runtime
             .call_tool(
                 context
@@ -809,30 +855,18 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
 }
 
 pub(crate) fn native_agent_services_with_tool_executor(
-    services: NativeAgentRuntimeServices,
+    services: AgentApplicationServices,
     workspace_root: PathBuf,
     base_config_snapshot: serde_json::Value,
-) -> Result<NativeAgentRuntimeServices, String> {
-    let base_services = services.clone();
-    let fallback = services.tool_dispatcher();
-    let thread_store = services.thread_store()?;
-    let mcp_runtime = services.mcp_runtime();
-    let shell_runtime = services.shell_runtime();
-    let subagent_manager = services.subagent_manager();
-    let browser_runtime = services.browser_runtime();
-    Ok(
-        services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
-            workspace_root,
-            thread_store,
-            base_services,
-            base_config_snapshot,
-            fallback,
-            mcp_runtime,
-            shell_runtime,
-            subagent_manager,
-            browser_runtime,
-        })),
-    )
+) -> NativeAgentRuntimeServices {
+    let runtime = services.runtime.clone();
+    let fallback = runtime.tool_dispatcher();
+    runtime.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
+        workspace_root,
+        base_services: services,
+        base_config_snapshot,
+        fallback,
+    }))
 }
 
 fn normalize_subagent_arguments(

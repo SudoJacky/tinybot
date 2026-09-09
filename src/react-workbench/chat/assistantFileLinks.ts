@@ -2,6 +2,8 @@ import type { ArtifactRef } from "../../app-core/chat/chatTurnContracts";
 
 export type AssistantFileLink = {
   href: string;
+  /** Resolved file path of the document containing this link; not a URL. */
+  sourcePath?: string;
 };
 
 export type ResolvedAssistantFileLink = {
@@ -36,12 +38,15 @@ export function isAssistantFileHref(href: string): boolean {
   return !EXTERNAL_PROTOCOL.test(value);
 }
 
-export function resolveAssistantFileLink(href: string, workspaceRoot = ""): ResolvedAssistantFileLink {
+export function resolveAssistantFileLink(href: string, workspaceRoot = "", sourcePath?: string): ResolvedAssistantFileLink {
   const decoded = decodeAssistantFileHref(href);
   const fragmentLine = lineFromFragment(decoded.fragment);
   const suffix = stripLineSuffix(decoded.path);
   const line = fragmentLine ?? suffix.line;
-  const candidate = normalizeSlashes(suffix.path);
+  const target = normalizeSlashes(suffix.path);
+  const candidate = sourcePath && !isAbsolutePath(target)
+    ? resolveDocumentRelativePath(target, normalizeSlashes(sourcePath))
+    : target;
   const normalizedRoot = normalizeSlashes(workspaceRoot).replace(/\/+$/, "");
   let relativePath = candidate;
 
@@ -146,6 +151,24 @@ function normalizeRelativePath(value: string): string {
     throw new AssistantFileLinkError("outside_workspace", "The file is outside the active workspace.");
   }
   return segments.join("/");
+}
+
+function resolveDocumentRelativePath(target: string, sourcePath: string): string {
+  const segments = sourcePath.split("/").filter(Boolean);
+  segments.pop();
+  const rootDepth = WINDOWS_ABSOLUTE_PATH.test(sourcePath) ? 1 : 0;
+  for (const segment of target.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length <= rootDepth) {
+        throw new AssistantFileLinkError("outside_workspace", "The file is outside the active workspace.");
+      }
+      segments.pop();
+    } else {
+      segments.push(segment);
+    }
+  }
+  return `${sourcePath.startsWith("/") ? "/" : ""}${segments.join("/")}`;
 }
 
 function lineFromFragment(fragment: string): number | undefined {

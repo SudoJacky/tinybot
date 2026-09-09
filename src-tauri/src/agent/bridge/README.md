@@ -1,10 +1,22 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:5647db55ca0690db2c03b8de04499e79846866e5d5432103c65111648debf850 -->
+<!-- tinybot-module-fingerprint: sha256:58af0148042f577c95ddbfa1bd905790f7495f3fac0175ec56ed6ed8e671fc92 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
 desktop or Thread-owned turn without moving those concerns into the provider
 loop.
+
+
+`AgentApplicationServices` keeps the core execution services alongside the shared
+Thread store, MCP, Shell, browser and subagent resources owned by desktop state.
+Its `prepare_turn` path is used by ordinary Turns and form continuations: install
+checkpoint persistence, trace and hooks, then capture those services in the tool
+executor so child Turns inherit the same live output and persistence.
+`tool_catalog.rs` discovers Graph, workspace-thread and MCP contributions through
+the dispatcher's asynchronous preparation interface. MCP snapshot cancellation
+retains phase/server/transport diagnostics; unavailable concrete selections are
+removed with the existing generic-MCP suppression rule. Graph discovery requires
+an explicit working directory and remains disabled for Graph node Turns.
 
 ## Responsibilities
 
@@ -59,13 +71,23 @@ Dynamic tool arguments and external tool RPC adapters retain their extension sch
    carries the initiating Turn specification so the runtime can reuse its
    effective Provider settings without a title-only token budget.
 4. Hydrate the runtime history from the canonical Thread projection.
-5. Build tool, context-checkpoint, trace, and workspace command-hook services,
-   selecting the Thread-owned or direct-session trace path.
+5. Install context-checkpoint, trace, and workspace command-hook services,
+   selecting the Thread-owned or direct-session trace path. Construct the tool
+   dispatcher last so child Turns inherit these installed services and live output.
 6. Execute the native agent loop and flush the trace sink.
 7. Persist the terminal boundary or resumable checkpoint as applicable. If
    runtime execution or trace flush fails, persist a failed terminal with the
    original error before returning it to the caller.
-8. Schedule memory extraction only after a completed turn is durably persisted.
+8. Schedule memory extraction through the application-owned `MemoryRuntime`
+   only after a completed turn is durably persisted.
+
+`command_hooks.rs` adapts the command engine to the core's asynchronous
+`AgentHook` interface. Loading invalid configuration fails Turn preparation;
+the bridge records a failed terminal state for an already-started Turn before
+any provider request. Resumable checkpoints remain available when preparation
+fails during continuation.
+Unsupported command-hook stages return no runs and emit no decision events;
+an unevaluated command is distinct from an explicit in-process `Continue`.
 
 The tool dispatcher retains the unmerged base configuration alongside the
 parent Turn's services. When a Graph Agent node targets another workspace, its
@@ -102,6 +124,11 @@ when it failed.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
   It also owns Agent-only `mcp.config.*` dispatch because configuration changes
   require asynchronous runtime reconciliation rather than generic Worker RPC.
+- `workspace_threads.rs`: discover project-coordinator tools, authorize targets,
+  create persistent child Threads, send follow-up input, and execute child Turns.
+  The dispatcher owns discovery and execution; the runtime only schedules the
+  calls. Execution rechecks project membership and parent ownership even after
+  discovery. Parent cancellation requests child cancellation and awaits cleanup.
 - `result_projection.rs`: input identity, model, provider, and setting accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.
 

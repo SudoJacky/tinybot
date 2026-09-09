@@ -1,4 +1,8 @@
-use crate::agent::runtime::NativeAgentRuntimeServices;
+use crate::agent::runtime::{
+    InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore,
+    InMemoryNativeAgentContextCheckpointCommitter, NativeAgentRuntimeDependencies,
+    NativeAgentRuntimeServices, RustNativeAgentProvider, SubagentNativeAgentToolDispatcher,
+};
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
@@ -22,6 +26,9 @@ pub(crate) type SharedNativeRuntime = Arc<Mutex<NativeRuntimeState>>;
 pub(crate) struct NativeRuntimeState {
     pub(crate) native_agent_runtime: NativeAgentRuntimeServices,
     pub(crate) mcp_runtime: McpRuntime,
+    pub(crate) memory_runtime: crate::memory::MemoryRuntime,
+    pub(crate) shell_runtime: crate::tools::shell::WorkerShellRuntime,
+    pub(crate) browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
     pub(crate) subagent_manager: SubagentThreadManager,
     pub(crate) thread_store: WorkspaceThreadStore,
     pub(crate) lifecycle_status: RuntimeLifecycleStatus,
@@ -31,37 +38,38 @@ pub(crate) struct NativeRuntimeState {
     pub(crate) last_error: Option<String>,
 }
 
+#[cfg(test)]
 impl Default for NativeRuntimeState {
     fn default() -> Self {
-        #[cfg(test)]
-        {
-            let workspace_root = crate::config::application::native_backend_workspace_root();
-            Self::with_thread_store(WorkspaceThreadStore::new(
-                workspace_root,
-                crate::protocol::capability::default_desktop_capability_policy(),
-            ))
-        }
-        #[cfg(not(test))]
-        {
-            let workspace_root = crate::config::application::native_backend_workspace_root();
-            let data_root = crate::config::application::tinybot_data_root();
-            let migration_error = crate::threads::workspace_store::migrate_legacy_thread_storage(
-                &workspace_root,
-                &data_root,
-            )
-            .err()
-            .map(|error| error.message);
-            let mut state = Self::new_with_data_root(workspace_root, data_root);
-            state.last_error = migration_error;
-            state
-        }
+        Self::with_thread_store(WorkspaceThreadStore::new(
+            crate::config::application::native_backend_workspace_root(),
+            crate::protocol::capability::default_desktop_capability_policy(),
+        ))
     }
 }
 
 impl NativeRuntimeState {
-    #[cfg(not(test))]
-    pub(crate) fn new_with_data_root(workspace_root: PathBuf, data_root: PathBuf) -> Self {
-        Self::with_thread_store(WorkspaceThreadStore::new_with_data_root(
+    pub(crate) fn initialize(workspace_root: PathBuf, data_root: PathBuf) -> Result<Self, String> {
+        Ok(Self::with_thread_store(Self::initialize_thread_store(
+            workspace_root,
+            data_root,
+        )?))
+    }
+
+    pub(crate) fn initialize_thread_store(
+        workspace_root: PathBuf,
+        data_root: PathBuf,
+    ) -> Result<WorkspaceThreadStore, String> {
+        crate::threads::workspace_store::migrate_legacy_thread_storage(&workspace_root, &data_root)
+            .map_err(|error| {
+                format!(
+                    "thread storage initialization failed (workspace `{}`, data `{}`): {}",
+                    workspace_root.display(),
+                    data_root.display(),
+                    error.message
+                )
+            })?;
+        Ok(WorkspaceThreadStore::new_with_data_root(
             workspace_root,
             data_root,
             crate::protocol::capability::default_desktop_capability_policy(),
@@ -72,12 +80,27 @@ impl NativeRuntimeState {
         let subagent_manager = SubagentThreadManager::default();
         let mcp_runtime = McpRuntime::new();
         Self {
-            native_agent_runtime: NativeAgentRuntimeServices::with_subagent_manager(
-                subagent_manager.clone(),
-            )
-            .with_mcp_runtime(mcp_runtime.clone())
-            .with_thread_store(thread_store.clone()),
+            native_agent_runtime: NativeAgentRuntimeServices::from_dependencies(
+                NativeAgentRuntimeDependencies {
+                    provider: Arc::new(RustNativeAgentProvider),
+                    tools: Arc::new(SubagentNativeAgentToolDispatcher::new(
+                        subagent_manager.clone(),
+                    )),
+                    checkpoints: Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                    context_checkpoint_committer: Arc::new(
+                        InMemoryNativeAgentContextCheckpointCommitter::default(),
+                    ),
+                    cancellations: Arc::new(InMemoryNativeAgentCancellation::default()),
+                    task_runtime: crate::runtime::turn_execution::TurnExecutionRuntime::new(),
+                    metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
+                },
+            ),
             mcp_runtime,
+            memory_runtime: crate::memory::MemoryRuntime::new(Arc::new(
+                crate::memory::NativeMemoryModel,
+            )),
+            shell_runtime: crate::tools::shell::WorkerShellRuntime::default(),
+            browser_runtime: None,
             subagent_manager,
             thread_store,
             lifecycle_status: RuntimeLifecycleStatus::default(),
@@ -88,10 +111,16 @@ impl NativeRuntimeState {
         }
     }
 
-    pub(crate) fn native_agent_services(&self) -> NativeAgentRuntimeServices {
-        self.native_agent_runtime
-            .clone()
-            .with_thread_store(self.thread_store.clone())
+    pub(crate) fn native_agent_services(&self) -> crate::agent::bridge::AgentApplicationServices {
+        crate::agent::bridge::AgentApplicationServices {
+            runtime: self.native_agent_runtime.clone(),
+            thread_store: self.thread_store.clone(),
+            mcp_runtime: self.mcp_runtime.clone(),
+            memory_runtime: self.memory_runtime.clone(),
+            shell_runtime: self.shell_runtime.clone(),
+            subagent_manager: self.subagent_manager.clone(),
+            browser_runtime: self.browser_runtime.clone(),
+        }
     }
 }
 
