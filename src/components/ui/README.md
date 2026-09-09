@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:36bc7b49b480f41ebcacf93f112a4b93af5e27fde9dab446f6371c3e342901c2 -->
+<!-- tinybot-module-fingerprint: sha256:c0e575d6aee6b52b689d4ff20808a440ea0814961d6d7f40c79548b5f4787a7f -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -70,3 +70,6 @@ Escape and outside clicks dismiss it. Each entry shows a local crop, element
 label, editable request, property differences, and removal. Raw evidence stays
 out of the visible card. The portal participates in native-surface occlusion.
 Context-reference images retain ordinary model image-input validation.
+The composer and annotation preview share the `composerContextReference` data
+contract so the preview does not depend on its parent input component. The input
+module re-exports this type for callers using its public interface.

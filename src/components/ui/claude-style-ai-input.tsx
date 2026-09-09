@@ -8,6 +8,8 @@ import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/c
 import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import { formatFileMetadata } from "./composerFileMetadata";
 import { ComposerAnnotations } from "./ComposerAnnotations";
+import type { ComposerContextReference } from "./composerContextReference";
+export type { ComposerContextReference } from "./composerContextReference";
 import {
   AlertCircle,
   Archive,
@@ -92,22 +94,6 @@ export interface ComposerSendOptions {
   provider?: string;
   reasoningEffort?: ReasoningEffort;
   selectedTools?: string[];
-}
-
-export interface ComposerContextReference {
-  presentation?: "compact-annotation";
-  mimeType?: string;
-  imageUrl?: string;
-  annotation?: {
-    label: string;
-    text: string;
-    onChange?: (text: string) => void;
-  };
-  body?: string;
-  detail: string;
-  id: string;
-  kind: "file" | "terminal" | "reference";
-  label: string;
 }
 
 export interface ComposerSessionMentionOption {

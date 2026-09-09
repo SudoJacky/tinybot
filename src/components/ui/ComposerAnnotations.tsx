@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SlidersHorizontal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ComposerContextReference } from "./claude-style-ai-input";
+import type { ComposerContextReference } from "./composerContextReference";
 import "./ComposerAnnotations.css";
 
 export function ComposerAnnotations({ references, onRemove }: {
