@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:ecd9ab893f44750ec49f065cd4c1869f75609a076662ce9dfead83b89b1d69e2 -->
+<!-- tinybot-module-fingerprint: sha256:3217ef9439fc7e6fc1fd2f2c2f92535957e89a9e21c1bb78de049abb49c9ac3b -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -288,7 +288,11 @@ Model-visible context comes from composed instructions, restored conversation
 history, and active hooks. Long-term memory is an instruction source.
 
 Typed in-process hooks run at provider, turn, thread, tool, and
-context-compaction boundaries. A typed hook error, malformed diagnostic, or
+context-compaction boundaries through one asynchronous `AgentHook` interface.
+The bridge adapts the command engine into this same pipeline; the core only
+merges neutral decisions, effects, and run diagnostics. Registrations have
+executor identities so child and resumed Turns replace their inherited command
+executor without running it twice. A typed hook error, malformed diagnostic, or
 invalid decision at an active stage fails the turn. Before-tool hooks run after
 registry and capability validation and may replace normalized arguments or
 return a model-visible denied result without dispatching the tool.

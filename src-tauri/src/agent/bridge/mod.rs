@@ -1,3 +1,4 @@
+mod command_hooks;
 #[cfg(test)]
 pub(crate) use application::TestApplicationServices;
 mod application;

@@ -20,6 +20,27 @@ function setup(href = "report.md", workingDirectory = "D:\\work") {
 }
 
 describe("Artifact collaboration", () => {
+  it("opens a report's sibling PPT relative to the displayed Markdown file", async () => {
+    const user = userEvent.setup();
+    const root = "C:/Users/viewer/.tinybot/workspace";
+    const report = `${root}/github-agent-report/report.md`;
+    const ppt = `${root}/github-agent-report/github_agent_projects.pptx`;
+    const stores = createStores({ sessions: [{ id: "s1", chatId: "chat-1", title: "Files", updatedAtMs: 1, status: "idle", workingDirectory: "" }] });
+    stores.chatStore.load = vi.fn(async (id) => timelineFromReactMessages(id, [{
+      id: "file-message", role: "assistant", createdAtMs: 1, status: "complete",
+      text: `Open [report](${report}).`,
+    }]));
+    const readThreadFile = vi.fn(async ({ path }: { path: string }) => {
+      if (path === report) return { path, revision: "v1", content: "[Download PPT](./github_agent_projects.pptx)", contentType: "text" as const, sizeBytes: 55 };
+      if (path === ppt) return { path, revision: "v2", contentType: "binary" as const, sizeBytes: 158198 };
+      throw new Error(`failed to resolve workspace path; path=${root}/${path}`);
+    });
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} workspaceStore={{ readThreadFile }} />);
+    await user.click(await screen.findByRole("link", { name: "report" }));
+    await user.click(await screen.findByRole("link", { name: "Download PPT" }));
+    await waitFor(() => expect(readThreadFile).toHaveBeenCalledWith({ path: ppt, threadId: "s1" }));
+  });
+
   it("attaches the displayed file and its revision without replacing the draft", async () => {
     const user = userEvent.setup();
     const stores = setup();

@@ -1,7 +1,4 @@
 use crate::agent::runtime_protocol::AgentTraceContext;
-use crate::command_hooks::{
-    CommandHookEngine, CommandHookEvaluation, CommandHookEvent, CommandHookRequest,
-};
 use crate::runtime::observability::AgentRuntimeMetrics;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -216,41 +213,39 @@ impl AgentHookInvocation {
             compaction_trigger: Some(trigger),
         }
     }
-
-    fn command_request(&self) -> Option<CommandHookRequest> {
-        let event = match self.stage {
-            AgentHookStage::UserPromptSubmit => CommandHookEvent::UserPromptSubmit,
-            AgentHookStage::BeforeToolUse => CommandHookEvent::PreToolUse,
-            AgentHookStage::AfterToolUse => CommandHookEvent::PostToolUse,
-            AgentHookStage::CompactionComplete => CommandHookEvent::PostCompact,
-            _ => return None,
-        };
-        Some(CommandHookRequest {
-            event,
-            session_id: self.session_id.clone().unwrap_or_default(),
-            turn_id: self.trace_context.turn_id.clone(),
-            model: self.model.clone().unwrap_or_default(),
-            permission_mode: self
-                .permission_mode
-                .clone()
-                .unwrap_or_else(|| "local-worker".to_string()),
-            prompt: self.prompt.clone(),
-            tool_name: self.tool_name.clone(),
-            tool_match_names: self.tool_name.clone().into_iter().collect(),
-            tool_use_id: self.tool_call_id.clone(),
-            tool_input: self.normalized_input.clone(),
-            tool_response: self.tool_response.clone(),
-            trigger: self.compaction_trigger.clone(),
-        })
-    }
 }
 
 pub trait AgentHook: Send + Sync + 'static {
+    /// Registration identity: installing the same executor replaces its prior instance.
     fn name(&self) -> &'static str {
-        "agent_hook"
+        std::any::type_name::<Self>()
     }
 
-    fn evaluate(&self, invocation: &AgentHookInvocation) -> Result<AgentHookDecision, String>;
+    fn evaluate<'a>(
+        &'a self,
+        invocation: &'a AgentHookInvocation,
+    ) -> futures_util::future::BoxFuture<'a, Result<AgentHookOutput, String>>;
+}
+
+pub enum AgentHookOutput {
+    Decision(AgentHookDecision),
+    Runs(Vec<AgentHookRun>),
+}
+
+/// Executor-neutral effects and diagnostic evidence returned by an external hook.
+#[derive(Clone, Debug, Default)]
+pub struct AgentHookRun {
+    pub hook_hash: String,
+    pub hook_name: String,
+    pub source_path: String,
+    pub duration_ms: u64,
+    pub decision: String,
+    pub denied_reason: Option<String>,
+    pub updated_input: Option<Value>,
+    pub additional_context: Option<String>,
+    pub system_message: Option<String>,
+    pub tool_feedback: Option<String>,
+    pub failure: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -324,19 +319,9 @@ impl AgentHookEvaluation {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct AgentHookPipeline {
     hooks: Arc<Vec<Arc<dyn AgentHook>>>,
-    command_hooks: Arc<CommandHookEngine>,
-}
-
-impl Default for AgentHookPipeline {
-    fn default() -> Self {
-        Self {
-            hooks: Arc::new(Vec::new()),
-            command_hooks: Arc::new(CommandHookEngine::default()),
-        }
-    }
 }
 
 impl fmt::Debug for AgentHookPipeline {
@@ -344,31 +329,26 @@ impl fmt::Debug for AgentHookPipeline {
         formatter
             .debug_struct("AgentHookPipeline")
             .field("hook_count", &self.hooks.len())
-            .field("command_hook_engine", &self.command_hooks)
             .finish()
     }
 }
 
 impl AgentHookPipeline {
-    #[cfg(test)]
     pub(crate) fn with_hook(&self, hook: Arc<dyn AgentHook>) -> Self {
-        let mut hooks = self.hooks.as_ref().clone();
+        // Reassembling a child or resumed Turn replaces its named executor.
+        let mut hooks = self
+            .hooks
+            .iter()
+            .filter(|existing| existing.name() != hook.name())
+            .cloned()
+            .collect::<Vec<_>>();
         hooks.push(hook);
         Self {
             hooks: Arc::new(hooks),
-            command_hooks: self.command_hooks.clone(),
         }
     }
 
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn with_command_hooks(&self, command_hooks: CommandHookEngine) -> Self {
-        Self {
-            hooks: self.hooks.clone(),
-            command_hooks: Arc::new(command_hooks),
-        }
-    }
-
-    pub(crate) fn evaluate(
+    pub(crate) async fn evaluate(
         &self,
         invocation: AgentHookInvocation,
         metrics: &AgentRuntimeMetrics,
@@ -379,7 +359,7 @@ impl AgentHookPipeline {
             ..AgentHookEvaluation::default()
         };
         for hook in self.hooks.iter() {
-            let decision = hook.evaluate(&invocation).map_err(|error| {
+            let decision = hook.evaluate(&invocation).await.map_err(|error| {
                 metrics.increment("hook.error");
                 format!(
                     "agent hook `{}` failed at {}: {error}",
@@ -387,42 +367,36 @@ impl AgentHookPipeline {
                     invocation.stage.as_str()
                 )
             })?;
-            metrics.increment(&format!(
-                "hook.{}.{}",
-                invocation.stage.as_str(),
-                decision.kind()
-            ));
-            apply_decision(&mut invocation, &mut evaluation, hook.name(), decision)?;
+            match decision {
+                AgentHookOutput::Decision(decision) => {
+                    metrics.increment(&format!(
+                        "hook.{}.{}",
+                        invocation.stage.as_str(),
+                        decision.kind()
+                    ));
+                    apply_decision(&mut invocation, &mut evaluation, hook.name(), decision)?;
+                }
+                AgentHookOutput::Runs(runs) => {
+                    merge_hook_runs(&invocation, &mut evaluation, runs, metrics);
+                    invocation.normalized_input = evaluation.normalized_input.clone();
+                }
+            }
             if evaluation.denied_reason.is_some() {
                 break;
             }
         }
         Ok(evaluation)
     }
-
-    pub(crate) async fn evaluate_command_hooks(
-        &self,
-        invocation: AgentHookInvocation,
-        metrics: &AgentRuntimeMetrics,
-    ) -> Result<AgentHookEvaluation, String> {
-        let mut evaluation = self.evaluate(invocation.clone(), metrics)?;
-        let Some(request) = invocation.command_request() else {
-            return Ok(evaluation);
-        };
-        let command_evaluation = self.command_hooks.evaluate(&request).await;
-        merge_command_evaluation(&invocation, &mut evaluation, command_evaluation, metrics);
-        Ok(evaluation)
-    }
 }
 
-fn merge_command_evaluation(
+fn merge_hook_runs(
     invocation: &AgentHookInvocation,
     evaluation: &mut AgentHookEvaluation,
-    command_evaluation: CommandHookEvaluation,
+    runs: Vec<AgentHookRun>,
     metrics: &AgentRuntimeMetrics,
 ) {
     let mut replacement = evaluation.normalized_input.clone();
-    for run in command_evaluation.runs {
+    for run in runs {
         metrics.increment(&format!(
             "hook.{}.{}",
             invocation.stage.as_str(),
@@ -461,7 +435,7 @@ fn merge_command_evaluation(
         evaluation.command_runs.push(CommandHookRunRecord {
             hook_name: run.hook_name,
             hook_hash: run.hook_hash,
-            source_path: run.source_path.to_string_lossy().to_string(),
+            source_path: run.source_path,
             duration_ms: run.duration_ms,
             decision: run.decision,
             failure: run

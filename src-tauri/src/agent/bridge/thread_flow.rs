@@ -258,7 +258,8 @@ pub(crate) async fn execute_thread_turn_with_services(
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStart, trace_context.clone());
     let thread_start_evaluation = thread_hook_services
         .runtime
-        .evaluate_hook_invocation(thread_start_invocation)?;
+        .evaluate_hook_invocation(thread_start_invocation)
+        .await?;
     if let Some(reason) = thread_start_evaluation.denied_reason.clone() {
         return Err(format!("thread start hook denied: {reason}").into());
     }
@@ -290,7 +291,8 @@ pub(crate) async fn execute_thread_turn_with_services(
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStop, trace_context);
     thread_hook_services
         .runtime
-        .evaluate_hook_invocation(thread_stop_invocation)?;
+        .evaluate_hook_invocation(thread_stop_invocation)
+        .await?;
     Ok(ExecutedThreadTurn {
         thread_id,
         session_id,

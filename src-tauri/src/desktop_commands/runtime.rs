@@ -73,11 +73,22 @@ pub(crate) fn start_native_runtime_with_workspace_root(
         }
     }
     #[cfg(not(test))]
-    crate::memory::start_workspace_runtime(
-        workspace_root,
-        thread_store.clone(),
-        crate::config::application::native_runtime_config_snapshot(),
-    );
+    {
+        let memory = lock_runtime(shared).memory_runtime.clone();
+        if let Err(message) = memory.start(
+            thread_store.clone(),
+            crate::config::application::native_runtime_config_snapshot(),
+        ) {
+            let mut runtime = lock_runtime(shared);
+            runtime.last_error = Some(message.clone());
+            runtime
+                .lifecycle_status
+                .record_startup_failure(message.clone());
+            drop(runtime);
+            push_log(shared, &message);
+            return Err(message);
+        }
+    }
     if let Err(error) = shell_runtime.resume_accepting() {
         let message = format!("runtime resume failed: {}", error.message);
         {
@@ -130,6 +141,7 @@ async fn shutdown_native_runtime_async_with_timeout(
             runtime.native_agent_runtime.task_runtime(),
             runtime.shell_runtime.clone(),
             runtime.mcp_runtime.clone(),
+            runtime.memory_runtime.clone(),
             runtime.subagent_manager.clone(),
             runtime.thread_store.clone(),
         )

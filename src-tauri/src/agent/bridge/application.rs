@@ -11,6 +11,8 @@ pub(crate) struct AgentApplicationServices {
     pub runtime: NativeAgentRuntimeServices,
     pub thread_store: WorkspaceThreadStore,
     pub mcp_runtime: McpRuntime,
+    #[cfg_attr(test, allow(dead_code))]
+    pub memory_runtime: crate::memory::MemoryRuntime,
     pub shell_runtime: WorkerShellRuntime,
     pub subagent_manager: SubagentThreadManager,
     pub browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
@@ -24,7 +26,7 @@ impl AgentApplicationServices {
         working_directory: &Path,
         base_config_snapshot: serde_json::Value,
         live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    ) -> NativeAgentRuntimeServices {
+    ) -> Result<NativeAgentRuntimeServices, String> {
         self.runtime = self.runtime.with_context_checkpoint_committer(
             super::native_agent_context_checkpoint_committer(self.thread_store.clone()),
         );
@@ -37,22 +39,17 @@ impl AgentApplicationServices {
                 super::native_agent_trace_sink(self.thread_store.clone(), None)
             }),
         };
-        #[cfg(not(test))]
-        {
-            self.runtime =
-                self.runtime
-                    .with_command_hooks(crate::command_hooks::CommandHookEngine::load(
-                        self.thread_store.data_root(),
-                        working_directory,
-                    ));
-        }
-        #[cfg(test)]
-        let _ = working_directory;
-        super::native_agent_services_with_tool_executor(
+        self.runtime =
+            self.runtime
+                .with_hook(Arc::new(crate::command_hooks::CommandHookEngine::load(
+                    self.thread_store.data_root(),
+                    working_directory,
+                )?));
+        Ok(super::native_agent_services_with_tool_executor(
             self,
             workspace_root.to_path_buf(),
             base_config_snapshot,
-        )
+        ))
     }
 }
 
@@ -68,6 +65,9 @@ impl TestApplicationServices for NativeAgentRuntimeServices {
             runtime: self,
             thread_store: store,
             mcp_runtime: McpRuntime::new(),
+            memory_runtime: crate::memory::MemoryRuntime::new(Arc::new(
+                crate::memory::NativeMemoryModel,
+            )),
             shell_runtime: WorkerShellRuntime::default(),
             subagent_manager: SubagentThreadManager::default(),
             browser_runtime: None,

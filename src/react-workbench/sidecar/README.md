@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:a7c10efb2501c41baa474fb3696d9739afbfd452cefb127c96df070a5440cb64 -->
+<!-- tinybot-module-fingerprint: sha256:97fa6bb5a3a7ac1f1ecd68a38851776fabce176c9e213ed72cf47d66fc26fe53 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -87,7 +87,12 @@ Artifact domain state does not live in this module. Artifact tabs may come from
 canonical Agent artifacts or from local file links in assistant Markdown. File
 links are contextual only, so the resource menu does not create an empty
 Artifact tab. Sidecar presents Markdown Artifacts as rendered documents and keeps
-the Artifact panel as the single vertical scrolling surface. Modern Office
+the Artifact panel as the single vertical scrolling surface. Links inside a
+local Markdown preview carry that document's resolved path, so relative links
+resolve from its containing directory. Chat-message links retain their workspace
+base, absolute targets keep their own paths, and native workspace authorization
+remains authoritative. Link diagnostics record the source document, original
+href, and resolved target together. Modern Office
 files (`.xlsx`, `.docx`, and `.pptx`) are parsed locally into sheet, continuous
 document, and slide-list previews; plain text, image, and data-view Artifacts
 retain their type-specific previews. PowerPoint previews overlay a collapsed

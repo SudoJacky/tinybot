@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:435fdd7f4598a5ddf2ae5c47ec3e3149dc6ef140e616a242e6ab3c02d56a83e7 -->
+<!-- tinybot-module-fingerprint: sha256:3ffb2db6529033788ac8a2647ecdf334aab81ab1d186a8ab64acb2cb15f95520 -->
 
 `memory` provides Tinybot's local long-term memory. The V1 implementation is
 intentionally limited to two model-backed phases:
@@ -8,6 +8,25 @@ intentionally limited to two model-backed phases:
 2. periodically consolidate those fragments into the active memory set.
 
 This document describes the implemented V1 behavior and its boundaries.
+
+## Ownership and dependencies
+
+The application owns one `MemoryRuntime` and injects it into Turn completion
+and runtime lifecycle orchestration. Each workspace/data-directory pair has one
+worker that serializes extraction and heartbeat work. `MemoryModel` supplies
+the asynchronous extraction and selection operations; `NativeMemoryModel`
+adapts the configured provider. There is no process-global worker registry.
+
+`MemoryStore::new` receives the application data directory explicitly. Background
+workers, the desktop snapshot command, and new Thread snapshots use the same
+directory from `WorkspaceThreadStore`, including in tests.
+
+Shutdown stops accepting jobs, cancels in-flight model futures, and joins the
+workers before Thread persistence closes. Model implementations must keep their
+request work inside the returned future so dropping it cancels that work.
+Unfinished extractions remain in SQLite for the next start's heartbeat. A
+worker failure or shutdown timeout is reported through lifecycle diagnostics.
+Restart is accepted only after the previous workers have finished shutdown.
 
 ## Authority
 

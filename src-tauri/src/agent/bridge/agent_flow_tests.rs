@@ -352,3 +352,38 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
         assert_eq!(runtime_state["stopReason"], "runtime_error");
     });
 }
+#[test]
+fn invalid_command_hooks_fail_the_durable_turn_before_provider_execution() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestWorkspace::new();
+        let data_root = workspace.root.join("thread-data");
+        std::fs::create_dir_all(&data_root).unwrap();
+        std::fs::write(data_root.join("hooks.json"), "{invalid").unwrap();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            data_root,
+            default_desktop_capability_policy(),
+        );
+        let provider = Arc::new(DataViewProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(store.clone());
+        let error = run_agent_from_wire_with_services(services, serde_json::json!({
+            "sessionId":"hook-thread", "threadId":"hook-thread", "turnId":"hook-turn", "model":"fixture-model",
+            "messages":[{"role":"user", "content":"hello"}],
+        }), workspace.root.clone(), serde_json::json!({}), None).await.unwrap_err();
+        assert!(error.to_string().contains("hook_config_invalid_json"));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+        let turn = store
+            .agent_turn("hook-thread", "hook-turn")
+            .unwrap()
+            .unwrap();
+        assert_eq!(turn.status, crate::threads::turn::AgentTurnStatus::Failed);
+    });
+}

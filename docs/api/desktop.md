@@ -11,13 +11,15 @@ src-tauri/src/desktop_terminal.rs
 src-tauri/src/desktop_commands/config.rs
 src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
+src-tauri/src/desktop_commands/runtime.rs
+src-tauri/src/runtime/lifecycle.rs
 src-tauri/src/agent/provider/completion.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:bc17cd6f2775ffc5cbe72c360141902e511eddbc6343a542c24198e4c8dbd0cd -->
+<!-- tinybot-doc-fingerprint: sha256:6a379f9369035d4cde752ca92d66a633dea2d255018b95fa1c376a2a30ccf95c -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -48,6 +50,12 @@ later Rollout/index mismatch. A persisted `running` turn with no live owner is t
 `stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
+
+Shutdown cancels and joins the application-owned Memory workers before closing
+Thread persistence. Its internal report includes a `memory` stage with
+`completed` and `detail`; failures also appear in the shared `failures` list.
+Unfinished extraction jobs remain durable and are retried by the heartbeat after
+restart. Failure to initialize Memory storage aborts startup with diagnostics.
 
 ## Windows Desktop Pet Windows
 

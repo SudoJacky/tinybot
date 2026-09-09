@@ -67,9 +67,10 @@ pub(crate) use self::context::ensure_agent_trace_context;
 pub(crate) use self::events::standalone_runtime_event;
 pub(crate) use self::hooks::AgentHookEvaluation;
 
-#[cfg(test)]
 pub use self::hooks::AgentHookDecision;
-pub use self::hooks::{AgentHook, AgentHookInvocation, AgentHookStage};
+pub use self::hooks::{
+    AgentHook, AgentHookInvocation, AgentHookOutput, AgentHookRun, AgentHookStage,
+};
 pub(crate) use self::instructions::{ComposedInstructions, TurnInstructionInput};
 #[cfg(test)]
 pub use self::items::AgentPlanStepStatus;
@@ -635,15 +636,6 @@ impl NativeAgentRuntimeServices {
         self
     }
 
-    #[cfg_attr(test, allow(dead_code))]
-    pub(crate) fn with_command_hooks(
-        mut self,
-        command_hooks: crate::command_hooks::CommandHookEngine,
-    ) -> Self {
-        self.hooks = self.hooks.with_command_hooks(command_hooks);
-        self
-    }
-
     pub fn with_context_checkpoint_committer(
         mut self,
         committer: Arc<dyn NativeAgentContextCheckpointCommitter>,
@@ -668,7 +660,6 @@ impl NativeAgentRuntimeServices {
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
     }
 
-    #[cfg(test)]
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.hooks = self.hooks.with_hook(hook);
         self
@@ -680,11 +671,11 @@ impl NativeAgentRuntimeServices {
         self
     }
 
-    pub(crate) fn evaluate_hook_invocation(
+    pub(crate) async fn evaluate_hook_invocation(
         &self,
         invocation: AgentHookInvocation,
     ) -> Result<AgentHookEvaluation, String> {
-        self.hooks.evaluate(invocation, &self.metrics)
+        self.hooks.evaluate(invocation, &self.metrics).await
     }
 
     pub fn tool_dispatcher(&self) -> Arc<dyn NativeAgentToolDispatcher> {

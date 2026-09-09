@@ -1494,13 +1494,20 @@ fn trace_context_follows_provider_tool_and_completion_with_tool_hook_rewrite() {
     struct RewriteToolInputHook;
 
     impl AgentHook for RewriteToolInputHook {
-        fn evaluate(&self, invocation: &AgentHookInvocation) -> Result<AgentHookDecision, String> {
-            if invocation.stage == AgentHookStage::BeforeToolUse {
-                return Ok(AgentHookDecision::ReplaceNormalizedInput {
-                    normalized_input: json!({ "path": "after.md" }),
-                });
-            }
-            Ok(AgentHookDecision::Continue)
+        fn evaluate<'a>(
+            &'a self,
+            invocation: &'a AgentHookInvocation,
+        ) -> futures_util::future::BoxFuture<'a, Result<AgentHookOutput, String>> {
+            Box::pin(async move {
+                let decision = if invocation.stage == AgentHookStage::BeforeToolUse {
+                    AgentHookDecision::ReplaceNormalizedInput {
+                        normalized_input: json!({ "path": "after.md" }),
+                    }
+                } else {
+                    AgentHookDecision::Continue
+                };
+                Ok(AgentHookOutput::Decision(decision))
+            })
         }
     }
 
@@ -1605,13 +1612,20 @@ fn lifecycle_hook_denial_aborts_before_provider_call() {
     struct DenyTurnStartHook;
 
     impl AgentHook for DenyTurnStartHook {
-        fn evaluate(&self, invocation: &AgentHookInvocation) -> Result<AgentHookDecision, String> {
-            if invocation.stage == AgentHookStage::TurnStart {
-                return Ok(AgentHookDecision::Deny {
-                    reason: "blocked by lifecycle policy".to_string(),
-                });
-            }
-            Ok(AgentHookDecision::Continue)
+        fn evaluate<'a>(
+            &'a self,
+            invocation: &'a AgentHookInvocation,
+        ) -> futures_util::future::BoxFuture<'a, Result<AgentHookOutput, String>> {
+            Box::pin(async move {
+                let decision = if invocation.stage == AgentHookStage::TurnStart {
+                    AgentHookDecision::Deny {
+                        reason: "blocked by lifecycle policy".to_string(),
+                    }
+                } else {
+                    AgentHookDecision::Continue
+                };
+                Ok(AgentHookOutput::Decision(decision))
+            })
         }
     }
 

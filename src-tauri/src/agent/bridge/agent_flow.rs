@@ -59,12 +59,23 @@ pub(super) async fn run_agent_with_services(
     let memory_scope_root = instructions.working_directory.clone();
     persist_native_agent_turn_start(&request, &instructions, &thread_store)?;
     hydrate_native_agent_history_for_runtime(&mut request.input, &thread_store)?;
-    let services = base_services.prepare_turn(
-        &workspace_root,
-        &instructions.working_directory,
-        graph_base_config_snapshot,
-        live_trace_sink,
-    );
+    #[cfg(not(test))]
+    let memory_runtime = base_services.memory_runtime.clone();
+    let services = base_services
+        .prepare_turn(
+            &workspace_root,
+            &instructions.working_directory,
+            graph_base_config_snapshot,
+            live_trace_sink,
+        )
+        .map_err(|error| {
+            persist_failed_agent_turn(
+                &request.input.session_id,
+                &trace_context,
+                &thread_store,
+                error.into(),
+            )
+        })?;
     let session_id = request.input.session_id.clone();
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
@@ -106,6 +117,7 @@ pub(super) async fn run_agent_with_services(
     persist_native_agent_checkpoint_if_present(&result, &thread_store)?;
     #[cfg(not(test))]
     schedule_completed_turn_memory_extraction(
+        &memory_runtime,
         &trace_context,
         &result,
         &workspace_root,
@@ -138,6 +150,7 @@ fn persist_failed_agent_turn(
 
 #[cfg(not(test))]
 fn schedule_completed_turn_memory_extraction(
+    memory_runtime: &crate::memory::MemoryRuntime,
     trace_context: &crate::agent::runtime_protocol::AgentTraceContext,
     result: &AgentTurnResult,
     workspace_root: &std::path::Path,
@@ -165,12 +178,16 @@ fn schedule_completed_turn_memory_extraction(
             return;
         }
     };
-    crate::memory::schedule_turn_extraction(
-        workspace_root.to_path_buf(),
+    if let Err(error) = memory_runtime.schedule_turn_extraction(
         thread_store.clone(),
         config_snapshot.clone(),
         thread_id,
         turn_id,
         workspace_path,
-    );
+    ) {
+        eprintln!(
+            "memory_phase1_schedule_failed workspace={} error={error}",
+            workspace_root.display()
+        );
+    }
 }

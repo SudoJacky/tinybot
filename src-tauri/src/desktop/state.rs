@@ -26,6 +26,7 @@ pub(crate) type SharedNativeRuntime = Arc<Mutex<NativeRuntimeState>>;
 pub(crate) struct NativeRuntimeState {
     pub(crate) native_agent_runtime: NativeAgentRuntimeServices,
     pub(crate) mcp_runtime: McpRuntime,
+    pub(crate) memory_runtime: crate::memory::MemoryRuntime,
     pub(crate) shell_runtime: crate::tools::shell::WorkerShellRuntime,
     pub(crate) browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
     pub(crate) subagent_manager: SubagentThreadManager,
@@ -95,6 +96,9 @@ impl NativeRuntimeState {
                 },
             ),
             mcp_runtime,
+            memory_runtime: crate::memory::MemoryRuntime::new(Arc::new(
+                crate::memory::NativeMemoryModel,
+            )),
             shell_runtime: crate::tools::shell::WorkerShellRuntime::default(),
             browser_runtime: None,
             subagent_manager,
@@ -112,6 +116,7 @@ impl NativeRuntimeState {
             runtime: self.native_agent_runtime.clone(),
             thread_store: self.thread_store.clone(),
             mcp_runtime: self.mcp_runtime.clone(),
+            memory_runtime: self.memory_runtime.clone(),
             shell_runtime: self.shell_runtime.clone(),
             subagent_manager: self.subagent_manager.clone(),
             browser_runtime: self.browser_runtime.clone(),

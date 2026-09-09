@@ -71,6 +71,7 @@ pub struct WorkerThreadLogRpc {
     canonical_scan_count: Arc<AtomicUsize>,
     #[cfg(test)]
     projection_read_count: Arc<AtomicUsize>,
+    memory_store: crate::memory::MemoryStore,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -198,6 +199,7 @@ impl WorkerThreadLogRpc {
             recorder,
             workspace_root,
             thread_root: data_root.join("threads"),
+            memory_store: crate::memory::MemoryStore::new(&data_root),
             archive_root: data_root.join("archived_threads"),
             state: ThreadStateIndex::new(),
             policy,
@@ -255,7 +257,7 @@ impl WorkerThreadLogRpc {
                     }),
                 )
             })?;
-        crate::memory::MemoryStore::for_workspace(&self.workspace_root)
+        self.memory_store
             .render_thread_snapshot(&workspace_path)
             .map_err(|error| {
                 thread_log_consistency_error(

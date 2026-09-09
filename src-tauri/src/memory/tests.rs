@@ -32,7 +32,7 @@ impl MemoryFixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
-        let store = MemoryStore::for_workspace(&root);
+        let store = MemoryStore::new(&root.join(".tinybot"));
         store.initialize().unwrap();
         let workspace_path = normalized_workspace_path(&root).unwrap();
         Self {

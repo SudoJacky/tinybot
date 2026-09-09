@@ -76,7 +76,7 @@ impl UserInputResume {
                 "envelope": result.envelope,
             })),
         );
-        let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+        let evaluation = context.evaluate_hook(invocation.clone()).await?;
         context.queue_tool_hook_context(&evaluation);
         state.emit_hook_evaluation(&invocation, &evaluation)?;
         if !evaluation.tool_feedback.is_empty() {

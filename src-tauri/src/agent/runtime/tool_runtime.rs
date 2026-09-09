@@ -369,7 +369,7 @@ async fn evaluate_pre_tool_hooks(
             tool_call.arguments_value(),
             None,
         );
-        let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+        let evaluation = context.evaluate_hook(invocation.clone()).await?;
         context.queue_tool_hook_context(&evaluation);
         state.emit_hook_evaluation(&invocation, &evaluation)?;
         if let Some(reason) = evaluation.denied_reason {
@@ -409,7 +409,7 @@ async fn commit_executed_tool_observation(
             "envelope": result.envelope,
         })),
     );
-    let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+    let evaluation = context.evaluate_hook(invocation.clone()).await?;
     context.queue_tool_hook_context(&evaluation);
     state.emit_hook_evaluation(&invocation, &evaluation)?;
     if !evaluation.tool_feedback.is_empty() {

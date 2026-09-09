@@ -1,4 +1,4 @@
-use crate::config::application::native_backend_workspace_root;
+use crate::desktop::state::{lock_runtime, SharedNativeRuntime};
 use crate::memory::{normalized_workspace_path, MemoryRecord, MemoryScope, MemoryStore};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -20,10 +20,18 @@ struct WorkerWorkspaceMemory {
 }
 
 #[tauri::command]
-pub(crate) fn worker_memory_snapshot() -> Result<WorkerMemorySnapshot, String> {
-    let workspace_root = native_backend_workspace_root();
+pub(crate) fn worker_memory_snapshot(
+    state: tauri::State<'_, SharedNativeRuntime>,
+) -> Result<WorkerMemorySnapshot, String> {
+    let (workspace_root, data_root) = {
+        let runtime = lock_runtime(state.inner());
+        (
+            runtime.thread_store.workspace_root().to_path_buf(),
+            runtime.thread_store.data_root().to_path_buf(),
+        )
+    };
     let current_workspace_path = normalized_workspace_path(&workspace_root)?;
-    let memories = MemoryStore::for_workspace(&workspace_root).active_memories()?;
+    let memories = MemoryStore::new(&data_root).active_memories()?;
     Ok(build_memory_snapshot(current_workspace_path, memories))
 }
 

@@ -195,11 +195,14 @@ async fn run_owned_native_agent_turn_async(
                 AgentHookStage::TurnAbort,
                 identity.trace_context.clone(),
             );
-            identity.evaluate_hook(invocation).map_err(|hook_error| {
-                error
-                    .clone()
-                    .combine(AgentError::from(hook_error).context("turn abort hook failed"))
-            })?;
+            identity
+                .evaluate_hook(invocation)
+                .await
+                .map_err(|hook_error| {
+                    error
+                        .clone()
+                        .combine(AgentError::from(hook_error).context("turn abort hook failed"))
+                })?;
             return Err(error);
         }
     };
@@ -229,7 +232,7 @@ async fn run_owned_native_agent_turn_async(
         .metrics()
         .record_duration("turn.durationMs", duration);
     let invocation = AgentHookInvocation::lifecycle(stage, identity.trace_context.clone());
-    let evaluation = identity.evaluate_hook(invocation.clone())?;
+    let evaluation = identity.evaluate_hook(invocation.clone()).await?;
     append_hook_evaluation_to_result(&mut result, services, &identity, &invocation, &evaluation)?;
     result.trace_context = Some(identity.trace_context.clone());
     result.turn_metrics = Some(AgentTurnMetrics {
@@ -637,7 +640,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 context.hook_permission_mode(),
                 prompt,
             );
-            let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+            let evaluation = context.evaluate_hook(invocation.clone()).await?;
             state.apply_hook_evaluation(&mut context, &evaluation)?;
             state.emit_hook_evaluation(&invocation, &evaluation)?;
             if let Some(reason) = evaluation.denied_reason {
@@ -656,7 +659,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
         );
-        let turn_start_evaluation = context.evaluate_hook(turn_start_invocation.clone())?;
+        let turn_start_evaluation = context.evaluate_hook(turn_start_invocation.clone()).await?;
         state.emit_hook_evaluation(&turn_start_invocation, &turn_start_evaluation)?;
         if let Some(reason) = turn_start_evaluation.denied_reason {
             return Ok(PreparedNativeAgentTurnExecution::Finished(
@@ -802,10 +805,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     self.context.hook_permission_mode(),
                     trigger.to_string(),
                 );
-                let evaluation = self
-                    .context
-                    .evaluate_command_hook(invocation.clone())
-                    .await?;
+                let evaluation = self.context.evaluate_hook(invocation.clone()).await?;
                 self.state
                     .apply_hook_evaluation(&mut self.context, &evaluation)?;
                 self.state.emit_hook_evaluation(&invocation, &evaluation)?;
@@ -877,7 +877,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
         );
         let before_provider_evaluation = self
             .context
-            .evaluate_hook(before_provider_invocation.clone())?;
+            .evaluate_hook(before_provider_invocation.clone())
+            .await?;
         self.state
             .emit_hook_evaluation(&before_provider_invocation, &before_provider_evaluation)?;
         if let Some(reason) = before_provider_evaluation.denied_reason {
@@ -985,7 +986,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
         );
         let after_provider_evaluation = self
             .context
-            .evaluate_hook(after_provider_invocation.clone())?;
+            .evaluate_hook(after_provider_invocation.clone())
+            .await?;
         self.state
             .emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation)?;
         if attempt.stream.observer_cancelled {

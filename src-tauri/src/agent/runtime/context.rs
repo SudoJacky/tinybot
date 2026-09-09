@@ -66,20 +66,11 @@ impl AgentTurnContext {
         self.metrics = services.metrics.clone();
     }
 
-    pub(crate) fn evaluate_hook(
+    pub(crate) async fn evaluate_hook(
         &self,
         invocation: AgentHookInvocation,
     ) -> Result<AgentHookEvaluation, String> {
-        self.hooks.evaluate(invocation, &self.metrics)
-    }
-
-    pub(crate) async fn evaluate_command_hook(
-        &self,
-        invocation: AgentHookInvocation,
-    ) -> Result<AgentHookEvaluation, String> {
-        self.hooks
-            .evaluate_command_hooks(invocation, &self.metrics)
-            .await
+        self.hooks.evaluate(invocation, &self.metrics).await
     }
 
     pub(crate) fn hook_permission_mode(&self) -> String {

@@ -219,20 +219,22 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
     set_hook_trusted(&data_root, &workspace_root, &edited.hooks[0].hash, true)
         .expect("disabled definition may retain trust for later re-enabling");
     let evaluation = tauri::async_runtime::block_on(
-        CommandHookEngine::load(&data_root, &workspace_root).evaluate(&CommandHookRequest {
-            event: CommandHookEvent::PostToolUse,
-            session_id: "session-managed".to_string(),
-            turn_id: "turn-managed".to_string(),
-            model: "test-model".to_string(),
-            permission_mode: "local-worker".to_string(),
-            prompt: None,
-            tool_name: Some("workspace.read_file".to_string()),
-            tool_match_names: vec!["workspace.read_file".to_string()],
-            tool_use_id: Some("call-managed".to_string()),
-            tool_input: Some(json!({ "path": "README.md" })),
-            tool_response: Some(json!({ "content": "test" })),
-            trigger: None,
-        }),
+        CommandHookEngine::load(&data_root, &workspace_root)
+            .expect("valid hook configuration")
+            .evaluate(&CommandHookRequest {
+                event: CommandHookEvent::PostToolUse,
+                session_id: "session-managed".to_string(),
+                turn_id: "turn-managed".to_string(),
+                model: "test-model".to_string(),
+                permission_mode: "local-worker".to_string(),
+                prompt: None,
+                tool_name: Some("workspace.read_file".to_string()),
+                tool_match_names: vec!["workspace.read_file".to_string()],
+                tool_use_id: Some("call-managed".to_string()),
+                tool_input: Some(json!({ "path": "README.md" })),
+                tool_response: Some(json!({ "content": "test" })),
+                trigger: None,
+            }),
     );
     assert!(
         evaluation.runs.is_empty(),
@@ -280,7 +282,8 @@ fn managed_script_changes_invalidate_trust_and_the_loaded_engine() {
         .clone();
     set_hook_trusted(&data_root, &workspace_root, &original_hash, true)
         .expect("managed hook should be trusted");
-    let engine = CommandHookEngine::load(&data_root, &workspace_root);
+    let engine =
+        CommandHookEngine::load(&data_root, &workspace_root).expect("valid hook configuration");
     assert_eq!(engine.hooks.len(), 1);
     assert!(engine.hooks[0].trusted);
     assert_eq!(engine.hooks[0].event, CommandHookEvent::PreToolUse);
@@ -441,7 +444,8 @@ fn trusted_command_hook_runs_with_json_input_and_output() {
     let hash = loaded.hooks[0].hash.clone();
     set_hook_trusted(&data_root, &workspace_root, &hash, true)
         .expect("configured hook should be trusted");
-    let engine = CommandHookEngine::load(&data_root, &workspace_root);
+    let engine =
+        CommandHookEngine::load(&data_root, &workspace_root).expect("valid hook configuration");
     let evaluation = tauri::async_runtime::block_on(engine.evaluate(&CommandHookRequest {
         event: CommandHookEvent::PreToolUse,
         session_id: "session-1".to_string(),
@@ -496,7 +500,8 @@ fn hook_timeout_covers_inherited_output_pipe_lifetime() {
         .expect("hook config should load before trusting");
     set_hook_trusted(&data_root, &workspace_root, &loaded.hooks[0].hash, true)
         .expect("configured hook should be trusted");
-    let engine = CommandHookEngine::load(&data_root, &workspace_root);
+    let engine =
+        CommandHookEngine::load(&data_root, &workspace_root).expect("valid hook configuration");
 
     let started = Instant::now();
     let evaluation = tauri::async_runtime::block_on(engine.evaluate(&CommandHookRequest {
@@ -550,4 +555,26 @@ fn event_specific_stop_outputs_are_mapped_without_rolling_back_tools() {
         post_compact.denied_reason.as_deref(),
         Some("compaction policy stopped the turn")
     );
+}
+#[test]
+fn runtime_loader_rejects_invalid_configuration_and_trust_with_diagnostics() {
+    let root = TestDirectory::new("invalid-runtime-config");
+    let data = root.path().join("data");
+    let workspace = root.path().join("workspace");
+    fs::create_dir_all(&data).unwrap();
+    fs::create_dir_all(&workspace).unwrap();
+    assert!(
+        CommandHookEngine::load(&data, &workspace).is_ok(),
+        "missing optional hooks are valid"
+    );
+
+    fs::write(data.join("hooks.json"), "{broken").unwrap();
+    let error = CommandHookEngine::load(&data, &workspace).unwrap_err();
+    assert!(error.contains("hook_config_invalid_json"));
+    assert!(error.contains("hooks.json"));
+    fs::remove_file(data.join("hooks.json")).unwrap();
+    fs::write(data.join("hook-trust.json"), "{broken").unwrap();
+    assert!(CommandHookEngine::load(&data, &workspace)
+        .unwrap_err()
+        .contains("trust store"));
 }

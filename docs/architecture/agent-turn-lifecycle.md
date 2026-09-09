@@ -3,12 +3,14 @@
 src-tauri/src/agent/bridge/README.md
 src-tauri/src/agent/bridge/agent_flow.rs
 src-tauri/src/agent/bridge/application.rs
+src-tauri/src/agent/bridge/command_hooks.rs
 src-tauri/src/agent/bridge/tool_catalog.rs
 src-tauri/src/agent/bridge/webui_continuation.rs
 src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/bridge/workspace_threads.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/mod.rs
+src-tauri/src/agent/runtime/hooks.rs
 src-tauri/src/agent/runtime/provider_loop.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
 src-tauri/src/agent/runtime/turn_result.rs
@@ -20,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d83dfa55689a5c33efc62537787ff3c9021c70fbb44c6f1b1fa3eba41475f4f7 -->
+<!-- tinybot-doc-fingerprint: sha256:27f13d2bdac447fa429d8263875ed29b823bed30a3b4d771f6292251fee371ad -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -176,7 +178,12 @@ call as an ordering barrier. `update_plan` is such a barrier, so a plan update
 may precede ordinary calls in the same response without rejecting the batch.
 
 The bridge loads additive global and effective-working-directory command hooks
-for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied
+for each Turn, adapting the engine to the same asynchronous `AgentHook`
+interface used by in-process hooks. The core owns effect merging and conflict
+decisions without depending on the command engine. Invalid configuration or
+trust-store loading fails preparation with diagnostics and marks a newly
+started durable Turn failed before a provider request.
+`UserPromptSubmit` runs after the durable Turn start, so a denied
 prompt still produces a recoverable terminal Turn. `PreToolUse` may deny or
 replace normalized arguments before dispatch; `PostToolUse` may replace only
 the next model-visible observation; `PostCompact` runs after replacement

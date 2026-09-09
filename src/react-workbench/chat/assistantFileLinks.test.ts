@@ -36,6 +36,24 @@ describe("assistant file links", () => {
       .toThrowError(expect.objectContaining({ code: "outside_workspace" }));
   });
 
+  it("resolves document links from their parent directory while keeping the workspace boundary", () => {
+    const root = "C:/Users/viewer/.tinybot/workspace";
+    expect(resolveAssistantFileLink("./github_agent_projects.pptx", root, "github-agent-report/report.md").path)
+      .toBe("github-agent-report/github_agent_projects.pptx");
+    expect(resolveAssistantFileLink("../data.csv#L12", root, "github-agent-report/report.md"))
+      .toEqual({ path: "data.csv", title: "data.csv", line: 12 });
+    expect(resolveAssistantFileLink("./nested/../Hello%20World.md", "", `${root}/github-agent-report/report.md`).path)
+      .toBe(`${root}/github-agent-report/Hello World.md`);
+    expect(resolveAssistantFileLink("./chart.png", root, "reports/100%20done#final/report.md").path)
+      .toBe("reports/100%20done#final/chart.png");
+    expect(resolveAssistantFileLink("C:/Users/viewer/.tinybot/workspace/data.csv", root, "github-agent-report/report.md").path)
+      .toBe("data.csv");
+    expect(() => resolveAssistantFileLink("../../secret.txt", root, "github-agent-report/report.md"))
+      .toThrowError(expect.objectContaining({ code: "outside_workspace" }));
+    expect(() => resolveAssistantFileLink("../../secret.txt", root, `${root}/github-agent-report/report.md`))
+      .toThrowError(expect.objectContaining({ code: "outside_workspace" }));
+  });
+
   it("projects a deterministic text artifact from the resolved file", () => {
     expect(assistantFileArtifact({ path: "docs/guide.md", title: "guide.md" })).toEqual({
       fetchPath: "docs/guide.md",

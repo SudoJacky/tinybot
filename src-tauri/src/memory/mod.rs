@@ -4,7 +4,8 @@ mod model;
 mod runtime;
 mod store;
 
-pub(crate) use self::runtime::{schedule_turn_extraction, start_workspace_runtime};
+pub(crate) use self::model::NativeMemoryModel;
+pub(crate) use self::runtime::MemoryRuntime;
 pub(crate) use self::store::{normalized_workspace_path, MemoryStore};
 
 use serde::{Deserialize, Serialize};

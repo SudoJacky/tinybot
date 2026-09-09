@@ -292,7 +292,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         &instructions.working_directory,
         graph_base_config_snapshot,
         live_trace_sink,
-    );
+    )?;
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         input,
