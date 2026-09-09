@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:15106782b9da8b347c4b20b6ebddfede06c29128e17ab40b951f462bd74838fa -->
+<!-- tinybot-doc-fingerprint: sha256:a8f5d99c8f490f859776c10c89fcdebd8a423ab1a4a142eeb6ec15f97984b5b0 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -50,6 +50,12 @@ actions; native storage owns the baseline and exact-content conflict checks.
 Keeping acknowledges the live file, while restoring atomically replaces it.
 
 ## System map
+
+Browser annotations follow the existing Sidecar-to-composer path. Native Browser
+owns element selection, temporary previews, capture, and exclusive user control;
+Sidecar owns the property and screenshot editors. Chat receives a managed image
+reference with separate page evidence and user-authored modification instructions.
+Attaching restores the preview and leaves submission under composer control.
 
 ```text
 React Workbench

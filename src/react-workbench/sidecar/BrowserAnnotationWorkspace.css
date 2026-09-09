@@ -1,0 +1,29 @@
+.browser-annotation-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.browser-annotation-page { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.browser-annotation-panel { display: flex; flex-direction: column; gap: 12px; flex: 0 0 252px; width: 252px; min-height: 0; overflow: auto; padding: 12px; border-left: 1px solid var(--color-hairline); background: var(--color-panel); color: var(--color-ink); font-size: 12px; }
+.browser-annotation-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.browser-annotation-panel button, .browser-annotation-tools button { min-height: 30px; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 4px 8px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
+.browser-annotation-panel button:disabled, .browser-annotation-tools button:disabled { opacity: .45; cursor: default; }
+.browser-annotation-panel button:hover:not(:disabled), .browser-annotation-tools button[aria-pressed="true"] { background: var(--color-surface-soft); border-color: var(--color-primary); }
+.browser-annotation-panel :focus-visible, .browser-annotation-tools :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.browser-annotation-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.browser-annotation-hint { margin: 0; color: var(--color-muted); line-height: 1.5; }
+.browser-annotation-panel > :not(.browser-annotation-properties) { flex-shrink: 0; }
+.browser-annotation-properties { display: grid; gap: 8px; flex: 1 1 auto; min-height: 0; overflow: auto; align-content: start; }
+.browser-annotation-properties > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); font-size: 10px; }
+.browser-annotation-ancestors { display: flex; flex-wrap: wrap; gap: 4px; }
+.browser-annotation-properties label { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; align-items: center; }
+.browser-annotation-panel input, .browser-annotation-panel textarea { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 6px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
+.browser-annotation-comment { display: grid; gap: 6px; }
+.browser-annotation-comment textarea { min-height: 90px; resize: vertical; }
+.browser-annotation-panel footer { display: grid; gap: 8px; margin-top: auto; }
+.browser-annotation-panel footer > span { color: var(--color-muted); font-size: 11px; line-height: 1.5; }
+.browser-annotation-panel footer button { background: var(--color-primary); color: var(--color-on-primary, white); }
+.browser-annotation-error { display: grid; gap: 6px; color: var(--color-danger); overflow-wrap: anywhere; }
+.browser-annotation-image { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; background: var(--color-canvas); }
+.browser-annotation-image__viewport { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.browser-annotation-image svg { display: block; max-width: 100%; max-height: 100%; width: 100%; touch-action: none; user-select: none; cursor: crosshair; }
+@container (max-width: 560px) {
+  .browser-annotation-workspace[data-annotating="true"] { flex-direction: column; }
+  .browser-annotation-panel { flex: 0 0 42%; width: auto; border-left: 0; border-top: 1px solid var(--color-hairline); }
+}

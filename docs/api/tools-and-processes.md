@@ -14,7 +14,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:4c9f21025ef9d04fa4fd384213e25dc88ce38296b624270f2ea97e466b10bcec -->
+<!-- tinybot-doc-fingerprint: sha256:0eb047687dd2c7f8f06015b0b8020d654d72b7d82a527be6d8da05bb8471dd48 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -252,3 +252,17 @@ The public commands are:
 
 Session ownership, control epochs, observations, protected handoff, profile cleanup, privacy limits,
 and native integration verification are documented in `src-tauri/src/native_browser/README.md`.
+
+`browser_annotate` accepts `{ input: { browserSessionId, tabId, action } }`.
+Actions use a `type` discriminator: `start`, `poll`, `stop`, `clear`, `capture`,
+`preview`, `parent`, or `reset`. The latter three require `documentId` and
+`selectionId`; preview also carries an allowlisted `property` and `value`, and
+parent carries an ancestor `index` from 0 to 7. Results contain annotation state;
+capture additionally returns PNG `dataUrl` and `observedAt`. Invalid or stale
+actions reject visibly.
+
+Starting annotation reserves user control, exposes `annotationTabId` in the
+snapshot, and blocks Agent interaction and navigation/tab changes until stop.
+Stopping restores temporary page edits before releasing control. Captures are
+transient; composer references persist managed image metadata, page evidence,
+and the explicit user request separately.

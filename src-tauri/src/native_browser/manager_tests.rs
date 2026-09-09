@@ -79,6 +79,15 @@ impl crate::tools::web::WebToolCancellation for TestWebCancellation {
 
 #[async_trait]
 impl BrowserRuntimeAdapter for FakeAdapter {
+    async fn annotate(
+        &self,
+        _tab_id: &BrowserTabId,
+        action: &super::super::annotation::AnnotationAction,
+    ) -> Result<serde_json::Value, String> {
+        Ok(
+            serde_json::json!({ "active": !matches!(action, super::super::annotation::AnnotationAction::Stop) }),
+        )
+    }
     fn runtime_kind(&self) -> &'static str {
         "fake_webview"
     }
@@ -368,6 +377,85 @@ fn creation_completion_accepts_a_navigation_event_that_already_made_the_tab_read
 
     assert_eq!(tab.lifecycle, BrowserTabLifecycle::Ready);
     assert_eq!(tab.renderer_lifecycle, BrowserRendererLifecycle::Running);
+}
+
+#[tokio::test]
+async fn annotation_holds_agent_control_until_preview_cleanup() {
+    use super::super::annotation::{AnnotationAction, BrowserAnnotationInput};
+    let runtime = manager(Arc::new(FakeAdapter::default()));
+    let snapshot = runtime
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "annotation-owner".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Incognito,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let input = |action| BrowserAnnotationInput {
+        browser_session_id: session_id.clone(),
+        tab_id: tab_id.clone(),
+        action,
+    };
+    runtime
+        .annotate(input(AnnotationAction::Start))
+        .await
+        .unwrap();
+    let held = runtime.snapshot(&session_id).unwrap();
+    assert_eq!(held.data.control.state, BrowserControlState::UserRequired);
+    assert!(runtime
+        .navigate(&session_id, &tab_id, "https://example.com")
+        .await
+        .unwrap_err()
+        .contains("annotation"));
+    assert!(runtime
+        .create_tab(BrowserCreateTabInput {
+            browser_session_id: session_id.clone(),
+            url: None
+        })
+        .await
+        .unwrap_err()
+        .contains("annotation"));
+    let state = runtime.lock_state();
+    let session = ready_session(&state, &session_id).unwrap();
+    let tab = require_tab(session, &tab_id).unwrap();
+    let resume: BrowserInteractionInput = serde_json::from_value(serde_json::json!({
+        "browserSessionId": session_id, "tabId": tab_id, "commandId": "resume-annotation",
+        "controlEpoch": held.data.control.control_epoch, "action": {"type": "resume"}
+    }))
+    .unwrap();
+    assert!(plan_browser_interaction(session, tab, &resume).is_err());
+    drop(state);
+    runtime
+        .annotate(input(AnnotationAction::Stop))
+        .await
+        .unwrap();
+    let released = runtime.snapshot(&session_id).unwrap();
+    assert_eq!(released.data.control.state, BrowserControlState::Idle);
+    assert!(released.data.control.control_epoch > held.data.control.control_epoch);
+    runtime
+        .navigate(&session_id, &tab_id, "https://example.com")
+        .await
+        .unwrap();
+}
+
+#[test]
+fn annotation_rejects_unbounded_or_arbitrary_script_properties() {
+    use super::super::annotation::{validate_action, AnnotationAction};
+    for property in ["innerHTML", "onclick", "background-image"] {
+        assert!(validate_action(&AnnotationAction::Preview {
+            document_id: "doc".to_string(),
+            selection_id: 1,
+            property: property.to_string(),
+            value: "anything".to_string(),
+        })
+        .is_err());
+    }
+    let action: AnnotationAction = serde_json::from_value(serde_json::json!({"type": "preview", "documentId": "doc", "selectionId": 1, "property": "color", "value": "red"})).unwrap();
+    assert!(validate_action(&action).is_ok());
+    assert_eq!(serde_json::to_value(action).unwrap()["documentId"], "doc");
 }
 
 #[tokio::test]

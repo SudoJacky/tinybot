@@ -94,9 +94,12 @@ export interface ComposerSendOptions {
 }
 
 export interface ComposerContextReference {
+  mimeType?: string;
+  imageUrl?: string;
   annotation?: {
     label: string;
     text: string;
+    onChange?: (text: string) => void;
   };
   body?: string;
   detail: string;
@@ -293,7 +296,7 @@ export function ClaudeStyleAiInput({
   const selectedModelRejectsImages = Boolean(
     selectedModel
     && selectedModel.supportsImageInput !== true
-    && files.some((file) => file.mimeType.startsWith("image/")),
+    && (files.some((file) => file.mimeType.startsWith("image/")) || contextReferences.some((reference) => reference.mimeType?.startsWith("image/"))),
   );
   const imageCompatibilityError = selectedModelRejectsImages
     ? t("composer.imageUnsupported", { model: selectedModel?.name ?? t("composer.model") })
@@ -976,6 +979,7 @@ export function ClaudeStyleAiInput({
           ))}
           {contextReferences.map((reference) => (
             <AttachmentChip
+              imageUrl={reference.imageUrl}
               annotation={reference.annotation}
               body={reference.body}
               detail={reference.detail}
@@ -1810,6 +1814,7 @@ function insertPlainTextAtSelection(editor: HTMLDivElement, text: string): void 
 }
 
 function AttachmentChip({
+  imageUrl,
   annotation,
   body,
   detail,
@@ -1818,6 +1823,7 @@ function AttachmentChip({
   onRemove,
   removeLabel,
 }: {
+  imageUrl?: string;
   annotation?: ComposerContextReference["annotation"];
   body?: string;
   detail: string;
@@ -1839,14 +1845,15 @@ function AttachmentChip({
             <X aria-hidden="true" size={14} />
           </button>
         </div>
-        {body ? <p className="claude-ai-input__attachment-body">{body}</p> : null}
+        {imageUrl ? <a href={imageUrl} target="_blank" rel="noreferrer"><img src={imageUrl} alt={label} style={{ width: "100%", maxHeight: 120, objectFit: "contain" }} /></a> : null}
+        {body ? annotation?.onChange ? <details><summary>{detail}</summary><p className="claude-ai-input__attachment-body">{body}</p></details> : <p className="claude-ai-input__attachment-body">{body}</p> : null}
         {annotation ? (
           <div className="claude-ai-input__attachment-annotation">
             <span className="claude-ai-input__attachment-annotation-label">
               <MessageCircle aria-hidden="true" size={14} />
               {annotation.label}
             </span>
-            <p>{annotation.text}</p>
+            {annotation.onChange ? <textarea aria-label={annotation.label} value={annotation.text} maxLength={8000} onChange={(event) => annotation.onChange?.(event.currentTarget.value)} style={{ width: "100%", minHeight: 56, resize: "vertical", font: "inherit", color: "inherit", background: "transparent", border: "1px solid var(--color-hairline)", borderRadius: 6, padding: 6 }} /> : <p>{annotation.text}</p>}
           </div>
         ) : null}
       </div>

@@ -444,6 +444,7 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
   function renderSidecarBrowser(tab: SidecarBrowserTab, surfaceVisible: boolean) {
     return (
       <SidecarBrowser
+        onReference={onReference}
         browserRuntime={chatStore.browserRuntime}
         externalError={browserProvisionErrors[tab.id] || browserError}
         snapshot={browserSnapshot?.data.sessionId === tab.threadId ? browserSnapshot : undefined}

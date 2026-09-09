@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:8f082b9d7fb54042b397a8bdec0b2e18324586ddabc5e76146db9e36a9b3b210 -->
+<!-- tinybot-module-fingerprint: sha256:1ca06c5662b0335af41ee5f3b02f452638bc83633dca60eb9d2c78f257ad11cf -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -141,3 +141,9 @@ restarting discards late results; page navigation preserves the baseline.
 review command with a discriminated action. It forwards expected revisions
 for capture/compare and exact content hashes for keep/restore; it does not
 select snapshot paths or an alternative workspace root.
+
+`browserAnnotation.ts` defines typed page annotation actions, observed DOM
+selection and viewport data, and screenshot crop geometry. `desktopNativeBrowser`
+invokes `browser_annotate`; snapshots expose optional `annotationTabId` so the
+UI can recover annotation ownership after remounting. Source evidence records
+page identity and requested previews without inventing source-file positions.

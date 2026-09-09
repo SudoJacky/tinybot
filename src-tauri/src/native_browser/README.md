@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:fab2130ee8a19ef48ae21b0656238533c8ce739e1fdf5c7dbd37d8af7a4da27b -->
+<!-- tinybot-module-fingerprint: sha256:62781195227539e314053bbe6752b60146e803566c4ecd5907b0ff44e6466bed -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent
@@ -138,3 +138,27 @@ memory snapshots retain the multi-WebView host window. The host uses an empty
 page and a separate temporary data directory; no ordinary application profile
 is needed. The printed before/after memory samples are observations, not a
 guaranteed saving from suspension.
+
+## User page annotations
+
+The main-window `browser_annotate` command accepts a session, tab, and typed
+`start`, `poll`, `stop`, `clear`, `capture`, `preview`, `parent`, or `reset` action.
+It is not a model tool. Starting records `annotationTabId`, advances the control
+epoch, cancels matching in-flight Agent work, and sets `user_required`. Agent
+interaction and navigation/tab changes are rejected until annotation stops.
+Stopping restores temporary changes before releasing control and invalidating
+the Agent observation. Failures remain visible and emit browser diagnostics.
+
+`annotation.js` provides element selection, ancestor selection, a 400 ms
+long-press region gesture, and temporary leaf-text or allowlisted CSS previews.
+Preview, parent, and reset actions require matching document and selection IDs.
+Detached elements and conflicting page updates fail visibly; restoration does
+not overwrite later framework changes. Form values and nested text containers
+are not editable. Canvas content and cross-origin frame interiors use regions.
+
+Windows captures real PNG pixels through CDP with selection overlays hidden,
+checking document, selection, and viewport consistency. The renderer imports
+annotated captures through managed image storage and restores the preview
+before attaching evidence to Chat. Selectors are page evidence and do not
+claim source-file locations. The native integration fixture verifies selection,
+text/color preview, PNG capture, and restoration on an actual WebView2 page.

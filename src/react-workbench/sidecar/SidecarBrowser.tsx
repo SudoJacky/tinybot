@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Globe2,
+  MessageSquarePlus,
   RotateCcw,
   ShieldCheck,
   X,
@@ -25,10 +26,13 @@ import type {
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import type { SidecarBrowserTab } from "./sidecarModel";
 import "./SidecarBrowser.css";
+import { BrowserAnnotationWorkspace } from "./BrowserAnnotationWorkspace";
+import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 
 type BrowserSnapshot = NativeBrowserSnapshot<NativeBrowserSession>;
 
 export type SidecarBrowserProps = {
+  onReference?: (reference: AgentInputReference & { id: string }) => void;
   browserRuntime?: NativeBrowserRuntimeApi;
   externalError?: string;
   onHandoffComplete: () => void | Promise<void>;
@@ -40,6 +44,7 @@ export type SidecarBrowserProps = {
 };
 
 export function SidecarBrowser({
+  onReference,
   browserRuntime,
   externalError = "",
   onHandoffComplete,
@@ -57,6 +62,8 @@ export function SidecarBrowser({
   const [address, setAddress] = useState(tab?.url ?? "");
   const [error, setError] = useState("");
   const [handoffCompleting, setHandoffCompleting] = useState(false);
+  const [annotating, setAnnotating] = useState(false);
+  useEffect(() => { setAnnotating(false); }, [surfaceVisible, tab?.tabId]);
   const liveRuntimeAvailable = Boolean(
     browserRuntime
       && session
@@ -119,6 +126,11 @@ export function SidecarBrowser({
     setHandoffCompleting(true);
     try {
       const latest = await browserRuntime.snapshot(session.browserSessionId);
+      if (latest.data.annotationTabId) {
+        await browserRuntime.annotate({ browserSessionId: session.browserSessionId, tabId: latest.data.annotationTabId, action: { type: "stop" } });
+        onSnapshot(await browserRuntime.snapshot(session.browserSessionId));
+        return;
+      }
       if (latest.data.control?.state !== "user_required") {
         throw new Error(t("sidecar.browserHandoffChanged"));
       }
@@ -168,7 +180,7 @@ export function SidecarBrowser({
       <div className="react-sidecar-browser-bar">
         <button
           aria-label={t("sidecar.browserBack")}
-          disabled={!(tab.canGoBack ?? Boolean(tab.activeHistoryIndex))}
+          disabled={annotating || !(tab.canGoBack ?? Boolean(tab.activeHistoryIndex))}
           title={t("sidecar.browserBack")}
           type="button"
           onClick={() => void execute(() => browserRuntime.back(session.browserSessionId, tab.tabId))}
@@ -177,7 +189,7 @@ export function SidecarBrowser({
         </button>
         <button
           aria-label={t("sidecar.browserForward")}
-          disabled={!(tab.canGoForward ?? tab.activeHistoryIndex < tab.history.length - 1)}
+          disabled={annotating || !(tab.canGoForward ?? tab.activeHistoryIndex < tab.history.length - 1)}
           title={t("sidecar.browserForward")}
           type="button"
           onClick={() => void execute(() => browserRuntime.forward(session.browserSessionId, tab.tabId))}
@@ -186,6 +198,7 @@ export function SidecarBrowser({
         </button>
         <button
           aria-label={tab.loading ? t("sidecar.browserStop") : t("sidecar.browserReload")}
+          disabled={annotating}
           title={tab.loading ? t("sidecar.browserStop") : t("sidecar.browserReload")}
           type="button"
           onClick={() => void execute(() => (
@@ -202,14 +215,18 @@ export function SidecarBrowser({
         <form onSubmit={(event) => { event.preventDefault(); navigateToAddress(); }}>
           <input
             aria-label={t("sidecar.browserAddress")}
+            disabled={annotating}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
             value={address}
             onChange={(event) => setAddress(event.currentTarget.value)}
           />
-          <button disabled={!address.trim()} type="submit">{t("sidecar.browserGo")}</button>
+          <button disabled={annotating || !address.trim()} type="submit">{t("sidecar.browserGo")}</button>
         </form>
+        {onReference ? <button type="button" aria-label={t("annotation.title")} title={t("annotation.title")} aria-pressed={annotating}
+          disabled={tab.loading || (!annotating && session.control?.state === "user_required")}
+          onClick={() => setAnnotating((value) => !value)}><MessageSquarePlus aria-hidden="true" size={16} /></button> : null}
         {controlCopy ? (
           <span aria-live="polite" className="react-sidecar-browser-bar__control" data-state={session.control?.state}>
             {controlCopy}
@@ -237,7 +254,7 @@ export function SidecarBrowser({
         </section>
       ) : null}
 
-      {session.control?.state === "user_required" && !session.pendingPolicyRequest ? (
+      {session.control?.state === "user_required" && !session.pendingPolicyRequest && !annotating ? (
         <section aria-label={t("sidecar.browserHandoff")} className="react-sidecar-browser-notice" role="alert">
           <div>
             <ShieldCheck aria-hidden="true" size={15} />
@@ -267,14 +284,9 @@ export function SidecarBrowser({
           </button>
         </div>
       ) : (
-        <BrowserSurfaceHost
-          browserRuntime={browserRuntime}
-          onError={setError}
-          onSnapshot={onSnapshot}
-          session={session}
-          tabId={tab.tabId}
-          visible={liveSurfaceVisible}
-        />
+        <BrowserAnnotationWorkspace key={tab.tabId} active={annotating} runtime={browserRuntime} browserSessionId={session.browserSessionId} tabId={tab.tabId}
+          onClose={() => setAnnotating(false)} onError={setError} onReference={(reference) => onReference?.(reference)}
+          renderSurface={(frozen) => <BrowserSurfaceHost browserRuntime={browserRuntime} onError={setError} onSnapshot={onSnapshot} session={session} tabId={tab.tabId} visible={liveSurfaceVisible && !frozen} />} />
       )}
       {error ? <p className="react-sidecar-browser-error" role="alert">{error}</p> : null}
     </div>

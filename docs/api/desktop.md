@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:294981c3a9d48a63e3ca4b2b9f64dfa230ac08b2b7a167e2a7cb58b5c2fce19c -->
+<!-- tinybot-doc-fingerprint: sha256:7168e408f6cb8172bd447ec354d34890162ad6d7e6fb97f89e4f272f020600d3 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -775,3 +775,10 @@ installs its listeners and announces ready; a 15-second readiness timeout is
 logged. Closing the panel hides it for reuse. `desktop.quickChat.createWindow.durationMs`
 records creation cost; `desktop_pet_quick_chat.presented` records request-to-show
 duration in renderer logs.
+
+## Browser page annotation
+
+Desktop bootstrap registers the main-window `browser_annotate` command. Its
+session ownership and typed action contract are documented under
+[Native Browser session runtime](tools-and-processes.md#native-browser-session-runtime).
+Remote child WebViews do not receive access to this command.

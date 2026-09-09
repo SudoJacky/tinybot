@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:efdc81266e27e066eea233d96955f92ad400286d6d55fb3e61a5336e50f0f73a -->
+<!-- tinybot-module-fingerprint: sha256:3244c31847c712f0fe830a9db18172039cb9c55cc06a299b77af02798250a1dd -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -167,3 +167,18 @@ including slides without text. Ctrl/Cmd+I opens the request editor and Escape
 cancels it locally. Source replacement or rerendering invalidates unfinished
 selections. Comparison previews omit these controls. Each Office render owns
 its DOM target so a late renderer cannot replace newer visible content.
+
+## Browser annotation workspace
+
+The address-bar action opens `BrowserAnnotationWorkspace` alongside the native
+viewport. A serialized command queue coordinates selection polling, property
+previews, and capture. The property panel scrolls independently so confirmation
+actions remain visible. Hiding, switching, or unmounting stops annotation.
+
+`BrowserAnnotationImage` edits a frozen viewport capture with cropping,
+rectangles, arrows, and undo; SVG coordinates map to the captured CSS viewport
+and image export accounts for pixel density. Attaching imports a PNG through
+managed file storage, restores the native preview, and then reports the
+reference to Chat. Import failures keep the draft; stale asynchronous imports
+cannot attach to a later workspace. Tests cover restoration-before-attachment,
+import failure, unmount cleanup, and late completion.

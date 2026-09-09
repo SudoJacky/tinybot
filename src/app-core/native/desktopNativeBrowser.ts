@@ -39,6 +39,7 @@ export type NativeBrowserAction =
   | { type: "userHandoff"; reason: string };
 
 export type NativeBrowserRuntimeApi = {
+  annotate(input: { browserSessionId: string; tabId: string; action: import("./browserAnnotation").BrowserAnnotationAction }): Promise<import("./browserAnnotation").BrowserAnnotationState>;
   activateTab(browserSessionId: string, tabId: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
   back(browserSessionId: string, tabId: string): Promise<void>;
   capabilities(): Promise<NativeBrowserRuntimeCapabilities>;
@@ -84,6 +85,7 @@ export function createDesktopNativeBrowserApi(options: { invoke: Invoke }): Nati
   const session = async (command: string, input: unknown) => normalizeNativeBrowserSnapshot(await invokeInput<unknown>(command, input));
   const target = (browserSessionId: string, tabId: string) => ({ browserSessionId, tabId });
   return {
+    annotate: (input) => invokeInput("browser_annotate", input),
     activateTab: (browserSessionId, tabId) => session("browser_activate_tab", target(browserSessionId, tabId)),
     back: (browserSessionId, tabId) => invokeInput("browser_back", target(browserSessionId, tabId)),
     capabilities: () => options.invoke("browser_capabilities"),

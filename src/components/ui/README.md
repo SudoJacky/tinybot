@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:600d28e10da55787f8bc2adbc34c676ffa7b42877bcdb28d1fa137a69ad231cf -->
+<!-- tinybot-module-fingerprint: sha256:b3057522baa547c6d6537536a1c65def11014b6ad93cdd35e7d770e8dc2ce397 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -63,3 +63,7 @@ while already inert. No route-specific dialog flags enter native resource owners
 Mutation and resize observers track relevant overlay changes; finite overlay
 motion is measured per frame, while unrelated streaming text does not trigger
 geometry reads. Native hosts expose `data-occlusion` for inspection.
+
+Browser annotation context cards include an image preview, page details, an
+editable user request, and removal. Context-reference images participate in the
+same model image-input validation as ordinary file attachments.

@@ -1,6 +1,7 @@
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useChatApplication } from "./useChatApplication";
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
@@ -365,8 +366,13 @@ export function ChatPage({
   );
   const composerArtifactContextReferences = useMemo<ComposerContextReference[]>(() => (
     [...composerArtifactReferences.map((reference): ComposerContextReference => ({
+      mimeType: reference.mimeType,
+      ...(reference.userAnnotation !== undefined ? {
+        imageUrl: reference.rawPath && "__TAURI_INTERNALS__" in window ? convertFileSrc(reference.rawPath) : undefined,
+        annotation: { label: t("annotation.instruction"), text: reference.userAnnotation, onChange: (text: string) => setComposerArtifactReferences((current) => current.map((item) => item.id === reference.id ? { ...item, userAnnotation: text } : item)) },
+      } : {}),
       id: reference.id, kind: "file", label: reference.title, detail: reference.detail,
-      body: reference.sourcePath !== reference.title ? reference.sourcePath : undefined,
+      body: reference.id.startsWith("browser-annotation:") ? reference.sourceText : reference.sourcePath !== reference.title ? reference.sourcePath : undefined,
     })), ...composerSpreadsheetAnnotations.map((annotation): ComposerContextReference => ({
       annotation: {
         label: t("composer.spreadsheetAnnotation.count", { count: 1 }),

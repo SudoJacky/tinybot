@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:b77fd8cd45e82f4f6d016b0b6262cedbd94546244769915628b7aa43f1a18bf8 -->
+<!-- tinybot-module-fingerprint: sha256:04abc241184dda99a31af67cdc24b780c1df3b0cc97c0fc1f2df1a7fafae8b99 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -286,3 +286,9 @@ data root in `artifact-reviews/`. The main workbench command can prepare,
 inspect, compare, accept or restore it; Quick Chat does not receive this
 command permission. Snapshots contain original bytes, while live file
 metadata revisions remain lightweight refresh tokens.
+
+## Browser annotation command
+
+The command manifest and main-window permissions include `browser_annotate`.
+Its implementation belongs to `native_browser`; remote WebView2 pages receive
+no Tauri command access. See that module for selection, preview, and capture contracts.

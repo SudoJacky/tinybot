@@ -71,6 +71,7 @@ export type NativeBrowserTabV1 = {
 };
 
 export type NativeBrowserSession = {
+  annotationTabId?: string;
   activeTabId: string;
   browserSessionId: string;
   contract: "browser_session_v1";

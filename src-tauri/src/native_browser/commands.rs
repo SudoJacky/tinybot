@@ -10,6 +10,14 @@ use super::{
 use tauri::State;
 
 #[tauri::command]
+pub(crate) async fn browser_annotate(
+    runtime: State<'_, SharedBrowserRuntime>,
+    input: super::annotation::BrowserAnnotationInput,
+) -> Result<serde_json::Value, String> {
+    runtime.inner().annotate(input).await
+}
+
+#[tauri::command]
 pub(crate) fn browser_capabilities(
     runtime: State<'_, SharedBrowserRuntime>,
 ) -> BrowserRuntimeCapabilities {

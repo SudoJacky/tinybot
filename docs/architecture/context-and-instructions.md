@@ -13,7 +13,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:014e47cdd6378f8a8d0c61c01ac5de8cf0c8d52d63148806e9f8466c356175b4 -->
+<!-- tinybot-doc-fingerprint: sha256:90233d2d24a16bf968d463b76ef1ac1bcfa8f998d824ca468b3894898a8237d6 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -131,6 +131,12 @@ the selected model declares image-input support. It then revalidates the local
 file and creates a request-local Base64 data URL; later Turns repeat that
 encoding while the message remains in replayed context. Chat Completions emits
 `image_url` content, while Responses emits `input_image` content.
+
+Browser annotation image references additionally retain page evidence in
+`sourceText` and the explicit user request in `userAnnotation`. Provider
+projection keeps page evidence in the untrusted attachment section and places
+the user-authored request in a separate user annotation section. Temporary DOM
+edits are restored before attachment; source locations must still be verified.
 
 Trusted lifecycle command hooks may add bounded developer context after static
 instruction composition: at initial prompt submission, around a completed tool

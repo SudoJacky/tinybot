@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:160550ea8022fa945591b6b48dbf77b2ac3fdd4d7f0642e98068b585a8250655 -->
+<!-- tinybot-module-fingerprint: sha256:4a336292dd50cd8d95eeb84027e686b8d463843af62b5eb3a76e4be27c309e68 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -441,3 +441,8 @@ destination compilation step, before CommonMark consumes punctuation escapes
 such as `\.`. Ordinary prose and external URLs keep standard escaping. Link
 activation logs both the decoded href and resolved workspace path for diagnosis;
 the native workspace path guard remains authoritative.
+
+Browser annotations enter the composer as managed image references with page
+evidence in `sourceText` and the editable request in `userAnnotation`. Chat
+preserves the current draft, exposes preview/removal controls, and submits
+these references only when the user sends the composer.

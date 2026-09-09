@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d2f535a001a8536454bbc334bbf78326eaac2b521e2ec8d7c5206436809c51a2 -->
+<!-- tinybot-doc-fingerprint: sha256:cef6f29fdaa854720c19ca7285c9a923b45caaa8e4a73c36c9aa394d6b65bf5d -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -150,3 +150,8 @@ const unlisten = await listen("agent:delta", ({ payload }) => {
   console.log(payload);
 });
 ```
+
+Browser annotation reuses `browser:snapshot` and `browser:diagnostic`. The
+snapshot carries optional `annotationTabId` while user annotation owns control;
+starting and stopping advance the control epoch. No page-content event grants
+remote documents access to Tinybot commands.

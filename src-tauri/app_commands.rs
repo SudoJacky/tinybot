@@ -122,6 +122,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "browser_restart_tab",
     "browser_update_surface",
     "browser_observe",
+    "browser_annotate",
     "browser_interact",
     "browser_resolve_policy_request",
     "browser_delete_profile",
