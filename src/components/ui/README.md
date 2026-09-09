@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:e1b0e1938512b83adffa3dfef0ef579c98a4d9772bb207da3560719bbf48f810 -->
+<!-- tinybot-module-fingerprint: sha256:600d28e10da55787f8bc2adbc34c676ffa7b42877bcdb28d1fa137a69ad231cf -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -22,6 +22,11 @@ existing incompatible image blocks sending after a model switch until the user
 removes it or selects an image-capable model.
 Its slash listbox combines route-provided executable commands with searchable
 Skill options, including shared arrow-key, Enter/Tab, and Escape behavior.
+Shift+Enter inserts a newline in both editor variants, including while slash or
+mention suggestions are open. Enter selects an active suggestion or sends the
+draft with its internal line breaks preserved.
+The inline editor renders a display-only trailing break after a terminal newline
+so the blank line and caret remain visible without adding text to the draft.
 Any slash immediately behind the caret starts or resets the active query; typing
 continues filtering until the query is dismissed or the caret leaves it.
 Selected Skills render as atomic removable tokens inline with editable user

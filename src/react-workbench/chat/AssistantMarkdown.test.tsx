@@ -18,16 +18,46 @@ afterEach(() => {
 });
 
 describe("AssistantMarkdown", () => {
-  it("repairs incomplete Markdown without per-token animation", async () => {
+  it("repairs incomplete Markdown and removes animation wrappers after completion", async () => {
     const { container, rerender } = render(<AssistantMarkdown streaming text="Checking **the current state" />);
 
     expect(container.querySelector("strong")?.textContent).toBe("the current state");
-    expect(container.querySelector("[data-sd-animate]")).toBeNull();
+    expect(container.querySelector("[data-sd-animate]")).not.toBeNull();
 
     rerender(<AssistantMarkdown streaming={false} text="Checking **the current state**" />);
 
     expect(container.querySelector("strong")?.textContent).toBe("the current state");
     expect(container.querySelector("[data-sd-animate]")).toBeNull();
+  });
+
+  it("fades only appended Chinese text and keeps existing character nodes", async () => {
+    const { container, rerender } = render(<AssistantMarkdown streaming text="正在检查" />);
+    const old = Array.from(container.querySelectorAll<HTMLElement>("[data-sd-animate]"));
+    expect(old).toHaveLength(4);
+    rerender(<AssistantMarkdown streaming text="正在检查新增内容" />);
+    await waitFor(() => expect(container.textContent).toBe("正在检查新增内容"));
+    const spans = Array.from(container.querySelectorAll<HTMLElement>("[data-sd-animate]"));
+    expect(spans).toHaveLength(8);
+    old.forEach((node, index) => {
+      expect(spans[index]).toBe(node);
+      expect(node.style.getPropertyValue("--sd-duration")).toBe("0ms");
+    });
+    spans.slice(4).forEach((node) => {
+      expect(node.style.getPropertyValue("--sd-animation")).toBe("sd-fadeIn");
+      expect(node.style.getPropertyValue("--sd-duration")).toBe("160ms");
+      expect(node.style.getPropertyValue("--sd-delay")).toBe("");
+    });
+  });
+
+  it("fades a new paragraph without replaying the preceding paragraph", async () => {
+    const { container, rerender } = render(<AssistantMarkdown streaming text="已有内容" />);
+    const first = container.querySelector("p");
+    rerender(<AssistantMarkdown streaming text={"已有内容\n\n新的段落"} />);
+    await waitFor(() => expect(container.querySelectorAll("p")).toHaveLength(2));
+    expect(container.querySelector("p")).toBe(first);
+    const spans = Array.from(container.querySelectorAll<HTMLElement>("p:last-child [data-sd-animate]"));
+    expect(spans).toHaveLength(4);
+    spans.forEach((node) => expect(node.style.getPropertyValue("--sd-duration")).toBe("160ms"));
   });
 
   it("renders common technical Markdown and CJK-adjacent emphasis", async () => {

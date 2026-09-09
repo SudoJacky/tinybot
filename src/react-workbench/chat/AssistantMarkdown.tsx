@@ -7,6 +7,7 @@ import type { Extension, Handle } from "mdast-util-from-markdown";
 import type { Processor } from "unified";
 import {
   Streamdown,
+  type AnimateOptions,
   type Components,
   type ControlsConfig,
   defaultRemarkPlugins,
@@ -17,6 +18,13 @@ import {
 import "streamdown/styles.css";
 import { isAssistantFileHref, type AssistantFileLink } from "./assistantFileLinks";
 import { ViewportContent } from "./ViewportContent";
+
+// Character boundaries keep appended CJK text incremental, too. No staggered
+// delay: a streamed chunk becomes readable immediately and fades together.
+const ASSISTANT_TEXT_FADE = {
+  animation: "fadeIn", duration: 160, easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+  sep: "char", stagger: 0,
+} satisfies AnimateOptions;
 
 const ASSISTANT_MARKDOWN_CONTROLS = {
   code: { copy: true, download: false },
@@ -216,12 +224,12 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     <ViewportContent pinned={streaming} placeholder={text}
       estimatedHeight={Math.max(48, Math.ceil(text.length / 80) * 24)}>
     <Streamdown
-      animated={false}
+      animated={streaming ? ASSISTANT_TEXT_FADE : false}
       className="react-message-markdown"
       components={components}
       controls={ASSISTANT_MARKDOWN_CONTROLS}
       disallowedElements={DISALLOWED_ASSISTANT_ELEMENTS}
-      isAnimating={false}
+      isAnimating={streaming}
       key={streaming ? "streaming" : "complete"}
       lineNumbers={false}
       linkSafety={ASSISTANT_MARKDOWN_LINK_SAFETY}

@@ -644,6 +644,14 @@ export function ClaudeStyleAiInput({
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) {
+    if (event.key === "Enter" && event.shiftKey) {
+      if (event.currentTarget instanceof HTMLDivElement) {
+        event.preventDefault();
+        insertPlainTextAtSelection(event.currentTarget, "\n");
+        syncInlineEditorInput();
+      }
+      return;
+    }
     if (event.currentTarget instanceof HTMLDivElement && removeAdjacentInlineSkill(event as KeyboardEvent<HTMLDivElement>)) {
       return;
     }
@@ -688,13 +696,7 @@ export function ClaudeStyleAiInput({
         return;
       }
     }
-    if (event.key === "Enter" && event.shiftKey && event.currentTarget instanceof HTMLDivElement) {
-      event.preventDefault();
-      insertPlainTextAtSelection(event.currentTarget, "\n");
-      syncInlineEditorInput();
-      return;
-    }
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter") {
       event.preventDefault();
       event.currentTarget.closest("form")?.requestSubmit();
     }
@@ -1634,6 +1636,12 @@ function renderInlineComposerDom(
   }
 
   if (textOffset < message.length) fragment.append(document.createTextNode(message.slice(textOffset)));
+  if (fragment.lastChild?.nodeType === Node.TEXT_NODE && fragment.lastChild.textContent?.endsWith("\n")) {
+    // A terminal newline needs a following line box for the editable caret.
+    const trailingBreak = document.createElement("br");
+    trailingBreak.dataset.composerTrailingBreak = "true";
+    fragment.append(trailingBreak);
+  }
   editor.replaceChildren(fragment);
 }
 
@@ -1691,6 +1699,7 @@ function readInlineComposerContent(root: Node): {
     }
     if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
     const element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : undefined;
+    if (element?.dataset.composerTrailingBreak) return;
     const skillId = element?.dataset.composerSkillId;
     if (skillId) {
       placements.push({ id: skillId, offset: message.length });

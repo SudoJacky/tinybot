@@ -42,6 +42,46 @@ const skillOptions = [
 
 afterEach(cleanup);
 
+describe("composer multiline keyboard input", () => {
+  it.each([
+    [false, "Hello"],
+    [true, "Hello"],
+    [false, "/comp"],
+    [true, "/comp"],
+    [false, "@arch"],
+    [true, "@arch"],
+  ] as const)("inserts a newline before sending with inline=%s and draft=%s", async (inline, draft) => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn();
+    const onAddSessionMention = vi.fn();
+    render(<ClaudeStyleAiInput
+      onSendMessage={onSendMessage}
+      onAddSessionMention={onAddSessionMention}
+      sessionMentionOptions={[{ id: "thread-1", label: "Architecture review", detail: "Current project" }]}
+      slashCommands={[{
+        command: "/compact",
+        description: "Compact context",
+        label: "Compact",
+        prompt: "/compact",
+        submitOnSelect: true,
+      }]}
+      {...(inline ? { skillOptions, onAddSkill: vi.fn() } : {})}
+    />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    await user.type(input, draft);
+    if (draft !== "Hello") expect(screen.getByRole("listbox")).toBeTruthy();
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(inline ? input.textContent : (input as HTMLTextAreaElement).value).toBe(`${draft}\n`);
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(onAddSessionMention).not.toHaveBeenCalled();
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(inline ? input.textContent : (input as HTMLTextAreaElement).value).toBe(`${draft}\n\n`);
+    await user.keyboard("Second line{Enter}");
+    expect(onSendMessage).toHaveBeenCalledOnce();
+    expect(onSendMessage.mock.calls[0][0]).toBe(`${draft}\n\nSecond line`);
+  });
+});
+
 describe("composer file drop and paste", () => {
   const file = new File(["image"], "diagram.png", { type: "image/png" });
   const attachment = { name: file.name, path: "managed/diagram.png", mimeType: file.type, sizeBytes: file.size };

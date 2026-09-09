@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:b92d3d83e6b16901e8d8569b42aea5082401003f6be9583b4ecd838754e56868 -->
+<!-- tinybot-module-fingerprint: sha256:160550ea8022fa945591b6b48dbf77b2ac3fdd4d7f0642e98068b585a8250655 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -159,7 +159,13 @@ progress capsule; manual expansion stays open until the user closes it, and
 reduced-motion mode replaces the slide with a short opacity transition. Normal
 Turn completion keeps the last canonical plan state; failed or interrupted
 Turns still reconcile unfinished steps to their terminal outcome.
-`AssistantMarkdown.tsx` owns assistant prose and link presentation.
+`AssistantMarkdown.tsx` owns assistant prose and link presentation. Streaming
+prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
+for uninterrupted CJK text and no stagger delay. Existing character nodes are
+reused without replaying their fade; completed messages render without animation
+wrappers. Code and math are excluded by Streamdown's animation plugin, and the
+existing reduced-motion rule disables the fade. Tests cover CJK appends, new
+paragraphs, Markdown completion, and the existing streaming render boundary.
 `ViewportContent` mounts expensive Markdown and chart bodies within 800 pixels
 of the conversation viewport and releases them outside it. Lightweight message
 and disclosure owners stay mounted, preserving their interaction state. Last

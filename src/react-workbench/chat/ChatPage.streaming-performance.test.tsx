@@ -32,7 +32,7 @@ test("streaming text updates the answer without rerendering the composer or hist
   let receive!: (event: ChatEvent) => void;
   stores.chatStore.subscribe = vi.fn((session, listener) => { if (session === "s1") receive = listener; return () => {}; });
   render(<ChatPageUnderTest {...stores} />);
-  await screen.findByText("Streaming 0");
+  await waitFor(() => expect(screen.getByTestId("message-active-answer").textContent).toContain("Streaming 0"));
   await act(async () => {});
   // Establish the running session boundary before measuring text-only updates.
   act(() => receive({ type: "agent_timeline_updated", timeline: snapshot }));
@@ -47,7 +47,7 @@ test("streaming text updates the answer without rerendering the composer or hist
       turns: [history, { ...active, finalAnswer: { ...active.finalAnswer, text: `Streaming 0${".".repeat(index)}` } }],
     } }));
     await act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)); });
-    await waitFor(() => expect(screen.getByText(`Streaming 0${".".repeat(index)}`)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("message-active-answer").textContent).toContain(`Streaming 0${".".repeat(index)}`));
   }
   const counts = { composer: renders.composer - before.composer,
     historicalMarkdown: renders.historicalMarkdown - before.historicalMarkdown };
@@ -65,7 +65,7 @@ test("streaming text updates the answer without rerendering the composer or hist
   act(() => receive({ type: "timeline.patch", timeline: { ...snapshot,
     turns: [history, { ...active, finalAnswer: { ...active.finalAnswer, text: "Streaming 0......" } }],
   } }));
-  await screen.findByText("Streaming 0......");
+  await waitFor(() => expect(screen.getByTestId("message-active-answer").textContent).toContain("Streaming 0......"));
   expect(scroll.mock.instances.filter((element) => element === end)).toHaveLength(0);
   expect(view.scrollTop).toBe(500);
   act(() => receive({ type: "timeline.patch", timeline: { ...snapshot,
