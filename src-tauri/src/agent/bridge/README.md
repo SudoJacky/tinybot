@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:0cf1ae22e997d3e6a79feb5643a07d67da7950adb97e7cb6fdb54ca6eee23cbb -->
+<!-- tinybot-module-fingerprint: sha256:58af0148042f577c95ddbfa1bd905790f7495f3fac0175ec56ed6ed8e671fc92 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -86,6 +86,8 @@ Dynamic tool arguments and external tool RPC adapters retain their extension sch
 the bridge records a failed terminal state for an already-started Turn before
 any provider request. Resumable checkpoints remain available when preparation
 fails during continuation.
+Unsupported command-hook stages return no runs and emit no decision events;
+an unevaluated command is distinct from an explicit in-process `Continue`.
 
 The tool dispatcher retains the unmerged base configuration alongside the
 parent Turn's services. When a Graph Agent node targets another workspace, its

@@ -51,6 +51,12 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
         .iter()
         .any(|event| event["eventName"] == "agent.message.completed"));
     assert_eq!(events.last().unwrap()["eventName"], "agent.done");
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["eventName"] == "agent.hook.decision"),
+        "an unconfigured command hook must not emit synthetic decisions"
+    );
 }
 
 #[test]

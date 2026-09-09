@@ -1,6 +1,5 @@
 use crate::agent::runtime::{
-    AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookOutput, AgentHookRun,
-    AgentHookStage,
+    AgentHook, AgentHookInvocation, AgentHookOutput, AgentHookRun, AgentHookStage,
 };
 use crate::command_hooks::{CommandHookEngine, CommandHookEvent, CommandHookRequest};
 use futures_util::future::BoxFuture;
@@ -15,7 +14,8 @@ impl AgentHook for CommandHookEngine {
     ) -> BoxFuture<'a, Result<AgentHookOutput, String>> {
         Box::pin(async move {
             let Some(request) = command_request(invocation) else {
-                return Ok(AgentHookOutput::Decision(AgentHookDecision::Continue));
+                // No command ran at this stage, so there is no decision to record.
+                return Ok(AgentHookOutput::Runs(Vec::new()));
             };
             let result = CommandHookEngine::evaluate(self, &request).await;
             Ok(AgentHookOutput::Runs(
