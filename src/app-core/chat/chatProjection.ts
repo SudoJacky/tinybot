@@ -88,7 +88,7 @@ export function projectBackendTimeline(
   return statesWithItems.map((runtimeState) => runtimeStateToTurn(sessionKey, runtimeState));
 }
 
-function compareRuntimeStatesByStart(left: BackendAgentTurnRuntimeState, right: BackendAgentTurnRuntimeState): number {
+export function compareRuntimeStatesByStart(left: BackendAgentTurnRuntimeState, right: BackendAgentTurnRuntimeState): number {
   return compareRuntimeTimestamps(runtimeStateStart(left), runtimeStateStart(right))
     || left.timeline.turnId.localeCompare(right.timeline.turnId);
 }

@@ -45,7 +45,6 @@ import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import {
-  projectLatestContextUsage,
   type ContextUsageDefaults,
 } from "./chatContextUsage";
 import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
@@ -73,7 +72,6 @@ import {
 } from "../../app-core/chat/officeArtifact";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
-import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import {
   isThreadCommandInFlight,
   type ThreadCommandLifecycle,
@@ -83,7 +81,7 @@ import {
   MAX_COMPOSER_SESSION_REFERENCES,
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
-import { ChatTimeline } from "./ChatTimeline";
+import { LiveChatTimeline } from "./LiveChatTimeline";
 import { captureConversationView, restoreConversationView, type ConversationViewState } from "./conversationViewport";
 import { EmptyChatStart } from "./EmptyChatStart";
 import { QuickStart } from "./QuickStart";
@@ -231,21 +229,6 @@ function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOp
 
 const SESSION_DELETE_DISSOLVE_MS = 180;
 
-function latestTurnPlan(timeline: ChatTimelineSnapshot | null | undefined) {
-  const turns = timeline?.turns ?? [];
-  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const turn = turns[turnIndex];
-    const step = [...turn.steps].reverse().find((candidate) => candidate.kind === "plan" && candidate.plan);
-    if (!step?.plan) continue;
-    return {
-      identityKey: `${turn.id}:${step.id}`,
-      plan: step.plan,
-      revisionKey: JSON.stringify({ plan: step.plan, status: step.status }),
-    };
-  }
-  return undefined;
-}
-
 export function ChatPage({
   activateSessionRequest = null,
   chatStore,
@@ -353,21 +336,21 @@ export function ChatPage({
     onActiveWorkspaceChange?.(workingDirectory);
   }, [activeDisplaySession?.pluginMigration, activeDisplaySession?.workingDirectory, onActiveWorkspaceChange]);
   const activePersistedSessionId = activeSession?.id ?? "";
-  const { state: chatState, actions: chatActions, turns: chatApplication } = useChatApplication({
+  const { state: chatState, actions: chatActions, turns: chatApplication, timelineSource } = useChatApplication({
     chatStore, sessions: sessionApplication, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
     sessionId: activeSessionId, session: activeSession, openSessionIds: sessionTabs.openSessionIds,
-    drafts: sessionTabs.draftSessionsById, model: composerSessionModelInput(composerModels, composerModel), now, t,
+    contextUsageDefaults, drafts: sessionTabs.draftSessionsById, model: composerSessionModelInput(composerModels, composerModel), now, t,
     onDraftConsumed(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
     onBackgroundActivity(sessionId) { dispatchSessionTabs({ type: "activity", sessionId }); },
   });
   const {
-    agentUiForms, error: timelineError, hookResults, timeline,
+    agentUiForms, error: timelineError, hookResults, timelineSummary,
     optimisticMessages, compactingSessionId, artifactReviewEpoch,
     lifecycle: commandLifecycle, canCancel: canCancelTurn, cancelUnavailableReason,
   } = chatState;
   const { reportError: reportTimelineError } = chatActions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
-  const completedTask = timeline?.source === "canonical" && timeline.turns.some((turn) => turn.status === "completed" && Boolean(turn.userMessage.text.trim()));
+  const { completedTask } = timelineSummary;
   const { completeTask } = quickStart;
   useEffect(() => { if (completedTask) completeTask(); }, [completedTask, completeTask]);
 
@@ -463,8 +446,8 @@ export function ChatPage({
   const draftNewSession = sessionsLoaded && !activeSession && (
     Boolean(activeDraftSession) || !activeSessionId
   );
-  const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
-  const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
+  const timelineLoaded = Boolean(activeSession) && timelineSummary.sessionId === activeSession?.id;
+  const emptyActiveSession = draftNewSession || (timelineLoaded && timelineSummary.turnCount === 0 && optimisticMessages.length === 0);
   const showQuickStart = emptyActiveSession && quickStart.visible;
   const openQuickStart = useEffectEvent(() => {
     quickStart.open();
@@ -475,18 +458,11 @@ export function ChatPage({
     if (sessionsLoaded && quickStartRequest !== null) openQuickStart();
   }, [sessionsLoaded, quickStartRequest]);
   const sessionRunning = activeSession?.status === "running";
-  const activeTurn = useMemo(() => timelineLoaded
-    ? [...(timeline?.turns ?? [])].reverse().find((turn) => (
-      turn.status === "pending"
-      || turn.status === "running"
-      || turn.status === "awaiting_user"
-    ))
-    : undefined, [timeline, timelineLoaded]);
   const sessionResponding = timelineLoaded
-    ? Boolean(activeTurn) || (sessionRunning && optimisticMessages.length > 0)
+    ? Boolean(timelineSummary.activeTurnId) || (sessionRunning && optimisticMessages.length > 0)
     : sessionRunning && !emptyActiveSession;
   const latestTurnStatus = timelineLoaded
-    ? timeline?.turns[timeline.turns.length - 1]?.status
+    ? timelineSummary.latestTurnStatus
     : undefined;
   const showPluginMigrationResult = activeSession?.pluginMigration?.status === "installed"
     || (
@@ -501,17 +477,9 @@ export function ChatPage({
     && isThreadCommandInFlight(commandLifecycle)
     ? commandLifecycle.command.form.formId
     : "";
-  const activeContextUsage = useMemo(
-    () => projectLatestContextUsage(timeline?.turns ?? [], contextUsageDefaults),
-    [contextUsageDefaults, timeline],
-  );
-  const latestFailedTurnId = useMemo(() => (
-    [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
-  ), [timeline]);
-  const floatingPlan = useMemo(
-    () => activeSession && timelineLoaded ? latestTurnPlan(timeline) : undefined,
-    [activeSession, timeline, timelineLoaded],
-  );
+  const activeContextUsage = timelineSummary.contextUsage;
+  const latestFailedTurnId = timelineSummary.latestFailedTurnId;
+  const floatingPlan = activeSession && timelineLoaded ? timelineSummary.floatingPlan : undefined;
   useEffect(() => {
     setComposerSessionMentionIds([]);
     setComposerSelectedSkillIds([]);
@@ -619,7 +587,7 @@ export function ChatPage({
     onStopGenerationTargetChange?.(stopGenerationSessionId);
   }, [onStopGenerationTargetChange, stopGenerationSessionId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const view = conversationViewBySessionRef.current.get(activeSessionId);
     if (activeSessionId && !hasActivatedSessionRef.current) {
       hasActivatedSessionRef.current = true;
@@ -631,13 +599,13 @@ export function ChatPage({
     setShowBackToLatest(view ? !view.stickToLatest : false);
   }, [activeSessionId]);
 
-  useEffect(() => {
+  const handleTimelineContentChanged = useCallback(() => {
     const element = conversationRef.current;
     const view = conversationViewBySessionRef.current.get(activeSessionId);
     const shouldRestore = Boolean(
       activeSessionId
       && pendingConversationRestoreRef.current === activeSessionId
-      && timeline?.sessionId === activeSessionId,
+      && timelineSummary.sessionId === activeSessionId,
     );
     if (element && view && !view.stickToLatest && shouldRestore) {
       return restoreConversationView(element, view, () => {
@@ -650,7 +618,7 @@ export function ChatPage({
     if (stickToLatestRef.current) {
       conversationEndRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
+  }, [activeSessionId, timelineSummary.sessionId]);
 
   async function handleCreateSession(
     workingDirectory?: string,
@@ -987,8 +955,8 @@ export function ChatPage({
     void handleStopGeneration(activeSession);
   }
 
-  const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
-  const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
+  const visibleAgentUiForms = useMemo(() => agentUiForms.filter(isVisibleAgentUiForm), [agentUiForms]);
+  const interactiveFormIds = useMemo(() => new Set(visibleAgentUiForms.map((form) => form.form_id)), [visibleAgentUiForms]);
   const headerTitle = activeDisplaySession
     ? displaySessionTitle(activeDisplaySession.title, t)
     : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
@@ -1096,7 +1064,10 @@ export function ChatPage({
           role="tabpanel"
           onScroll={handleConversationScroll}
         >
-          <ChatTimeline
+          <LiveChatTimeline
+            source={timelineSource}
+            formCount={agentUiForms.length}
+            onContentChanged={handleTimelineContentChanged}
             actions={{
               onBranch: (messageId) => activeSession && void handleBranchFromMessage(activeSession, messageId),
               onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
@@ -1110,9 +1081,8 @@ export function ChatPage({
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}
             sessionRunning={sessionRunning}
-            turns={activeSession ? timeline?.turns ?? [] : []}
           />
-          {activeSession && timeline?.turns.length ? null : emptyActiveSession ? (
+          {activeSession && timelineSummary.turnCount ? null : emptyActiveSession ? (
             showQuickStart && settingsStore ? <QuickStart
               ready={quickStart.models.length > 0}
               settingsStore={settingsStore}

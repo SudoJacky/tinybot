@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { createChatTurnApplication } from "./chatTurnApplication";
+import type { ChatTimelineSource } from "./chatTimelineSource";
 
 type Dependencies = Parameters<typeof createChatTurnApplication>[0];
 type Context = Parameters<ReturnType<typeof createChatTurnApplication>["observe"]>[1];
@@ -8,11 +9,11 @@ type Context = Parameters<ReturnType<typeof createChatTurnApplication>["observe"
 export function useChatTurnApplication(
   dependencies: Dependencies,
   sessionId: string,
-  context: Context,
+  context: { timelineSource: ChatTimelineSource; capabilities: Context["capabilities"] },
 ) {
   const latest = useRef(dependencies);
   const activeSession = useRef(sessionId);
-  const { timeline, capabilities } = context;
+  const { timelineSource, capabilities } = context;
   useLayoutEffect(() => { latest.current = dependencies; activeSession.current = sessionId; });
   const application = useMemo(() => createChatTurnApplication({
     dispatch: (command) => latest.current.dispatch(command),
@@ -26,8 +27,10 @@ export function useChatTurnApplication(
     get t() { return latest.current.t; },
   }), []);
   useLayoutEffect(() => {
-    application.observe(sessionId, { timeline, capabilities });
-  }, [application, sessionId, timeline, capabilities, dependencies.t]);
+    const observe = () => application.observe(sessionId, { timeline: timelineSource.getSnapshot(), capabilities });
+    observe();
+    return timelineSource.subscribe(observe);
+  }, [application, sessionId, timelineSource, capabilities, dependencies.t]);
   useEffect(() => () => application.dispose(), [application]);
   const snapshot = useSyncExternalStore(
     application.subscribe,

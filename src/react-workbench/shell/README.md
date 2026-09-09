@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:c17bf0032c6465af738b45c06dc27c9afd2f2cc9ae292de3690354a1d90080ab -->
+<!-- tinybot-module-fingerprint: sha256:5a636384b048f5713d33734f3278c8dadf86e02d5d7fa02126bdb09fc0ee91c3 -->
 
 Desktop-pet quick chat shares composer drop and clipboard import with main Chat;
 its window permission set includes the bounded binary attachment import command.
@@ -64,7 +64,8 @@ browser-fallback hosts both apply that reset immediately.
 The pet accepts external HTML5 `text/plain` and `Files` drops. It forwards text
 unchanged and asks the native Adapter to import local files before sending a
 versioned quick-chat request to the independent `desktop-pet-chat` window.
-`DesktopPetQuickChatWindow.tsx` reuses Chat's canonical composer, attachment
+`DesktopPetQuickChatWindow.tsx` subscribes directly to the session runtime's
+Timeline source for its content and context-usage display. It reuses Chat's canonical composer, attachment
 submission, and timeline presentation; dropped attachments remain removable,
 and the composer file picker uses the same native importer. It keeps the draft
 editable, exposes the same model picker and context-token usage, and persists

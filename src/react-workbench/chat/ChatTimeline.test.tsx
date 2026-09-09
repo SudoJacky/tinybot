@@ -32,7 +32,7 @@ describe("ChatTimeline", () => {
 
     expect(screen.getByText("Timeline connection failed").getAttribute("aria-live")).toBe("assertive");
     expect(screen.getByText("Canonical answer")).toBeTruthy();
-    expect(screen.getByText("Pending answer")).toBeTruthy();
+    expect(screen.getByTestId("message-optimistic-1").textContent).toContain("Pending answer");
 
     fireEvent.click(screen.getByRole("button", { name: /branch/i }));
     expect(actions.onBranch).toHaveBeenCalledWith("assistant-1");

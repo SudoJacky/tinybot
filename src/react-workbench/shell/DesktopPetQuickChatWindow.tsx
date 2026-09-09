@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { TFunction } from "i18next";
@@ -109,7 +110,7 @@ export function DesktopPetQuickChatWindow({
     onEffect: handleRuntimeEffect,
     sessionId: session?.id ?? "",
   });
-  const timeline = sessionRuntime.state.timeline;
+  const timeline = useSyncExternalStore(sessionRuntime.timelineSource.subscribe, sessionRuntime.timelineSource.getSnapshot);
   const activeContextUsage = useMemo(
     () => projectLatestContextUsage(timeline?.turns ?? [], contextUsageDefaults),
     [contextUsageDefaults, timeline],

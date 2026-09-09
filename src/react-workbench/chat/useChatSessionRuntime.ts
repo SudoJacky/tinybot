@@ -6,6 +6,7 @@ import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResul
 import type { ChatEvent, ChatStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import { projectChatEventEffects } from "./chatEventPolicy";
+import { createChatTimelineSource, type ChatTimelineSource } from "./chatTimelineSource";
 
 export type ChatSessionRuntimeStatus = "idle" | "loading" | "ready" | "failed";
 
@@ -15,7 +16,6 @@ export type ChatSessionRuntimeState = {
   hookResults: HookExecutionResult[];
   sessionId: string;
   status: ChatSessionRuntimeStatus;
-  timeline: ChatTimelineSnapshot | null;
 };
 
 export type ChatSessionRuntimeEffect =
@@ -43,7 +43,9 @@ export function useChatSessionRuntime({
 }: UseChatSessionRuntimeInput): {
   actions: ChatSessionRuntimeActions;
   state: ChatSessionRuntimeState;
+  timelineSource: ChatTimelineSource;
 } {
+  const timelineSource = useMemo(() => createChatTimelineSource(sessionId), [sessionId]);
   const [state, setState] = useState<ChatSessionRuntimeState>(() => initialState(sessionId));
   const activeSessionIdRef = useRef(sessionId);
   const onEffectRef = useRef(onEffect);
@@ -59,14 +61,15 @@ export function useChatSessionRuntime({
     setState((current) => ({
       ...current,
       error: "",
-      status: current.sessionId ? (current.timeline ? "ready" : "loading") : "idle",
+      status: current.sessionId ? (timelineSource.getSnapshot() ? "ready" : "loading") : "idle",
     }));
-  }, []);
+  }, [timelineSource]);
   const reload = useCallback(async () => {
     await reloadRef.current?.();
   }, []);
 
   useEffect(() => {
+    timelineSource.publish(null);
     if (!sessionId) {
       reloadRef.current = null;
       setState(initialState(""));
@@ -101,17 +104,15 @@ export function useChatSessionRuntime({
         return;
       }
       timelineEpoch += 1;
-      setState((current) => (
-        current.sessionId === sessionId
-          ? {
-              ...current,
-              error: notifyEffect ? "" : current.error,
-              hookResults: mergeHookResults(current.hookResults, timeline.hookResults ?? []),
-              status: !notifyEffect && current.error ? "failed" : "ready",
-              timeline,
-            }
-          : current
-      ));
+      timelineSource.publish(timeline);
+      setState((current) => {
+        if (current.sessionId !== sessionId) return current;
+        const error = notifyEffect ? "" : current.error;
+        const hookResults = mergeHookResults(current.hookResults, timeline.hookResults ?? []);
+        const status = !notifyEffect && current.error ? "failed" : "ready";
+        return current.error === error && current.hookResults === hookResults && current.status === status
+          ? current : { ...current, error, hookResults, status };
+      });
       if (notifyEffect) {
         onEffectRef.current?.({ sessionId, timeline, type: "timeline_applied" });
       }
@@ -218,7 +219,7 @@ export function useChatSessionRuntime({
       if (reloadRef.current === reloadSession) reloadRef.current = null;
       unsubscribe();
     };
-  }, [chatStore, sessionId]);
+  }, [chatStore, sessionId, timelineSource]);
 
   const actions = useMemo<ChatSessionRuntimeActions>(() => ({
     clearError,
@@ -230,7 +231,7 @@ export function useChatSessionRuntime({
     reportError,
   ]);
 
-  return { actions, state };
+  return { actions, state, timelineSource };
 }
 
 function initialState(
@@ -243,14 +244,14 @@ function initialState(
     hookResults: [],
     sessionId,
     status,
-    timeline: null,
   };
 }
 
 function mergeHookResults(
-  current: readonly HookExecutionResult[],
+  current: HookExecutionResult[],
   incoming: readonly HookExecutionResult[],
 ): HookExecutionResult[] {
+  if (!incoming.length || incoming.every((result) => current.includes(result))) return current;
   const merged = new Map(current.map((result) => [result.id, result]));
   for (const result of incoming) merged.set(result.id, result);
   return [...merged.values()];

@@ -50,7 +50,7 @@ function setup() {
   sessions.accept(session("s2"));
   const onBackgroundActivity = vi.fn();
   const options = {
-    chatStore: store as unknown as ChatStore, sessions, openSessionIds: ["s1", "s2"], drafts: {}, model: {},
+    chatStore: store as unknown as ChatStore, sessions, openSessionIds: ["s1", "s2"], drafts: {}, model: {}, contextUsageDefaults: {},
     now: Date.now, t: ((key: string) => key) as TFunction<"chat">,
     onDraftConsumed: vi.fn(), onBackgroundActivity,
   };
@@ -68,7 +68,7 @@ it("ignores capability responses from the previous session", async () => {
   const { result, rerender } = render();
   await waitFor(() => expect(result.current.state.status).toBe("ready"));
   rerender({ id: "s2" });
-  await waitFor(() => expect(result.current.state.timeline?.sessionId).toBe("s2"));
+  await waitFor(() => expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("s2"));
   await act(async () => resolve(capabilities("s1")));
   expect(result.current.state.canCancel).toBe(false);
   expect(result.current.state.error).toBe("");
@@ -85,7 +85,7 @@ it("acknowledges commands through the background subscription after switching ta
   act(() => listeners.get("s1")!({ type: "command.accepted", commandId }));
   expect(result.current.turns.turn("s1").lifecycle.stage).toBe("waiting_for_canonical");
   rerender({ id: "s2" });
-  await waitFor(() => expect(result.current.state.timeline?.sessionId).toBe("s2"));
+  await waitFor(() => expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("s2"));
   const canonical = timeline("s1");
   canonical.turns[0].canonicalItems = [{
     data: { detail: { commandId, commandStatus: "acknowledged" } }, itemId: "ack", revision: 1, status: "completed",
@@ -93,7 +93,7 @@ it("acknowledges commands through the background subscription after switching ta
   store.load.mockResolvedValueOnce(canonical);
   act(() => listeners.get("s1")!({ type: "command.canonical-updated", commandId }));
   await waitFor(() => expect(result.current.turns.turn("s1").lifecycle.stage).toBe("acknowledged"));
-  expect(result.current.state.timeline?.sessionId).toBe("s2");
+  expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("s2");
   expect(result.current.state.lifecycle.stage).toBe("idle");
   unmount();
   expect(listeners.size).toBe(0);
@@ -105,14 +105,14 @@ it("owns background queue continuation without replacing the active timeline", a
   await waitFor(() => expect(result.current.state.canCancel).toBe(true));
   act(() => result.current.turns.enqueue("s1", input));
   rerender({ id: "s2" });
-  await waitFor(() => expect(result.current.state.timeline?.sessionId).toBe("s2"));
+  await waitFor(() => expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("s2"));
   vi.mocked(sessionStore.list).mockResolvedValue([{ ...session("s1"), status: "idle" }, session("s2")]);
   act(() => listeners.get("s1")!({ type: "agent.event", eventType: "agent.turn.completed" }));
   await waitFor(() => expect(store.dispatch).toHaveBeenCalledWith(expect.objectContaining({
     kind: "turn.submit", target: expect.objectContaining({ sessionId: "s1" }),
   })));
   expect(result.current.turns.queue("s1").inputs).toEqual([]);
-  expect(result.current.state.timeline?.sessionId).toBe("s2");
+  expect(result.current.timelineSource.getSnapshot()?.sessionId).toBe("s2");
 });
 
 it("moves optimistic messages and queued inputs when session data reconciles an ID", async () => {

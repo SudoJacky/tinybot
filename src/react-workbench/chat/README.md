@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:105e8e2fad2562b81fe57c7a0a8a5b878888fa7b5efd91896ccf71c91654b4e0 -->
+<!-- tinybot-module-fingerprint: sha256:160550ea8022fa945591b6b48dbf77b2ac3fdd4d7f0642e98068b585a8250655 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -49,6 +49,17 @@ animations. Background canonical updates load command acknowledgements without
 replacing the active Timeline; obsolete loads and capability responses are
 discarded when their session changes. Its tests exercise these workflows without
 mounting page layout or Sidecar resources.
+`useChatSessionRuntime` publishes frame-batched streaming snapshots through a
+session-scoped `chatTimelineSource`. `LiveChatTimeline` subscribes to full content;
+`useChatTimelineSummary` gives the route stable lifecycle, plan and usage state.
+Text-only updates do not rerender the composer or historical Turn components.
+Canonical Turn memoization relies on preserved model references and grouped Hook
+results. The timeline notifies the page after content commits so follow-to-bottom
+and saved scroll anchors continue working independently of page renders.
+`ChatPage.streaming-performance.test.tsx` measures render counts and checks scroll
+following, reading history, and final-answer delivery. Run it alongside
+`agentTimelineModel.performance.test.ts` for repeatable streaming work counts;
+timing output is informational and has no machine-dependent pass threshold.
 `chatSessionApplication.ts` owns session data, optimistic titles, per-draft
 creation promises, persisted-ID reconciliation, metadata operations, and
 Timeline-derived session status. `useChatSessions.ts` connects its snapshot and
@@ -148,7 +159,13 @@ progress capsule; manual expansion stays open until the user closes it, and
 reduced-motion mode replaces the slide with a short opacity transition. Normal
 Turn completion keeps the last canonical plan state; failed or interrupted
 Turns still reconcile unfinished steps to their terminal outcome.
-`AssistantMarkdown.tsx` owns assistant prose and link presentation.
+`AssistantMarkdown.tsx` owns assistant prose and link presentation. Streaming
+prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
+for uninterrupted CJK text and no stagger delay. Existing character nodes are
+reused without replaying their fade; completed messages render without animation
+wrappers. Code and math are excluded by Streamdown's animation plugin, and the
+existing reduced-motion rule disables the fade. Tests cover CJK appends, new
+paragraphs, Markdown completion, and the existing streaming render boundary.
 `ViewportContent` mounts expensive Markdown and chart bodies within 800 pixels
 of the conversation viewport and releases them outside it. Lightweight message
 and disclosure owners stay mounted, preserving their interaction state. Last

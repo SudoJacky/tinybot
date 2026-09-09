@@ -642,3 +642,35 @@ describe("canonical agent timeline model", () => {
     ]);
   });
 });
+
+
+test("retains cached snapshots for duplicate and stale live patches", () => {
+  const model = createAgentTimelineModel();
+  const initial = model.load(sessionId, [runtimeState(1, [item({ revision: 3 })])]);
+  expect(model.snapshot(sessionId)).toBe(initial);
+  expect(model.applyPatch(sessionId, patch(1, { revision: 3 }))).toBe(initial);
+  expect(model.applyPatch(sessionId, patch(1, { revision: 2 }))).toBe(initial);
+  const revisionOnly = model.applyPatch(sessionId, patch(2, { revision: 2 }));
+  expect(revisionOnly.turns).toBe(initial.turns);
+  expect(revisionOnly.turnRevisions[turnId]).toBe(2);
+  expect(revisionOnly.diagnostics).toHaveLength(1);
+  expect(initial.diagnostics).toHaveLength(0);
+});
+
+test("inserts newly discovered earlier turns in canonical order and replaces the cache on reload", () => {
+  const model = createAgentTimelineModel();
+  const initial = model.load(sessionId, [runtimeState()]);
+  const earlier = model.applyPatch(sessionId, {
+    ...patch(1), turnId: "earlier",
+    item: item({ turnId: "earlier", itemId: "earlier-answer", createdAt: "2026-07-10T00:00:00Z" }),
+  });
+  expect(earlier.turns.map((turn) => turn.id)).toEqual(["earlier", turnId]);
+  expect(earlier.turns[1]).toBe(initial.turns[0]);
+  const reloaded = model.load(sessionId, [runtimeState(1, [item({ revision: 4,
+    data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "final_answer", content: "Reloaded answer" },
+  })])]);
+  expect(model.snapshot(sessionId)).toBe(reloaded);
+  expect(reloaded.turns).toHaveLength(1);
+  expect(reloaded.turns[0].finalAnswer?.text).toBe("Reloaded answer");
+  expect(initial.turns[0]).not.toBe(reloaded.turns[0]);
+});

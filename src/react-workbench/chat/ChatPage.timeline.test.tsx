@@ -779,7 +779,7 @@ describe("ChatPage", () => {
     expect(requestFrame).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("AB")).toBeNull();
     act(() => frame?.(0));
-    expect(await screen.findByText("AB")).toBeTruthy();
+    expect((await screen.findByTestId("message-a-stream-frame")).textContent).toContain("AB");
     requestFrame.mockRestore();
   });
 

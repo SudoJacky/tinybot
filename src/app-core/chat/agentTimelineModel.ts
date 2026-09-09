@@ -1,4 +1,4 @@
-import { projectBackendTimeline } from "./chatProjection";
+import { compareRuntimeStatesByStart, projectBackendTimeline } from "./chatProjection";
 import {
   normalizeAgentTurnRuntimeStatePayload,
   normalizeAgentTimelinePatchPayload,
@@ -63,6 +63,7 @@ export class TimelineItemIdentityConflictError extends Error {
 type SessionTimelineState = {
   diagnostics: TimelineDiagnostic[];
   turns: Map<string, BackendAgentTurnRuntimeState>;
+  snapshot: ChatTimelineSnapshot;
 };
 
 export function createAgentTimelineModel(): AgentTimelineModel {
@@ -82,8 +83,10 @@ export function createAgentTimelineModel(): AgentTimelineModel {
         }
         turns.set(timeline.turnId, runtimeState);
       }
-      sessions.set(sessionId, { diagnostics: [], turns });
-      return projectSessionSnapshot(sessionId, sessions.get(sessionId)!);
+      const state = { diagnostics: [], turns, snapshot: emptyTimelineSnapshot(sessionId) };
+      state.snapshot = projectSessionSnapshot(sessionId, state);
+      sessions.set(sessionId, state);
+      return state.snapshot;
     },
 
     applyPatch(sessionId, patchPayload) {
@@ -95,8 +98,35 @@ export function createAgentTimelineModel(): AgentTimelineModel {
       if (!session) {
         throw new Error(`Canonical timeline session ${sessionId} has not been loaded`);
       }
+      const previous = session.turns.get(patch.turnId);
+      const previousItems = previous?.timeline.items;
+      const previousRevision = previous?.timeline.snapshotRevision;
       applyPatchToSession(session, patch);
-      return projectSessionSnapshot(sessionId, session);
+      const current = session.turns.get(patch.turnId)!;
+      if (previousItems === current.timeline.items && previousRevision === current.timeline.snapshotRevision) {
+        return session.snapshot;
+      }
+      const snapshot = session.snapshot;
+      let projectedTurns = snapshot.turns;
+      if (previousItems !== current.timeline.items) {
+        const projected = projectBackendTimeline(sessionId, [current])[0];
+        projectedTurns = snapshot.turns.filter((turn) => turn.id !== patch.turnId);
+        // Existing history is already ordered. Insert only the changed turn; text
+        // patches normally compare once against the last historical turn.
+        let insertion = projectedTurns.length;
+        while (insertion > 0 && compareRuntimeStatesByStart(
+          session.turns.get(projectedTurns[insertion - 1].id)!, current,
+        ) > 0) insertion -= 1;
+        projectedTurns.splice(insertion, 0, projected);
+      }
+      session.snapshot = {
+        ...snapshot,
+        turns: projectedTurns,
+        turnRevisions: { ...snapshot.turnRevisions, [patch.turnId]: current.timeline.snapshotRevision },
+        diagnostics: session.diagnostics.length === snapshot.diagnostics.length
+          ? snapshot.diagnostics : [...session.diagnostics],
+      };
+      return session.snapshot;
     },
 
     snapshot(sessionId) {
@@ -104,7 +134,7 @@ export function createAgentTimelineModel(): AgentTimelineModel {
       if (!session) {
         return emptyTimelineSnapshot(sessionId);
       }
-      return projectSessionSnapshot(sessionId, session);
+      return session.snapshot;
     },
   };
 }
