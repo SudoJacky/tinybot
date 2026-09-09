@@ -28,6 +28,7 @@ export function initialSidecarLayout(): SidecarLayout {
   return { presentation, layoutMotion, width };
 }
 export type SidecarResourcesHandle = {
+  finishBrowserAnnotation(): Promise<void>;
   toggle(): void;
   openArtifact(artifact: ArtifactRef): Promise<void>;
   openFileLink(link: AssistantFileLink): Promise<void>;
@@ -260,6 +261,12 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
   const { presentation, width, layoutMotion } = sidecar;
   useEffect(() => { onLayoutChange({ presentation, width, layoutMotion }); }, [presentation, width, layoutMotion, onLayoutChange]);
   useImperativeHandle(ref, () => ({
+    async finishBrowserAnnotation() {
+      const session = browserSnapshot?.data;
+      if (!session?.annotationTabId) return;
+      if (!chatStore.browserRuntime) throw new Error(t("sidecar.browserBuildUnavailable"));
+      await chatStore.browserRuntime.annotate({ browserSessionId: session.browserSessionId, tabId: session.annotationTabId, action: { type: "stop" } });
+    },
     toggle() { dispatchSidecar({ type: sidecar.presentation === "closed" ? "presentation.show" : "presentation.hide" }); },
     openArtifact: handleOpenArtifact,
     openFileLink: handleOpenAssistantFileLink,

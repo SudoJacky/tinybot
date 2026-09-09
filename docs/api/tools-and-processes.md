@@ -266,3 +266,9 @@ snapshot, and blocks Agent interaction and navigation/tab changes until stop.
 Stopping restores temporary page edits before releasing control. Captures are
 transient; composer references persist managed image metadata, page evidence,
 and the explicit user request separately.
+
+The main-window annotation action `overlay` accepts a nullable `rect` containing
+`x`, `y`, `width`, `height`, and `deviceScale`. It changes only the native child
+window region so a trusted renderer comment/property editor can sit above the
+live page. Values must be finite, valid surface dimensions within native region
+limits. Null or annotation stop restores the complete window region.

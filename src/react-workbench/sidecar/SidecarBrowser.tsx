@@ -63,6 +63,11 @@ export function SidecarBrowser({
   const [error, setError] = useState("");
   const [handoffCompleting, setHandoffCompleting] = useState(false);
   const [annotating, setAnnotating] = useState(false);
+  const annotationWasActive = useRef(false);
+  useEffect(() => {
+    if (annotating && annotationWasActive.current && !session?.annotationTabId) setAnnotating(false);
+    annotationWasActive.current = Boolean(session?.annotationTabId);
+  }, [annotating, session?.annotationTabId]);
   useEffect(() => { setAnnotating(false); }, [surfaceVisible, tab?.tabId]);
   const liveRuntimeAvailable = Boolean(
     browserRuntime

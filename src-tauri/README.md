@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:04abc241184dda99a31af67cdc24b780c1df3b0cc97c0fc1f2df1a7fafae8b99 -->
+<!-- tinybot-module-fingerprint: sha256:a5291577b75f3d978903a5ea83469518c45f2862d7fc0c68895074e4e9fcb372 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -292,3 +292,6 @@ metadata revisions remain lightweight refresh tokens.
 The command manifest and main-window permissions include `browser_annotate`.
 Its implementation belongs to `native_browser`; remote WebView2 pages receive
 no Tauri command access. See that module for selection, preview, and capture contracts.
+
+Windows annotation overlays use the explicit GDI dependency to clip the native
+child surface around trusted renderer controls while preserving page geometry.

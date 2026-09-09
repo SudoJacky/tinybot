@@ -431,6 +431,24 @@ impl WindowsBrowserRuntime {
         if !preview {
             return Err("Native annotation did not render the property preview".to_string());
         }
+        self.annotate(
+            tab_id,
+            &AnnotationAction::Overlay {
+                rect: Some(super::model::BrowserSurfaceRect {
+                    x: 200.0,
+                    y: 180.0,
+                    width: 350.0,
+                    height: 250.0,
+                    device_scale: 1.0,
+                }),
+            },
+        )
+        .await?;
+        verify_annotation_region(&handle.webview, true).await?;
+        let after_overlay = self.annotate(tab_id, &AnnotationAction::Poll).await?;
+        if selected["viewport"] != after_overlay["viewport"] {
+            return Err("Annotation editor changed the page viewport".to_string());
+        }
         let captured = self.annotate(tab_id, &AnnotationAction::Capture).await?;
         if captured["dataUrl"]
             .as_str()
@@ -439,6 +457,7 @@ impl WindowsBrowserRuntime {
             return Err("Native annotation capture is not a PNG image".to_string());
         }
         self.annotate(tab_id, &AnnotationAction::Stop).await?;
+        verify_annotation_region(&handle.webview, false).await?;
         let restored: bool = eval_json(&handle.webview, "(() => { const e = document.getElementById('__annotationFixture'); const ok = e.textContent === 'Before' && getComputedStyle(e).color === 'rgb(0, 0, 0)' && !window.__tinybotAnnotationV1; e.remove(); return ok; })()").await?;
         if !restored {
             return Err(
@@ -618,6 +637,13 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         let handle = self.tab(tab_id)?;
         let _operation = handle.begin_operation().await?;
         let _guard = handle.presentation.lock.lock().await;
+        if let super::annotation::AnnotationAction::Overlay { rect } = action {
+            set_annotation_window_region(&handle.webview, rect.clone()).await?;
+            return Ok(json!({"active": true}));
+        }
+        if matches!(action, super::annotation::AnnotationAction::Stop) {
+            set_annotation_window_region(&handle.webview, None).await?;
+        }
         if matches!(action, super::annotation::AnnotationAction::Capture) {
             let before = annotation_script(&handle.webview, json!({"type": "hideOverlay"})).await?;
             let capture = call_cdp(
@@ -1862,3 +1888,111 @@ fn safe_observed_href(value: Option<String>) -> Option<String> {
 #[cfg(test)]
 #[path = "windows_tests.rs"]
 mod tests;
+
+// Clip only Wry's per-webview container, never the shared desktop window.
+// This lets trusted renderer UI sit over a live page without changing its viewport.
+async fn set_annotation_window_region(
+    webview: &Webview<Wry>,
+    rect: Option<super::model::BrowserSurfaceRect>,
+) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |platform| {
+            let result = (|| unsafe {
+                use windows_sys::Win32::Graphics::Gdi::{
+                    CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn,
+                    RGN_DIFF,
+                };
+                let mut parent = windows::Win32::Foundation::HWND::default();
+                platform
+                    .controller()
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                let hwnd = parent.0;
+                let region = if let Some(rect) = rect {
+                    let region = CreateRectRgn(0, 0, 32767, 32767);
+                    if region.is_null() {
+                        return Err("Failed to create annotation window region".to_string());
+                    }
+                    let scale = rect.device_scale;
+                    let hole = CreateRoundRectRgn(
+                        (rect.x * scale).floor() as i32,
+                        (rect.y * scale).floor() as i32,
+                        ((rect.x + rect.width) * scale).ceil() as i32,
+                        ((rect.y + rect.height) * scale).ceil() as i32,
+                        (44.0 * scale).round() as i32,
+                        (44.0 * scale).round() as i32,
+                    );
+                    if hole.is_null() {
+                        DeleteObject(region);
+                        return Err("Failed to create annotation overlay region".to_string());
+                    }
+                    let combined = CombineRgn(region, region, hole, RGN_DIFF);
+                    DeleteObject(hole);
+                    if combined == 0 {
+                        DeleteObject(region);
+                        return Err("Failed to subtract annotation overlay region".to_string());
+                    }
+                    region
+                } else {
+                    std::ptr::null_mut()
+                };
+                if SetWindowRgn(hwnd, region, 1) == 0 {
+                    if !region.is_null() {
+                        DeleteObject(region);
+                    }
+                    return Err(format!(
+                        "Failed to apply annotation window region: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+                // A successful SetWindowRgn transfers ownership of the region to Windows.
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|error| format!("Failed to dispatch annotation overlay: {error}"))?;
+    rx.await
+        .map_err(|_| "Annotation overlay dispatch was interrupted".to_string())?
+}
+
+#[cfg(feature = "native-browser-integration")]
+async fn verify_annotation_region(webview: &Webview<Wry>, clipped: bool) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |platform| {
+            let result = (|| unsafe {
+                use windows_sys::Win32::Graphics::Gdi::{
+                    CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion,
+                };
+                let mut parent = windows::Win32::Foundation::HWND::default();
+                platform
+                    .controller()
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                let region = CreateRectRgn(0, 0, 0, 0);
+                if region.is_null() {
+                    return Err("Failed to allocate verification region".to_string());
+                }
+                let status = GetWindowRgn(parent.0, region);
+                let valid = if clipped {
+                    status != 0
+                        && PtInRegion(region, 230, 210) == 0
+                        && PtInRegion(region, 100, 100) != 0
+                } else {
+                    status == 0
+                };
+                DeleteObject(region);
+                if !valid {
+                    return Err(format!(
+                        "Annotation native region verification failed (clipped={clipped})"
+                    ));
+                }
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    rx.await
+        .map_err(|_| "Annotation region verification interrupted".to_string())?
+}

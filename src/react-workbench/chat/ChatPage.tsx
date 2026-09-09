@@ -766,6 +766,7 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
+    await sidecarResources.current?.finishBrowserAnnotation();
     if (quickStart.visible) quickStart.beginTask();
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
     await chatActions.send({

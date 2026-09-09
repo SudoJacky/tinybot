@@ -10,6 +10,7 @@ import {
   createStores,
   sidecarBrowserRuntime,
   sidecarBrowserSnapshot,
+  turnSubmitCommands,
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
@@ -313,4 +314,26 @@ describe("ChatPage", () => {
     ).toBe("true"));
     expect(browserRuntime.activateTab).toHaveBeenCalledTimes(1);
   });
+});
+
+
+it("releases annotation ownership before submitting the composer to the agent", async () => {
+  const user = userEvent.setup();
+  const snapshot = sidecarBrowserSnapshot();
+  snapshot.data.annotationTabId = snapshot.data.activeTabId;
+  const browserRuntime = sidecarBrowserRuntime(snapshot);
+  let finish!: (value: { active: boolean }) => void;
+  browserRuntime.annotate = vi.fn(() => new Promise<{ active: boolean }>((resolve) => { finish = resolve; }));
+  const stores = createStores({ browserRuntime, sessions: [{ chatId: "chat-1", id: "s1", status: "idle", title: "Planning notes", updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0) }] });
+  render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
+  await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+  await user.click(within(screen.getByLabelText("Sidecar")).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+  await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
+  await screen.findByRole("textbox", { name: "Browser address" });
+  await user.type(screen.getByRole("textbox", { name: "Message" }), "Apply the attached annotations");
+  await user.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(browserRuntime.annotate).toHaveBeenCalledWith({ browserSessionId: "browser-session-1", tabId: "native-tab-1", action: { type: "stop" } }));
+  expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+  await act(async () => { finish({ active: false }); });
+  await waitFor(() => expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1));
 });

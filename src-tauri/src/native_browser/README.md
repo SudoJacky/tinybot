@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:62781195227539e314053bbe6752b60146e803566c4ecd5907b0ff44e6466bed -->
+<!-- tinybot-module-fingerprint: sha256:47b509cf96b54aa06e66391912ebed42d7350ca3e11eb04ced7860ad3a20779e -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent
@@ -162,3 +162,9 @@ annotated captures through managed image storage and restores the preview
 before attaching evidence to Chat. Selectors are page evidence and do not
 claim source-file locations. The native integration fixture verifies selection,
 text/color preview, PNG capture, and restoration on an actual WebView2 page.
+
+The typed `overlay` action reserves a rounded rectangle for the trusted renderer
+editor by subtracting its physical bounds from the Wry child window region. It
+does not resize the page or inject comment controls into remote content. Null
+clears the exclusion; stop restores the full region. The integration fixture
+checks the native region, unchanged viewport, and restoration on exit.

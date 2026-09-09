@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:3e24c11389d0026ce32186da6cbf75b4b26abbb2b27459a543459397bff4820d -->
+<!-- tinybot-module-fingerprint: sha256:caadf66b55fb9dfcd5a11b5bd98c339ab6cf7a67cd8bd7cd0913a846f56cec1d -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -150,3 +150,7 @@ page identity and requested previews without inventing source-file positions.
 Element captures crop to the selected rectangle plus 12 CSS pixels, clipped to
 the viewport. Attached evidence retains the selector, bounded text, geometry,
 and property changes, omitting inspection-only ancestors and unchanged styles.
+
+Annotation `overlay` actions carry a CSS rectangle plus renderer device scale,
+or null to restore the native surface. These are presentation requests from the
+trusted renderer and do not expose an additional command to remote pages.

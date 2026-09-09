@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:18c3d5e511ed773bde180c73bf7d0e39eac24375b9d2a7d2966d0803eb28ccb5 -->
+<!-- tinybot-doc-fingerprint: sha256:43f81174abd001ecb6ac36b044dcab237c1a076b445a0f7aba778f4f584d7657 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -53,9 +53,11 @@ Keeping acknowledges the live file, while restoring atomically replaces it.
 
 Browser annotations follow the existing Sidecar-to-composer path. Native Browser
 owns element selection, temporary previews, capture, and exclusive user control;
-Sidecar owns the property and screenshot editors. Chat receives a managed image
+Sidecar owns the floating comment, property, and screenshot editors. Native window
+clipping exposes the comment editor without resizing the page viewport. Chat receives a managed image
 reference with separate page evidence and user-authored modification instructions.
-Attaching restores the preview and leaves submission under composer control.
+Attaching restores the preview and keeps annotation mode ready for another selection.
+Composer submission first ends native annotation control, then dispatches the Turn.
 
 ```text
 React Workbench

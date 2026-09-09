@@ -9,6 +9,9 @@ pub(crate) enum AnnotationAction {
     Stop,
     Clear,
     Capture,
+    Overlay {
+        rect: Option<super::model::BrowserSurfaceRect>,
+    },
     #[serde(rename_all = "camelCase")]
     Preview {
         document_id: String,
@@ -39,6 +42,14 @@ pub(crate) struct BrowserAnnotationInput {
 
 pub(crate) fn validate_action(action: &AnnotationAction) -> Result<(), String> {
     match action {
+        AnnotationAction::Overlay { rect: Some(rect) } => {
+            rect.validate()?;
+            if (rect.x + rect.width) * rect.device_scale > 32767.0
+                || (rect.y + rect.height) * rect.device_scale > 32767.0
+            {
+                return Err("Annotation overlay exceeds native window bounds".to_string());
+            }
+        }
         AnnotationAction::Preview {
             property, value, ..
         } => {

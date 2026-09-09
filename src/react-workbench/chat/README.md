@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c6840108313f9b2aa1fcd04595c00ca8b38be7370e6ddfac3f569b8c8b9a899f -->
+<!-- tinybot-module-fingerprint: sha256:cafe12dd20c99c1c542ef42403764cb62a21890803e2500d7258aed5f06aead3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -448,3 +448,7 @@ preserves the current draft, exposes preview/removal controls, and submits
 these references only when the user sends the composer.
 Browser references use the compact annotation group with editable hover/click
 details; the raw `sourceText` evidence is never used as its visible body.
+
+Composer submission waits for Sidecar to finish active browser annotation and
+restore native control before dispatching the Agent Turn. Failure preserves the
+composer draft and prevents dispatch.

@@ -1,29 +1,24 @@
-.browser-annotation-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.browser-annotation-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .browser-annotation-page { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.browser-annotation-panel { display: flex; flex-direction: column; gap: 12px; flex: 0 0 252px; width: 252px; min-height: 0; overflow: auto; padding: 12px; border-left: 1px solid var(--color-hairline); background: var(--color-panel); color: var(--color-ink); font-size: 12px; }
-.browser-annotation-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.browser-annotation-panel button, .browser-annotation-tools button { min-height: 30px; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 4px 8px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
-.browser-annotation-panel button:disabled, .browser-annotation-tools button:disabled { opacity: .45; cursor: default; }
-.browser-annotation-panel button:hover:not(:disabled), .browser-annotation-tools button[aria-pressed="true"] { background: var(--color-surface-soft); border-color: var(--color-primary); }
-.browser-annotation-panel :focus-visible, .browser-annotation-tools :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.browser-annotation-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.browser-annotation-hint { margin: 0; color: var(--color-muted); line-height: 1.5; }
-.browser-annotation-panel > :not(.browser-annotation-properties) { flex-shrink: 0; }
-.browser-annotation-properties { display: grid; gap: 8px; flex: 1 1 auto; min-height: 0; overflow: auto; align-content: start; }
-.browser-annotation-properties > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted); font-size: 10px; }
-.browser-annotation-ancestors { display: flex; flex-wrap: wrap; gap: 4px; }
-.browser-annotation-properties label { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; align-items: center; }
-.browser-annotation-panel input, .browser-annotation-panel textarea { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 6px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
-.browser-annotation-comment { display: grid; gap: 6px; }
-.browser-annotation-comment textarea { min-height: 90px; resize: vertical; }
-.browser-annotation-panel footer { display: grid; gap: 8px; margin-top: auto; }
-.browser-annotation-panel footer > span { color: var(--color-muted); font-size: 11px; line-height: 1.5; }
-.browser-annotation-panel footer button { background: var(--color-primary); color: var(--color-on-primary, white); }
-.browser-annotation-error { display: grid; gap: 6px; color: var(--color-danger); overflow-wrap: anywhere; }
+.browser-annotation-toolbar { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 10px; border-bottom: 1px solid var(--color-hairline); font-size: 11px; color: var(--color-muted); }
+.browser-annotation-toolbar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-annotation-toolbar button, .browser-annotation-editor footer button, .browser-annotation-error button, .browser-annotation-tools button { border: 1px solid var(--color-hairline); background: var(--color-panel); color: var(--color-ink); border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+.browser-annotation-editor { position: absolute; z-index: 2; display: flex; flex-direction: column; width: min(350px, calc(100% - 16px)); max-height: calc(100% - 16px); border: 1px solid var(--color-hairline); border-radius: 22px; background: var(--color-panel); color: var(--color-ink); overflow: hidden; font-size: 12px; box-sizing: border-box; }
+.browser-annotation-comment-row { display: flex; flex-shrink: 0; align-items: center; gap: 5px; min-height: 48px; padding: 7px 8px; }
+.browser-annotation-comment-row textarea { flex: 1; min-width: 0; height: 30px; max-height: 80px; resize: none; padding: 6px 2px; border: 0; background: transparent; color: inherit; font: inherit; line-height: 18px; }
+.browser-annotation-comment-row textarea:focus { outline: none; }
+.browser-annotation-round { display: inline-flex; flex: 0 0 28px; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--color-surface-soft); color: var(--color-ink); padding: 0; cursor: pointer; }
+.browser-annotation-send { background: var(--color-primary); color: var(--color-on-primary, white); }
+.browser-annotation-editor button:disabled { opacity: .4; cursor: default; }
+.browser-annotation-editor button:focus-visible, .browser-annotation-toolbar button:focus-visible, .browser-annotation-properties input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.browser-annotation-element { display: flex; align-items: center; gap: 12px; padding: 7px 14px; background: var(--color-surface-soft); }
+.browser-annotation-element select { min-width: 0; flex: 1; border: 0; background: transparent; color: var(--color-muted); font: inherit; text-overflow: ellipsis; }
+.browser-annotation-properties { min-height: 0; max-height: 250px; overflow: auto; padding: 8px 14px; display: grid; gap: 8px; }
+.browser-annotation-properties label { display: grid; grid-template-columns: minmax(75px, .8fr) minmax(0, 1.2fr); align-items: center; gap: 12px; color: var(--color-muted); }
+.browser-annotation-properties input { min-width: 0; width: 100%; box-sizing: border-box; height: 29px; border: 1px solid var(--color-hairline); border-radius: 9px; padding: 4px 8px; background: var(--color-panel); color: var(--color-ink); font: inherit; }
+.browser-annotation-editor footer { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--color-hairline); color: var(--color-muted); font-size: 11px; }
+.browser-annotation-error { display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--color-danger); font-size: 12px; overflow-wrap: anywhere; }
+.browser-annotation-tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .browser-annotation-image { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; background: var(--color-canvas); }
 .browser-annotation-image__viewport { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .browser-annotation-image svg { display: block; max-width: 100%; max-height: 100%; width: 100%; touch-action: none; user-select: none; cursor: crosshair; }
-@container (max-width: 560px) {
-  .browser-annotation-workspace[data-annotating="true"] { flex-direction: column; }
-  .browser-annotation-panel { flex: 0 0 42%; width: auto; border-left: 0; border-top: 1px solid var(--color-hairline); }
-}

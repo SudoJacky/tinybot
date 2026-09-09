@@ -27,6 +27,7 @@ function setup() {
   const annotate = vi.fn<NativeBrowserRuntimeApi["annotate"]>(async ({ action }) => {
     order.push(action.type);
     if (action.type === "stop") return { active: false };
+    if (action.type === "clear") state = { ...state, selection: null, region: null };
     if (action.type === "preview") state = { ...state, selection: { ...state.selection!, changes: { [action.property]: { before: "black", after: action.value } } } };
     if (action.type === "capture") return { ...state, dataUrl: "data:image/png;base64,AAAA", observedAt: "2026-09-09T00:00:00Z" };
     return state;
@@ -42,6 +43,7 @@ function setup() {
 it("queues property edits before capture and restores the page before attaching the user's instruction", async () => {
   const user = userEvent.setup();
   const view = setup();
+  await user.click(await screen.findByRole("button", { name: "Edit element properties" }));
   const color = await screen.findByLabelText("Text color");
   await user.clear(color); await user.type(color, "blue");
   await user.click(screen.getByLabelText("Requested change"));
@@ -56,15 +58,15 @@ it("queues property edits before capture and restores the page before attaching 
   expect(reference[0].sourceText).not.toContain('"styles"');
   expect(reference[0].sourceText).not.toContain('"ancestors"');
   expect(view.order.indexOf("preview")).toBeLessThan(view.order.indexOf("capture"));
-  expect(view.order.indexOf("stop")).toBeLessThan(view.order.indexOf("attached"));
-  expect(view.onClose).toHaveBeenCalledOnce();
+  expect(view.order.indexOf("clear")).toBeLessThan(view.order.indexOf("attached"));
+  expect(view.onClose).not.toHaveBeenCalled();
 });
 
 it("preserves the draft and reports import failure without attaching or ending the annotation", async () => {
   vi.mocked(importDesktopChatFiles).mockRejectedValueOnce(new Error("Attachment storage unavailable"));
   const user = userEvent.setup();
   const view = setup();
-  await screen.findByLabelText("Text color");
+  await screen.findByLabelText("Requested change");
   await user.type(screen.getByLabelText("Requested change"), "Keep this draft");
   await user.click(screen.getByRole("button", { name: "Add to composer" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Attachment storage unavailable");
@@ -75,7 +77,7 @@ it("preserves the draft and reports import failure without attaching or ending t
 
 it("restores the native page when its workspace unmounts", async () => {
   const view = setup();
-  await screen.findByLabelText("Text color");
+  await screen.findByLabelText("Requested change");
   view.unmount();
   await waitFor(() => expect(view.annotate).toHaveBeenCalledWith(expect.objectContaining({ action: { type: "stop" } })));
 });
@@ -85,7 +87,7 @@ it("does not attach a late import or stop a newly opened annotation session", as
   vi.mocked(importDesktopChatFiles).mockImplementationOnce(() => new Promise((resolve) => { finishImport = resolve; }));
   const user = userEvent.setup();
   const view = setup();
-  await screen.findByLabelText("Text color");
+  await screen.findByLabelText("Requested change");
   await user.type(screen.getByLabelText("Requested change"), "Old annotation");
   await user.click(screen.getByRole("button", { name: "Add to composer" }));
   await waitFor(() => expect(importDesktopChatFiles).toHaveBeenCalledOnce());
@@ -96,4 +98,34 @@ it("does not attach a late import or stop a newly opened annotation session", as
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(view.onReference).not.toHaveBeenCalled();
   expect(view.order.filter((item) => item === "stop")).toHaveLength(1);
+});
+
+
+it("starts with a comment-only editor and can attach without opening properties", async () => {
+  const user = userEvent.setup();
+  const view = setup();
+  const comment = await screen.findByLabelText("Requested change");
+  expect(screen.queryByLabelText("Text color")).toBeNull();
+  await user.type(comment, "Make this clearer{Enter}");
+  await waitFor(() => expect(view.onReference).toHaveBeenCalledOnce());
+  expect(view.onClose).not.toHaveBeenCalled();
+  expect(view.order).not.toContain("preview");
+  expect(view.order.indexOf("clear")).toBeLessThan(view.order.indexOf("attached"));
+  await waitFor(() => expect(screen.queryByLabelText("Requested change")).toBeNull());
+  expect(view.annotate).toHaveBeenCalledWith(expect.objectContaining({ action: { type: "overlay", rect: null } }));
+});
+
+it("preserves the comment when toggling property controls and cancels previews explicitly", async () => {
+  const user = userEvent.setup();
+  const view = setup();
+  await user.type(await screen.findByLabelText("Requested change"), "Keep my comment");
+  const toggle = screen.getByRole("button", { name: "Edit element properties" });
+  await user.click(toggle);
+  expect(screen.getByLabelText("Text color")).toBeTruthy();
+  await user.click(toggle);
+  expect(screen.queryByLabelText("Text color")).toBeNull();
+  expect((screen.getByLabelText("Requested change") as HTMLTextAreaElement).value).toBe("Keep my comment");
+  await user.click(screen.getByRole("button", { name: "Cancel annotation" }));
+  await waitFor(() => expect(view.order).toContain("clear"));
+  expect(view.onReference).not.toHaveBeenCalled();
 });

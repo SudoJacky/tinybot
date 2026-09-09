@@ -26,6 +26,7 @@ export type BrowserAnnotationState = {
 type SelectionTarget = { documentId: string; selectionId: number };
 export type BrowserAnnotationAction =
   | { type: "start" | "stop" | "poll" | "clear" | "capture" }
+  | { type: "overlay"; rect: (AnnotationRect & { deviceScale: number }) | null }
   | ({ type: "preview"; property: string; value: string } & SelectionTarget)
   | ({ type: "parent"; index: number } & SelectionTarget)
   | ({ type: "reset" } & SelectionTarget);

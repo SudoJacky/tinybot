@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:28c3fe20bb47cb699a49542a4ad00351f1c84ed5ec54773501b7807a36125c22 -->
+<!-- tinybot-module-fingerprint: sha256:b35fbd27b52cfd264c986375fabd22f5f14c031076920de031d96273bd4dc4c7 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -170,10 +170,12 @@ its DOM target so a late renderer cannot replace newer visible content.
 
 ## Browser annotation workspace
 
-The address-bar action opens `BrowserAnnotationWorkspace` alongside the native
-viewport. A serialized command queue coordinates selection polling, property
-previews, and capture. The property panel scrolls independently so confirmation
-actions remain visible. Hiding, switching, or unmounting stops annotation.
+The address-bar action starts element selection. `BrowserAnnotationWorkspace`
+anchors a compact comment editor near the selection; a toggle expands its
+scrollable property controls without resizing the native viewport. A serialized
+command queue coordinates selection, live previews, capture, and the native
+window exclusion for the trusted renderer editor. It uses a labelled group,
+not a generic occluding dialog. Hiding or unmounting stops annotation.
 
 `BrowserAnnotationImage` edits a frozen viewport capture with cropping,
 rectangles, arrows, and undo; SVG coordinates map to the captured CSS viewport
@@ -186,3 +188,8 @@ Element attachments crop the capture to the selected element plus 12 CSS pixels
 of context; region attachments retain the user-selected bounds. Reference
 titles describe the element and details list only changed properties. Full
 inspection state remains in the workspace rather than the composer attachment.
+
+Attaching clears temporary edits and the current draft while keeping annotation
+mode available for another element. Switching elements resets the comment;
+explicit parent selection preserves it. Finish releases native ownership, as
+does the awaited `finishBrowserAnnotation` handoff before composer submission.
