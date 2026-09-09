@@ -1,11 +1,16 @@
+use super::AgentApplicationServices;
+#[cfg(test)]
+use crate::agent::bridge::TestApplicationServices;
 use crate::agent::bridge::{
     execute_thread_turn_with_services, native_agent_string_field, SubmitThreadTurnInput,
 };
 #[cfg(test)]
 use crate::agent::runtime::test_support::BlockingTestProvider;
 use crate::agent::runtime::AgentError;
+use crate::agent::runtime::AgentTurnContext;
+#[cfg(test)]
+use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::{AgentExecutionStatus, AgentStopReason};
-use crate::agent::runtime::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::project_groups::ProjectGroup;
 #[cfg(test)]
 use crate::project_groups::SaveProjectGroupInput;
@@ -58,13 +63,13 @@ pub(super) fn tool_contributor(
 }
 
 pub(super) async fn spawn_workspace_thread(
-    services: &NativeAgentRuntimeServices,
+    services: &AgentApplicationServices,
     context: &AgentTurnContext,
     arguments: &serde_json::Map<String, Value>,
 ) -> Result<Value, AgentError> {
     let args = parse_spawn_args(arguments)?;
     let parent_thread_id = current_thread_id(context)?;
-    let thread_store = services.thread_store()?;
+    let thread_store = services.thread_store.clone();
     let project_group =
         coordinator_project_group(&thread_store, context.config_snapshot.clone(), context)?
             .ok_or_else(|| {
@@ -125,13 +130,13 @@ pub(super) async fn spawn_workspace_thread(
 }
 
 pub(super) async fn send_thread_message(
-    services: &NativeAgentRuntimeServices,
+    services: &AgentApplicationServices,
     context: &AgentTurnContext,
     arguments: &serde_json::Map<String, Value>,
 ) -> Result<Value, AgentError> {
     let args = parse_send_args(arguments)?;
     let parent_thread_id = current_thread_id(context)?;
-    let thread_store = services.thread_store()?;
+    let thread_store = services.thread_store.clone();
     let project_group =
         coordinator_project_group(&thread_store, context.config_snapshot.clone(), context)?
             .ok_or_else(|| {
@@ -177,7 +182,7 @@ pub(super) async fn send_thread_message(
 }
 
 fn run_workspace_thread_turn(
-    services: &NativeAgentRuntimeServices,
+    services: &AgentApplicationServices,
     context: &AgentTurnContext,
     thread_id: &str,
     message: &str,
@@ -228,7 +233,7 @@ fn run_workspace_thread_turn(
                             "turnId": child_turn_id,
                         })
                     );
-                    services.cancel(&child_turn_id);
+                    services.runtime.cancel(&child_turn_id);
                     (&mut execution).await?
                 }
             }
@@ -336,12 +341,12 @@ fn current_thread_id(context: &AgentTurnContext) -> Result<String, AgentError> {
 }
 
 fn thread_id_workspace(
-    services: &NativeAgentRuntimeServices,
+    services: &AgentApplicationServices,
     context: &AgentTurnContext,
     thread_id: &str,
 ) -> Result<String, AgentError> {
     let thread = read_thread(
-        &services.thread_store()?,
+        &services.thread_store,
         context.config_snapshot.clone(),
         thread_id,
         "workspace thread execution target read",
@@ -858,8 +863,7 @@ mod tests {
                 services,
                 workspace.root.clone(),
                 json!({}),
-            )
-            .unwrap();
+            );
             let run_services = services.clone();
             let workspace_root = workspace.root.clone();
             let run_task = tauri::async_runtime::spawn(async move {

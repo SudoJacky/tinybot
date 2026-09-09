@@ -1,6 +1,7 @@
 use super::*;
 #[cfg(test)]
 use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
+use crate::collaboration::subagents::SubagentThreadManager;
 
 #[test]
 fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {

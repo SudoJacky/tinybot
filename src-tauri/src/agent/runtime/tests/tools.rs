@@ -1,6 +1,7 @@
 use super::*;
 #[cfg(test)]
 use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
+use crate::collaboration::subagents::SubagentThreadManager;
 
 #[test]
 fn runs_fixture_tool_event_sequence() {

@@ -96,7 +96,25 @@ pub(crate) fn run() {
     let process_started_at = chrono::Utc::now().timestamp_millis();
     crate::runtime::observability::global_agent_runtime_metrics()
         .set_gauge("desktop.process.startedAtUnixMs", process_started_at);
-    let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
+    let runtime_state = Arc::new(Mutex::new(
+        NativeRuntimeState::initialize(
+            crate::config::application::native_backend_workspace_root(),
+            crate::config::application::tinybot_data_root(),
+        )
+        .unwrap_or_else(|error| {
+            if let Err(log_error) = super::logging::append_default_native_backend_log_event(
+                "runtime",
+                NativeLogEvent::new(
+                    NativeLogLevel::Error,
+                    "runtime.initialization_failed",
+                    serde_json::json!({ "error": error }),
+                ),
+            ) {
+                eprintln!("failed to record runtime initialization error: {log_error}");
+            }
+            panic!("native runtime initialization failed: {error}");
+        }),
+    ));
     let update_state = super::update::new_shared_desktop_update_state(env!("CARGO_PKG_VERSION"));
     let exit_state = runtime_state.clone();
     let terminal_runtime = desktop_terminal::create_runtime();
@@ -120,10 +138,7 @@ pub(crate) fn run() {
             let browser_runtime = native_browser::create_runtime(app.handle())?;
             {
                 let mut runtime = lock_runtime(&setup_state);
-                runtime.native_agent_runtime = runtime
-                    .native_agent_runtime
-                    .clone()
-                    .with_browser_runtime(browser_runtime.clone());
+                runtime.browser_runtime = Some(browser_runtime.clone());
             }
             app.manage(browser_runtime);
             startup_metrics.record_duration(

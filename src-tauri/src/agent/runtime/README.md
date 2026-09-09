@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1f4377a3b23d6e6f47d370eeff47a37aa5519ca520a15fb8a0a018ba420eb3f0 -->
+<!-- tinybot-module-fingerprint: sha256:ecd9ab893f44750ec49f065cd4c1869f75609a076662ce9dfead83b89b1d69e2 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -62,18 +62,14 @@ without streaming output carry null timings and do not fabricate throughput.
 
 - Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
-- Catalog project-local `.agents/skills` and `.codex/skills` alongside enabled Agent Plugin skills,
-  injecting full Skill content only for explicit selections.
+- Compose already loaded instruction sources and skill catalogs, injecting full
+  Skill content only for explicit selections; filesystem and plugin loading live
+  in `agent::instruction_sources`.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
-- Catalog saved Agent Graphs only for an ordinary Turn's explicitly declared
-  working directory, and suppress them for Graph-created Agent node Turns and
-  Turns that only inherit the backend workspace fallback. Invalid Graph files
-  are skipped with diagnostics during tool discovery instead of aborting the
-  Turn; the management listing path remains strict.
-- Expose persistent cross-workspace Thread tools only to eligible project-group
-  coordinator Turns.
+- Request an asynchronous tool catalog from the injected dispatcher and preserve
+  cancellation checkpoints from preparation before any provider call.
 - Evaluate hooks around provider, turn, thread, and context-compaction stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
@@ -97,8 +93,8 @@ decide which durable conversation store a caller uses.
    then hydrates typed input fields
    and provides `NativeAgentRuntimeServices`, the typed input, the
    effective configuration, workspace context, and composed instructions.
-2. `provider_loop.rs` merges project-local MCP definitions for the effective
-   working directory and prepares the typed history from legacy messages.
+2. `provider_loop.rs` consumes the effective configuration already merged by the
+   bridge and asks the dispatcher to prepare tool contributions and selection.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.
@@ -126,8 +122,10 @@ decide which durable conversation store a caller uses.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
-MCP discovery and calls use the effective working directory as their runtime
-key and stdio default cwd.
+The bridge owns Graph and MCP discovery. The core holds no MCP, Shell, browser,
+subagent-manager or Thread-store resources. Its dependencies are Provider, tool
+dispatcher, checkpoints, cancellation, task ownership and metrics; trace sinks
+and hooks are installed per Turn.
 
 Tool selection distinguishes omission from an explicit list. Omission keeps
 the default model tools, while an explicit allowlist can activate deferred

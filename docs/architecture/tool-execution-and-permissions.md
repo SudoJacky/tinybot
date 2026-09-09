@@ -1,6 +1,7 @@
 # Tool Execution and Permissions
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/bridge/tool_dispatcher.rs
+src-tauri/src/agent/bridge/tool_catalog.rs
 src-tauri/src/agent/bridge/workspace_threads.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/tool_router.rs
@@ -12,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:81d664a47521b452c7b6e5e04b8b4dc4f0f27059fd57ac1403a4802241af5214 -->
+<!-- tinybot-doc-fingerprint: sha256:b2ceaa059717cebc10c45b00fb54911f728413680585ae1773238ad2fc7f5a5d -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -75,6 +76,11 @@ Provider-visible schemas describe nested argument contracts, not only their
 top-level names. For example, `publish_data_view` exposes the supported view
 kinds and requires table `defaultSort` to use `{field, direction}` so providers
 can construct the same shape the native validator accepts.
+
+The dispatcher prepares application tool contributions asynchronously through
+`prepare_tools`, returning a catalog plus the effective selection or a cancellation
+with checkpoint details. `bridge::tool_catalog` owns Graph and MCP discovery;
+the provider loop consumes the result without holding those application resources.
 
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. For ordinary workspace-backed Chat Turns, they

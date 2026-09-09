@@ -1,13 +1,10 @@
 mod context_checkpoint;
 use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTraceContext};
-use crate::collaboration::subagents::SubagentThreadManager;
 #[cfg(test)]
 use crate::collaboration::subagents::{
     SubagentInputSender, SubagentSendInputParams, SubagentTargetParams,
 };
-use crate::runtime::mcp::McpRuntime;
 use crate::runtime::turn_execution::{AgentCancelReason, TurnExecutionRuntime};
-use crate::tools::shell::WorkerShellRuntime;
 pub(crate) use checkpoint_types::AgentCheckpointPayload;
 pub use context_checkpoint::AgentContextCheckpoint;
 use serde::{Deserialize, Serialize};
@@ -35,7 +32,7 @@ pub use execution_payloads::{
     AgentCancellationCleanup, CompletedAgentToolResult, PendingAgentToolCall, TerminalAgentTurn,
 };
 mod hooks;
-mod instructions;
+pub(crate) mod instructions;
 mod item_event_projection;
 mod items;
 mod provider;
@@ -73,9 +70,7 @@ pub(crate) use self::hooks::AgentHookEvaluation;
 #[cfg(test)]
 pub use self::hooks::AgentHookDecision;
 pub use self::hooks::{AgentHook, AgentHookInvocation, AgentHookStage};
-pub(crate) use self::instructions::{
-    ComposedInstructions, InstructionComposer, TurnInstructionInput,
-};
+pub(crate) use self::instructions::{ComposedInstructions, TurnInstructionInput};
 #[cfg(test)]
 pub use self::items::AgentPlanStepStatus;
 pub use self::items::{
@@ -180,7 +175,7 @@ pub struct AgentTurnContext {
     pub session_id: String,
     pub thread_id: Option<String>,
     continuation: Option<crate::agent::runtime_protocol::AgentContinuationInput>,
-    controls: turn_input::AgentTurnControls,
+    pub(crate) controls: turn_input::AgentTurnControls,
     context_window_projected: bool,
     pub messages: AgentItemHistory,
     pub config_snapshot: Value,
@@ -415,14 +410,33 @@ pub trait NativeAgentProvider: Send + Sync + 'static {
     >;
 }
 
+/// Catalog preparation may finish through cancellation before model execution begins.
+pub struct NativeAgentToolCatalog {
+    pub contributors: Vec<Arc<dyn crate::tools::registry::ToolContributor>>,
+    pub selected_tools: Option<Vec<String>>,
+}
+
+pub enum NativeAgentToolPreparation {
+    Ready(NativeAgentToolCatalog),
+    Cancelled {
+        phase: String,
+        server: Option<String>,
+        transport: Option<String>,
+    },
+}
+
 pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
-    /// Optional tool definitions owned by this execution adapter.
-    /// Discovery errors abort turn preparation; execution still rechecks authorization.
-    fn tool_contributors(
-        &self,
-        _context: &AgentTurnContext,
-    ) -> Result<Vec<Arc<dyn crate::tools::registry::ToolContributor>>, AgentError> {
-        Ok(Vec::new())
+    fn prepare_tools<'a>(
+        &'a self,
+        context: &'a AgentTurnContext,
+        _config_snapshot: &'a Value,
+    ) -> futures_util::future::BoxFuture<'a, Result<NativeAgentToolPreparation, AgentError>> {
+        Box::pin(async move {
+            Ok(NativeAgentToolPreparation::Ready(NativeAgentToolCatalog {
+                contributors: Vec::new(),
+                selected_tools: context.settings.selected_tools.clone(),
+            }))
+        })
     }
 
     fn dispatch(
@@ -566,9 +580,6 @@ pub(crate) struct NativeAgentRuntimeDependencies {
     pub checkpoints: Arc<dyn NativeAgentCheckpointStore>,
     pub context_checkpoint_committer: Arc<dyn NativeAgentContextCheckpointCommitter>,
     pub cancellations: Arc<dyn NativeAgentCancellation>,
-    pub subagents: SubagentThreadManager,
-    pub mcp_runtime: McpRuntime,
-    pub shell_runtime: WorkerShellRuntime,
     pub task_runtime: TurnExecutionRuntime,
     pub metrics: AgentRuntimeMetrics,
 }
@@ -580,15 +591,10 @@ pub struct NativeAgentRuntimeServices {
     checkpoints: Arc<dyn NativeAgentCheckpointStore>,
     context_checkpoint_committer: Arc<dyn NativeAgentContextCheckpointCommitter>,
     cancellations: Arc<dyn NativeAgentCancellation>,
-    subagents: SubagentThreadManager,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    mcp_runtime: McpRuntime,
-    shell_runtime: WorkerShellRuntime,
-    browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
     task_runtime: TurnExecutionRuntime,
     hooks: hooks::AgentHookPipeline,
     metrics: AgentRuntimeMetrics,
-    thread_store: Option<crate::threads::workspace_store::WorkspaceThreadStore>,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
     #[cfg(test)]
@@ -603,15 +609,10 @@ impl NativeAgentRuntimeServices {
             checkpoints: dependencies.checkpoints,
             context_checkpoint_committer: dependencies.context_checkpoint_committer,
             cancellations: dependencies.cancellations,
-            subagents: dependencies.subagents,
             trace_sink: None,
-            mcp_runtime: dependencies.mcp_runtime,
-            shell_runtime: dependencies.shell_runtime,
-            browser_runtime: None,
             task_runtime: dependencies.task_runtime,
             hooks: hooks::AgentHookPipeline::default(),
             metrics: dependencies.metrics,
-            thread_store: None,
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
             #[cfg(test)]
@@ -695,42 +696,6 @@ impl NativeAgentRuntimeServices {
         self
     }
 
-    pub(crate) fn with_thread_store(
-        mut self,
-        thread_store: crate::threads::workspace_store::WorkspaceThreadStore,
-    ) -> Self {
-        self.thread_store = Some(thread_store);
-        self
-    }
-
-    pub(crate) fn thread_store(
-        &self,
-    ) -> Result<crate::threads::workspace_store::WorkspaceThreadStore, String> {
-        self.thread_store
-            .clone()
-            .ok_or_else(|| "native agent workspace thread store is unavailable".to_string())
-    }
-
-    pub(crate) fn mcp_runtime(&self) -> McpRuntime {
-        self.mcp_runtime.clone()
-    }
-
-    pub(crate) fn shell_runtime(&self) -> WorkerShellRuntime {
-        self.shell_runtime.clone()
-    }
-
-    pub(crate) fn with_browser_runtime(
-        mut self,
-        runtime: crate::native_browser::SharedBrowserRuntime,
-    ) -> Self {
-        self.browser_runtime = Some(runtime);
-        self
-    }
-
-    pub(crate) fn browser_runtime(&self) -> Option<crate::native_browser::SharedBrowserRuntime> {
-        self.browser_runtime.clone()
-    }
-
     pub(crate) fn task_runtime(&self) -> TurnExecutionRuntime {
         self.task_runtime.clone()
     }
@@ -751,10 +716,6 @@ impl NativeAgentRuntimeServices {
     ) -> Self {
         self.test_tool_registry_entries = Some(entries);
         self
-    }
-
-    pub fn subagent_manager(&self) -> SubagentThreadManager {
-        self.subagents.clone()
     }
 
     pub fn cancel(&self, turn_id: &str) -> Value {

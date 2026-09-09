@@ -1,13 +1,12 @@
+use super::AgentApplicationServices;
 use crate::agent::bridge::{
-    native_agent_context_checkpoint_committer, native_agent_services_with_tool_executor,
-    native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_turn_terminal_if_present,
+    persist_native_agent_checkpoint_if_present, persist_native_agent_turn_terminal_if_present,
 };
+use crate::agent::instruction_sources::InstructionLoader;
 use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
     run_native_agent_turn_with_workspace_and_instructions_async, AgentCheckpoint,
-    AgentCheckpointPayload, AgentTurnInput, InstructionComposer, NativeAgentRuntimeServices,
-    NativeAgentTraceSink,
+    AgentCheckpointPayload, AgentTurnInput, NativeAgentTraceSink,
 };
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
@@ -43,7 +42,7 @@ pub(crate) fn native_webui_agent_ui_form_not_found_body(form_id: String) -> serd
 }
 
 pub(crate) async fn resolve_agent_ui_form_body_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     form_id: String,
     body: &serde_json::Value,
     cancelled: bool,
@@ -65,7 +64,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
 }
 
 pub(crate) async fn resolve_agent_ui_form_body_with_checkpoint(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     form_id: String,
     body: &serde_json::Value,
     cancelled: bool,
@@ -74,7 +73,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_checkpoint(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<(u16, serde_json::Value), AgentError> {
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let session_key = agent_ui_form_session_key(body).unwrap_or_default();
     let values = body
         .get("values")
@@ -260,7 +259,7 @@ pub(crate) fn native_agent_ui_form_event(
 }
 
 pub(crate) async fn resolve_agent_ui_form_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     session_key: &str,
     checkpoint: AgentCheckpoint,
     is_canonical: bool,
@@ -272,40 +271,28 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, AgentError> {
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
     let mut input = AgentTurnInput::from_wire(&continuation_spec, &config_snapshot)
         .map_err(AgentError::invalid_input)?;
     input.messages = checkpoint.messages.clone();
     let trace = input.trace_context.clone();
-    let instructions = InstructionComposer::default().compose_with_config(
-        &workspace_root,
-        &continuation_spec,
-        &config_snapshot,
-    )?;
+    let instructions = InstructionLoader::new(thread_store.data_root().join("plugins"))
+        .compose(&workspace_root, &continuation_spec)?;
+    let graph_base_config_snapshot = config_snapshot.clone();
     let mut config_snapshot = config_snapshot;
     crate::workspace_extensions::merge_workspace_mcp_servers(
         &mut config_snapshot,
         &instructions.working_directory,
     )?;
-    base_services.save_checkpoint(checkpoint);
-    let services = base_services.with_context_checkpoint_committer(
-        native_agent_context_checkpoint_committer(thread_store.clone()),
+    base_services.runtime.save_checkpoint(checkpoint);
+    let services = base_services.prepare_turn(
+        &workspace_root,
+        &instructions.working_directory,
+        graph_base_config_snapshot,
+        live_trace_sink,
     );
-    let services = match live_trace_sink {
-        Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
-            thread_store.clone(),
-            Some(live_trace_sink),
-        )),
-        None => services
-            .with_trace_sink_if_missing(|| native_agent_trace_sink(thread_store.clone(), None)),
-    };
-    let services = native_agent_services_with_tool_executor(
-        services,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         input,

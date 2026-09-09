@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:7168e408f6cb8172bd447ec354d34890162ad6d7e6fb97f89e4f272f020600d3 -->
+<!-- tinybot-doc-fingerprint: sha256:bc17cd6f2775ffc5cbe72c360141902e511eddbc6343a542c24198e4c8dbd0cd -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -31,6 +31,11 @@ typed commands. Closing `main` hides the window in the system tray and keeps the
 active; explicit tray exit or updater installation runs its bounded shutdown path. There are no
 renderer commands for managing a separate backend process, and the runtime cannot be configured to
 remain alive after the App exits.
+
+Storage initialization receives explicit workspace and application-data paths.
+A legacy-storage migration failure aborts construction with those paths in the
+error. Workspace rebinding uses the same initializer and records a startup failure;
+startup on an already initialized store does not repeat migration.
 
 The internal lifecycle state records native-runtime recovery and cleanup. Startup pauses new agent
 continuations while the process-local Thread index is rebuilt from canonical Rollouts and checked for

@@ -1,5 +1,7 @@
 use super::*;
 #[cfg(test)]
+use crate::agent::bridge::TestApplicationServices;
+#[cfg(test)]
 use crate::agent::runtime::test_support::BlockingTestProvider;
 use crate::agent::runtime::{
     AgentTurnContext, FakeNativeAgentToolDispatcher, InMemoryNativeAgentCancellation,
@@ -210,7 +212,7 @@ fn invalid_continuation_is_rejected_before_durability_and_task_ownership() {
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
         .with_thread_store(store.clone());
-        let runtime = services.task_runtime().clone();
+        let runtime = services.runtime.task_runtime().clone();
         let error = run_agent_from_wire_with_services(
             services,
             serde_json::json!({

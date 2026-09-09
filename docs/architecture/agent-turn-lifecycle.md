@@ -2,6 +2,9 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/bridge/README.md
 src-tauri/src/agent/bridge/agent_flow.rs
+src-tauri/src/agent/bridge/application.rs
+src-tauri/src/agent/bridge/tool_catalog.rs
+src-tauri/src/agent/bridge/webui_continuation.rs
 src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/bridge/workspace_threads.rs
 src-tauri/src/agent/runtime/README.md
@@ -17,7 +20,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c7e828ccf2366c41ef7ad6b3da57ca7fc666d3e3b0c85410709d5bee16da9d7f -->
+<!-- tinybot-doc-fingerprint: sha256:d83dfa55689a5c33efc62537787ff3c9021c70fbb44c6f1b1fa3eba41475f4f7 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -32,14 +35,20 @@ outcome that follow. Resolving a form continues the same Turn identity.
   terminal-result publication for a Turn ID.
 - `threads::rollout::store` owns canonical durability and reconstruction.
 
-The desktop state owner constructs shared Agent resources explicitly and passes
-`NativeAgentRuntimeDependencies` to the runtime. Provider streaming and tool
-dispatch require asynchronous implementations; production and tests use the same
-execution contracts. Blocking test fixtures have separate adapters.
-The bridge dispatcher supplies project-coordinator tool definitions and performs
-workspace-thread execution. The loop does not call back into the bridge or Thread
-RPC for those tools. Child cancellation still propagates from the parent and waits
-for cleanup, while runtime scheduling retains its cleanup timeout policy.
+Desktop state initializes the Thread store with explicit workspace and data paths;
+legacy migration errors abort initialization. It owns application resources and
+passes only Provider, dispatcher, checkpoints, cancellation, tasks and metrics as
+`NativeAgentRuntimeDependencies`. `AgentApplicationServices` carries the shared
+Thread, MCP, Shell, browser and subagent resources outside the core runtime.
+Ordinary and resumed form Turns use one `prepare_turn` assembly path. Persistence,
+trace and hooks are installed before the dispatcher captures child-Turn services.
+Provider streaming, tool preparation and tool dispatch cross asynchronous
+interfaces. Blocking test fixtures have separate adapters.
+The bridge dispatcher discovers Graph/MCP/workspace-thread contributions and
+performs application-specific execution. Discovery cancellation preserves its
+phase and transport details before provider execution. Child cancellation still
+propagates from the parent and waits for cleanup, while runtime scheduling retains
+its cleanup timeout policy.
 
 The provider loop, task owner, bridge, and Graph/workspace-thread callers share
 `AgentTurnResult`. Its required `AgentStopReason` replaces string lookup for

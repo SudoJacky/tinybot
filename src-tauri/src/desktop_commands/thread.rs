@@ -261,7 +261,7 @@ pub(crate) fn worker_thread_request_with_options(
                 let runtime = crate::desktop::state::lock_runtime(shared);
                 runtime.native_agent_services()
             };
-            let cancellation = services.cancel(&turn_id);
+            let cancellation = services.runtime.cancel(&turn_id);
             let result_object = result.as_object_mut().ok_or_else(|| {
                 "thread interrupt result must be a JSON object before task cancellation projection"
                     .to_string()

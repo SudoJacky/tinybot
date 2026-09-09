@@ -1,10 +1,22 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:9046f277a0ecef6e5abf28b407db44ed3139491b3d14fc0da87455871c34ca24 -->
+<!-- tinybot-module-fingerprint: sha256:72db246495d6a68f0db9b8ee7c41d80b8a70937b6a987410f8a38546750b1dbc -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
 desktop or Thread-owned turn without moving those concerns into the provider
 loop.
+
+
+`AgentApplicationServices` keeps the core execution services alongside the shared
+Thread store, MCP, Shell, browser and subagent resources owned by desktop state.
+Its `prepare_turn` path is used by ordinary Turns and form continuations: install
+checkpoint persistence, trace and hooks, then capture those services in the tool
+executor so child Turns inherit the same live output and persistence.
+`tool_catalog.rs` discovers Graph, workspace-thread and MCP contributions through
+the dispatcher's asynchronous preparation interface. MCP snapshot cancellation
+retains phase/server/transport diagnostics; unavailable concrete selections are
+removed with the existing generic-MCP suppression rule. Graph discovery requires
+an explicit working directory and remains disabled for Graph node Turns.
 
 ## Responsibilities
 

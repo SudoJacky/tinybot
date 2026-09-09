@@ -1,5 +1,5 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:4d7b03f3de57e5313120b5dd31caa094dd5da71ace0429e3a77ccfb0e02dfe29 -->
+<!-- tinybot-module-fingerprint: sha256:23098df73a5256683fb75ff626de736fd186023a75b1cceffb9f85ce7c7f0f0d -->
 
 `agent` contains the native agent stack. It connects provider configuration,
 the turn runtime, durable runtime events, and the desktop integration bridge.
@@ -26,3 +26,7 @@ settings, streaming choice, and response decoder as the initiating Turn. Only
 the prompt is replaced; no separate output-token budget is added. The result is
 normalized and committed asynchronously without entering the Agent Loop or
 delaying that Turn.
+
+`instruction_sources.rs` owns bounded filesystem reads, workspace discovery and
+plugin loading. It passes loaded values to the runtime's pure instruction composer;
+the application data path determines the plugin catalog and its provenance.

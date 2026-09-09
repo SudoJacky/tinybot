@@ -1,8 +1,8 @@
 use super::*;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::tools::registry::{
-    ToolContributor, WorkspaceThreadTarget, WorkspaceThreadToolContributor,
-    SEND_THREAD_MESSAGE_METHOD, SPAWN_WORKSPACE_THREAD_METHOD,
+    WorkspaceThreadTarget, WorkspaceThreadToolContributor, SEND_THREAD_MESSAGE_METHOD,
+    SPAWN_WORKSPACE_THREAD_METHOD,
 };
 use futures_util::future::BoxFuture;
 
@@ -58,23 +58,37 @@ impl NativeAgentProvider for CoordinatorProvider {
 struct WorkspaceDispatcher {
     calls: Mutex<Vec<String>>,
     discovery_error: Option<AgentError>,
+    cancel_discovery: bool,
     execution_error: Option<AgentError>,
 }
 
 impl NativeAgentToolDispatcher for WorkspaceDispatcher {
-    fn tool_contributors(
-        &self,
-        _context: &AgentTurnContext,
-    ) -> Result<Vec<Arc<dyn ToolContributor>>, AgentError> {
-        if let Some(error) = &self.discovery_error {
-            return Err(error.clone());
-        }
-        Ok(vec![Arc::new(WorkspaceThreadToolContributor::new(vec![
-            WorkspaceThreadTarget {
-                workspace_id: "fixture-workspace".into(),
-                label: "Fixture".into(),
-            },
-        ])?)])
+    fn prepare_tools<'a>(
+        &'a self,
+        context: &'a AgentTurnContext,
+        _config: &'a Value,
+    ) -> BoxFuture<'a, Result<NativeAgentToolPreparation, AgentError>> {
+        Box::pin(async move {
+            if self.cancel_discovery {
+                return Ok(NativeAgentToolPreparation::Cancelled {
+                    phase: "mcp_discovery".into(),
+                    server: Some("fixture".into()),
+                    transport: Some("stdio".into()),
+                });
+            }
+            if let Some(error) = &self.discovery_error {
+                return Err(error.clone());
+            }
+            Ok(NativeAgentToolPreparation::Ready(NativeAgentToolCatalog {
+                contributors: vec![Arc::new(WorkspaceThreadToolContributor::new(vec![
+                    WorkspaceThreadTarget {
+                        workspace_id: "fixture-workspace".into(),
+                        label: "Fixture".into(),
+                    },
+                ])?)],
+                selected_tools: context.settings.selected_tools.clone(),
+            }))
+        })
     }
 
     fn dispatch(
@@ -147,6 +161,7 @@ fn workspace_tools_are_discovered_and_dispatched_without_storage() {
     let dispatcher = Arc::new(WorkspaceDispatcher {
         calls: Mutex::new(Vec::new()),
         discovery_error: None,
+        cancel_discovery: false,
         execution_error: None,
     });
     let result = run_with_dispatcher(
@@ -171,6 +186,7 @@ fn discovery_failure_preserves_service_error_and_prevents_provider_call() {
     let dispatcher = Arc::new(WorkspaceDispatcher {
         calls: Mutex::new(Vec::new()),
         discovery_error: Some(error.clone()),
+        cancel_discovery: false,
         execution_error: None,
     });
     let provider = Arc::new(CoordinatorProvider {
@@ -190,6 +206,7 @@ fn asynchronous_dispatch_preserves_structured_service_failures() {
     let dispatcher = Arc::new(WorkspaceDispatcher {
         calls: Mutex::new(Vec::new()),
         discovery_error: None,
+        cancel_discovery: false,
         execution_error: Some(error.clone()),
     });
     let result = run_with_dispatcher(
@@ -208,4 +225,24 @@ fn asynchronous_dispatch_preserves_structured_service_failures() {
             serde_json::to_value(&error).unwrap()
         );
     }
+}
+
+#[test]
+fn cancelled_discovery_retains_checkpoint_details_without_calling_the_provider() {
+    let dispatcher = Arc::new(WorkspaceDispatcher {
+        calls: Mutex::new(Vec::new()),
+        discovery_error: None,
+        execution_error: None,
+        cancel_discovery: true,
+    });
+    let provider = Arc::new(CoordinatorProvider {
+        calls: AtomicUsize::new(0),
+    });
+    let result = run_with_dispatcher(dispatcher.clone(), provider.clone()).unwrap();
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    assert!(dispatcher.calls.lock().unwrap().is_empty());
+    assert_eq!(result["checkpoint"]["phase"], "cancelled");
+    assert_eq!(result["checkpoint"]["payload"]["phase"], "mcp_discovery");
+    assert_eq!(result["checkpoint"]["payload"]["server"], "fixture");
+    assert_eq!(result["checkpoint"]["payload"]["transport"], "stdio");
 }

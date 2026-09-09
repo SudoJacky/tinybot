@@ -9,11 +9,6 @@ use futures_util::future::BoxFuture;
 use std::sync::Arc;
 
 impl super::NativeAgentRuntimeServices {
-    pub(crate) fn with_mcp_runtime(mut self, runtime: super::McpRuntime) -> Self {
-        self.mcp_runtime = runtime;
-        self
-    }
-
     pub fn new(
         provider: Arc<dyn NativeAgentProvider>,
         tools: Arc<dyn NativeAgentToolDispatcher>,
@@ -28,15 +23,14 @@ impl super::NativeAgentRuntimeServices {
                 super::InMemoryNativeAgentContextCheckpointCommitter::default(),
             ),
             cancellations,
-            subagents: super::SubagentThreadManager::default(),
-            mcp_runtime: super::McpRuntime::new(),
-            shell_runtime: super::WorkerShellRuntime::default(),
             task_runtime: super::TurnExecutionRuntime::new(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
         })
     }
 
-    pub fn with_subagent_manager(subagents: super::SubagentThreadManager) -> Self {
+    pub fn with_subagent_manager(
+        subagents: crate::collaboration::subagents::SubagentThreadManager,
+    ) -> Self {
         Self::from_dependencies(super::NativeAgentRuntimeDependencies {
             provider: Arc::new(super::RustNativeAgentProvider),
             tools: Arc::new(super::SubagentNativeAgentToolDispatcher::new(
@@ -47,9 +41,6 @@ impl super::NativeAgentRuntimeServices {
                 super::InMemoryNativeAgentContextCheckpointCommitter::default(),
             ),
             cancellations: Arc::new(super::InMemoryNativeAgentCancellation::default()),
-            subagents,
-            mcp_runtime: super::McpRuntime::new(),
-            shell_runtime: super::WorkerShellRuntime::default(),
             task_runtime: super::TurnExecutionRuntime::new(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
         })
@@ -58,7 +49,9 @@ impl super::NativeAgentRuntimeServices {
 
 impl Default for super::NativeAgentRuntimeServices {
     fn default() -> Self {
-        Self::with_subagent_manager(super::SubagentThreadManager::default())
+        Self::with_subagent_manager(
+            crate::collaboration::subagents::SubagentThreadManager::default(),
+        )
     }
 }
 

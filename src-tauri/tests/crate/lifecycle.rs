@@ -114,10 +114,6 @@ lines.on("close", () => {
     .expect("MCP shutdown fixture should start");
     let mut runtime = NativeRuntimeState::default();
     runtime.mcp_runtime = mcp_runtime.clone();
-    runtime.native_agent_runtime = runtime
-        .native_agent_runtime
-        .clone()
-        .with_mcp_runtime(mcp_runtime.clone());
     let shared = Arc::new(Mutex::new(runtime));
 
     shutdown_native_runtime(&shared, false).expect("app shutdown should stop MCP runtime");
@@ -485,7 +481,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
     let (shell_runtime, subagents) = {
         let runtime = lock_runtime(&shared);
         (
-            runtime.native_agent_runtime.shell_runtime(),
+            runtime.shell_runtime.clone(),
             runtime.subagent_manager.clone(),
         )
     };
@@ -932,4 +928,36 @@ lines.on("line", (line) => {
         serde_json::json!({}),
     ));
     assert!(shutdown.error.is_none(), "{:?}", shutdown.error);
+}
+#[test]
+fn runtime_initialization_reports_migration_conflicts_before_creating_state() {
+    let fixture = WorkspaceFixture::new();
+    let data_root = fixture.root.join("application-data");
+    let legacy = fixture.root.join(".tinybot/threads/initialization-fixture");
+    let target = data_root.join("threads/initialization-fixture");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&legacy, "legacy content").unwrap();
+    std::fs::write(&target, "conflicting content").unwrap();
+
+    let error = match NativeRuntimeState::initialize(fixture.root.clone(), data_root.clone()) {
+        Ok(_) => panic!("conflicting storage must prevent runtime initialization"),
+        Err(error) => error,
+    };
+    assert!(error.contains("thread storage initialization failed"));
+    assert!(error.contains(&fixture.root.display().to_string()));
+    assert!(error.contains(&data_root.display().to_string()));
+    assert_eq!(std::fs::read_to_string(&legacy).unwrap(), "legacy content");
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "conflicting content"
+    );
+
+    std::fs::remove_file(&target).unwrap();
+    let state = NativeRuntimeState::initialize(fixture.root.clone(), data_root.clone()).unwrap();
+    assert_eq!(state.thread_store.data_root(), data_root);
+    assert_eq!(state.thread_store.workspace_root(), fixture.root);
+    assert_eq!(std::fs::read_to_string(target).unwrap(), "legacy content");
+    assert!(!legacy.exists());
+    assert!(state.last_error.is_none());
 }

@@ -1,12 +1,11 @@
+use super::AgentApplicationServices;
 use crate::agent::bridge::{
     native_agent_current_user_message, native_agent_model, native_agent_provider,
     native_agent_string_field, native_agent_turn_id,
 };
 use crate::agent::conversation_title::{should_generate_title, ConversationTitleTask};
 use crate::agent::runtime::AgentError;
-use crate::agent::runtime::{
-    AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices, NativeAgentTraceSink,
-};
+use crate::agent::runtime::{AgentHookInvocation, AgentHookStage, NativeAgentTraceSink};
 use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnResult};
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::threads::domain::{StartThreadTurnRequest, ThreadRecord, ThreadSnapshot};
@@ -50,13 +49,13 @@ pub(crate) struct CompactThreadInput {
 }
 
 pub(crate) async fn compact_thread_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     input: CompactThreadInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, AgentError> {
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let snapshot = read_thread_snapshot(
         &input.thread_id,
         &thread_store,
@@ -117,7 +116,7 @@ pub(crate) async fn compact_thread_with_services(
 }
 
 pub(crate) async fn submit_thread_turn_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     input: SubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -139,13 +138,13 @@ pub(crate) async fn submit_thread_turn_with_services(
 }
 
 pub(crate) async fn execute_thread_turn_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     input: SubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<ExecutedThreadTurn, AgentError> {
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let thread =
         ensure_thread_turn_target(input.thread_id, &thread_store, config_snapshot.clone())?;
     let thread_id = thread.thread_id.clone();
@@ -257,8 +256,9 @@ pub(crate) async fn execute_thread_turn_with_services(
     let thread_hook_services = base_services.clone();
     let thread_start_invocation =
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStart, trace_context.clone());
-    let thread_start_evaluation =
-        thread_hook_services.evaluate_hook_invocation(thread_start_invocation)?;
+    let thread_start_evaluation = thread_hook_services
+        .runtime
+        .evaluate_hook_invocation(thread_start_invocation)?;
     if let Some(reason) = thread_start_evaluation.denied_reason.clone() {
         return Err(format!("thread start hook denied: {reason}").into());
     }
@@ -288,7 +288,9 @@ pub(crate) async fn execute_thread_turn_with_services(
     .await?;
     let thread_stop_invocation =
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStop, trace_context);
-    thread_hook_services.evaluate_hook_invocation(thread_stop_invocation)?;
+    thread_hook_services
+        .runtime
+        .evaluate_hook_invocation(thread_stop_invocation)?;
     Ok(ExecutedThreadTurn {
         thread_id,
         session_id,
@@ -335,7 +337,7 @@ mod role_binding_tests {
 }
 
 pub(crate) async fn submit_thread_form_with_services(
-    base_services: NativeAgentRuntimeServices,
+    base_services: AgentApplicationServices,
     input: SubmitThreadFormInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -345,7 +347,7 @@ pub(crate) async fn submit_thread_form_with_services(
     if command_id.is_empty() {
         return Err("thread form commandId must not be empty".to_string().into());
     }
-    let thread_store = base_services.thread_store()?;
+    let thread_store = base_services.thread_store.clone();
     let target_snapshot =
         read_thread_snapshot(&input.thread_id, &thread_store, "thread form target read")?;
     let thread_id = target_snapshot.thread.thread_id.clone();

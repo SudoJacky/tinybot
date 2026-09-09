@@ -7,7 +7,7 @@ fn persist_native_agent_turn_start(
     let root = workspace.root.clone();
     let request =
         crate::agent::bridge::turn_request::AgentTurnRequest::from_wire(spec, &config, &root)?;
-    let instructions = crate::agent::runtime::InstructionComposer::default()
+    let instructions = crate::agent::instruction_sources::InstructionLoader::default()
         .compose_input(&root, &request.instructions)?;
     crate::agent::bridge::persist_native_agent_turn_start(&request, &instructions, store)
 }

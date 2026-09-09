@@ -1,5 +1,7 @@
 use super::*;
 #[cfg(test)]
+use crate::agent::bridge::TestApplicationServices;
+#[cfg(test)]
 use crate::agent::runtime::test_support::{BlockingTestProvider, BlockingTestToolDispatcher};
 
 #[test]
@@ -60,7 +62,6 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         persistence_workspace.root.clone(),
         json!({}),
     )
-    .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
@@ -523,23 +524,24 @@ lines.on("line", (line) => {
         }}}
     });
     let trace_sink = Arc::new(RecordingTraceSink::default());
+    let app = NativeAgentRuntimeServices::new(
+        Arc::new(McpDiscoveryProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
+        workspace.root.clone(),
+        crate::protocol::capability::default_desktop_capability_policy(),
+    ));
+    let mcp_runtime = app.mcp_runtime.clone();
     let services = crate::agent::bridge::native_agent_services_with_tool_executor(
-        NativeAgentRuntimeServices::new(
-            Arc::new(McpDiscoveryProvider {
-                calls: AtomicUsize::new(0),
-            }),
-            Arc::new(FakeNativeAgentToolDispatcher),
-            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(InMemoryNativeAgentCancellation::default()),
-        )
-        .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
-            workspace.root.clone(),
-            crate::protocol::capability::default_desktop_capability_policy(),
-        )),
+        app,
         workspace.root.clone(),
         config.clone(),
     )
-    .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
@@ -566,7 +568,7 @@ lines.on("line", (line) => {
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "real MCP complete");
     assert_eq!(completed["toolsUsed"], json!(["mcp.4:docs.4:echo"]));
-    tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
+    tauri::async_runtime::block_on(mcp_runtime.shutdown())
         .expect("agent MCP fixture should shut down");
     let global_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     assert!(
