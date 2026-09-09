@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:b35fbd27b52cfd264c986375fabd22f5f14c031076920de031d96273bd4dc4c7 -->
+<!-- tinybot-module-fingerprint: sha256:a7c10efb2501c41baa474fb3696d9739afbfd452cefb127c96df070a5440cb64 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -177,9 +177,11 @@ command queue coordinates selection, live previews, capture, and the native
 window exclusion for the trusted renderer editor. It uses a labelled group,
 not a generic occluding dialog. Hiding or unmounting stops annotation.
 
-`BrowserAnnotationImage` edits a frozen viewport capture with cropping,
-rectangles, arrows, and undo; SVG coordinates map to the captured CSS viewport
-and image export accounts for pixel density. Attaching imports a PNG through
+`BrowserAnnotationImage` displays a frozen viewport capture with a draggable
+crop selection. Only the selection and floating comment remain; there are no
+annotation toolbars or drawing modes. The address-bar toggle and Escape still
+exit annotation. SVG coordinates map to the captured CSS viewport, and image
+export accounts for pixel density. Attaching imports a PNG through
 managed file storage, restores the native preview, and then reports the
 reference to Chat. Import failures keep the draft; stale asynchronous imports
 cannot attach to a later workspace. Tests cover restoration-before-attachment,
@@ -193,3 +195,13 @@ Attaching clears temporary edits and the current draft while keeping annotation
 mode available for another element. Switching elements resets the comment;
 explicit parent selection preserves it. Finish releases native ownership, as
 does the awaited `finishBrowserAnnotation` handoff before composer submission.
+
+The comment anchor stays fixed across expansion, collapse, and live style changes.
+Its handle supports pointer dragging and arrow keys; resizing clamps the anchor
+and limits the scrolling controls to the available space. Native clip updates
+coalesce drag frames while a previous update is in flight.
+`AnnotationStyleEditor` owns editable drafts, numeric scrubbing and units,
+percentage sliders, color and alpha controls, and linked or independent spacing
+sides. Invalid CSS stays visible and blocks attachment until corrected. Collapsing
+preserves drafts; reset or a new selection remounts them. Tests cover anchoring,
+dragging, units, alpha, percentages, linked spacing, and validation recovery.

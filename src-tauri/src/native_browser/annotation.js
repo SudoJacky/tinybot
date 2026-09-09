@@ -18,11 +18,10 @@
       let selectionId = 0;
       let region = null;
       let pressed = null;
-      let timer = 0;
       let regionMode = false;
       let exitRequested = false;
       let failure = '';
-      const properties = ['color', 'background-color', 'font-size', 'font-weight', 'width', 'height', 'padding', 'margin', 'border-radius', 'opacity'];
+      const properties = ['color', 'background-color', 'font-size', 'font-weight', 'width', 'height', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'border-radius', 'opacity'];
       const documentId = crypto.randomUUID();
       const rectOf = (rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
       const pathOf = (element) => {
@@ -92,36 +91,48 @@
         try { callback(event); } catch (error) { failure = String(error.message || error); }
       }, { capture: true, signal: lifetime.signal, passive: false });
       const consume = (event) => { event.preventDefault(); event.stopImmediatePropagation(); };
+      const updateDrag = (event) => {
+        if (!pressed) return;
+        if (!regionMode && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5) {
+          restore(); selected = null; regionMode = true; failure = '';
+        }
+        if (regionMode) {
+          region = { x: Math.max(0, Math.min(pressed.x, event.clientX)), y: Math.max(0, Math.min(pressed.y, event.clientY)), width: Math.abs(event.clientX - pressed.x), height: Math.abs(event.clientY - pressed.y) };
+          show(region);
+        }
+      };
       listen('pointerdown', (event) => {
         consume(event);
         if (event.button !== 0) return;
         pressed = { x: event.clientX, y: event.clientY, element: event.composedPath()[0] };
-        timer = window.setTimeout(() => { regionMode = true; restore(); selected = null; }, 400);
       });
       listen('pointermove', (event) => {
         consume(event);
-        if (pressed && regionMode) {
-          region = { x: Math.max(0, Math.min(pressed.x, event.clientX)), y: Math.max(0, Math.min(pressed.y, event.clientY)), width: Math.abs(event.clientX - pressed.x), height: Math.abs(event.clientY - pressed.y) };
-          show(region);
-        } else if (!pressed && !selected) {
+        if (pressed) updateDrag(event);
+        else if (!selected) {
           const element = event.composedPath()[0];
           if (element instanceof Element) show(element.getBoundingClientRect());
-        } else if (pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > 5) clearTimeout(timer);
+        }
       });
       listen('pointerup', (event) => {
-        consume(event); clearTimeout(timer);
+        consume(event);
         if (!pressed) return;
+        updateDrag(event);
         if (!regionMode) choose(pressed.element);
         else if (region && region.width >= 4 && region.height >= 4) selectionId += 1;
-        else region = null;
+        else { region = null; highlight.style.display = 'none'; }
         pressed = null; regionMode = false;
       });
-      listen('pointercancel', () => { clearTimeout(timer); pressed = null; regionMode = false; region = null; });
+      listen('pointercancel', () => {
+        pressed = null; regionMode = false; region = null;
+        if (selected?.isConnected) show(selected.getBoundingClientRect());
+        else highlight.style.display = 'none';
+      });
       for (const name of ['click', 'dblclick', 'contextmenu', 'mousedown', 'mouseup', 'dragstart']) listen(name, consume);
       listen('keydown', (event) => {
         consume(event);
         if (event.key === 'Escape') {
-          if (selected || region) { restore(); selected = null; region = null; highlight.style.display = 'none'; }
+          if (pressed || selected || region) { restore(); pressed = null; regionMode = false; selected = null; region = null; highlight.style.display = 'none'; }
           else exitRequested = true;
         }
       });
@@ -129,7 +140,7 @@
       listen('scroll', () => { if (selected?.isConnected) show(selected.getBoundingClientRect()); });
       window[key] = (action) => {
         if (action.type === 'stop') {
-          restore(); clearTimeout(timer); lifetime.abort(); host.remove(); delete window[key];
+          restore(); lifetime.abort(); host.remove(); delete window[key];
           return { active: false };
         }
         if (action.documentId && action.documentId !== documentId) throw new Error('The page changed. Restart annotation.');
@@ -153,17 +164,23 @@
             if (!changes.text && selected.textContent !== original.text) throw new Error('The page text changed. Select it again.');
             selected.textContent = value;
             changes.text = { requested: value, applied: selected.textContent };
+            if (value === original.text) delete changes.text;
           } else {
             if (!properties.includes(property) || !CSS.supports(property, value) || /url\s*\(|var\s*\(|[;{}]/i.test(value)) throw new Error('Unsupported CSS value');
             if (!changes[property] && (selected.style.getPropertyValue(property) !== original.inline[property].value || selected.style.getPropertyPriority(property) !== original.inline[property].priority)) throw new Error('The page style changed. Select it again.');
             selected.style.setProperty(property, value, 'important');
             changes[property] = { requested: value, applied: selected.style.getPropertyValue(property) };
+            if (value === original.styles[property] || changes[property].applied === original.styles[property]) {
+              if (original.inline[property].value) selected.style.setProperty(property, original.inline[property].value, original.inline[property].priority);
+              else selected.style.removeProperty(property);
+              delete changes[property];
+            }
           }
           show(selected.getBoundingClientRect());
         }
         if (action.type === 'hideOverlay') host.style.visibility = 'hidden';
         if (action.type === 'showOverlay') host.style.visibility = 'visible';
-        if (action.type === 'clear') { restore(); selected = null; region = null; highlight.style.display = 'none'; failure = ''; }
+        if (action.type === 'clear') { restore(); pressed = null; regionMode = false; selected = null; region = null; highlight.style.display = 'none'; failure = ''; }
         if (failure && action.type !== 'clear') throw new Error(failure);
         return {
           active: true, documentId, selectionId, selection: selection(),

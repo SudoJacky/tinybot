@@ -54,7 +54,7 @@ describe("native page annotation script", () => {
     const button = document.getElementById("buy")! as HTMLElement;
     const state = select(button);
     const target = { documentId: state.documentId, selectionId: state.selection.id };
-    expect(invoke({ type: "preview", ...target, property: "padding", value: "20px" }).ok).toBe(true);
+    expect(invoke({ type: "preview", ...target, property: "padding-top", value: "20px" }).ok).toBe(true);
     expect(invoke({ type: "preview", ...target, property: "width", value: "160px" }).ok).toBe(true);
     expect(invoke({ type: "poll" }).value.selection.changes.width.after).toBe("160px");
     invoke({ type: "stop" });
@@ -70,6 +70,22 @@ describe("native page annotation script", () => {
     invoke({ type: "stop" });
     expect(button.style.color).toBe("blue");
   });
+  it("tracks separate spacing sides, removes reverted changes, and restores original shorthand priorities", () => {
+    const button = document.getElementById("buy")! as HTMLElement;
+    button.style.setProperty("padding", "10px 20px 30px 40px", "important");
+    const state = select(button);
+    const target = { documentId: state.documentId, selectionId: state.selection.id };
+    expect(invoke({ type: "preview", ...target, property: "padding-top", value: "11px" }).ok).toBe(true);
+    expect(invoke({ type: "preview", ...target, property: "padding-left", value: "45px" }).ok).toBe(true);
+    const changes = invoke({ type: "poll" }).value.selection.changes;
+    expect(changes).toEqual({ "padding-top": { before: "10px", after: "11px" }, "padding-left": { before: "40px", after: "45px" } });
+    expect(button.style.paddingRight).toBe("20px");
+    const reverted = invoke({ type: "preview", ...target, property: "padding-top", value: "10px" });
+    expect(reverted.value.selection.changes["padding-top"]).toBeUndefined();
+    invoke({ type: "stop" });
+    expect(button.style.padding).toBe("10px 20px 30px 40px");
+    expect(button.style.getPropertyPriority("padding")).toBe("important");
+  });
   it("restores the child before switching to a parent and rejects sensitive form selections", () => {
     const state = select(document.getElementById("buy")!);
     const target = { documentId: state.documentId, selectionId: state.selection.id };
@@ -82,15 +98,36 @@ describe("native page annotation script", () => {
     expect(error.ok).toBe(false); expect(error.error).not.toContain("private");
     expect(invoke({ type: "clear" }).ok).toBe(true);
   });
-  it("captures a region only after a long press and completed drag", () => {
+  it("starts a region immediately on drag and captures only the completed rectangle", () => {
+    const button = document.getElementById("buy")!;
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 10, clientY: 20 }));
+    button.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 110, clientY: 100 }));
+    expect(invoke({ type: "poll" }).value.region).toBeNull();
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: 120, clientY: 110 }));
+    expect(invoke({ type: "poll" }).value.region).toEqual({ x: 10, y: 20, width: 110, height: 90 });
+  });
+  it("keeps a held click with small pointer movement as element selection", () => {
     vi.useFakeTimers();
     const button = document.getElementById("buy")!;
     button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 10, clientY: 20 }));
-    vi.advanceTimersByTime(450);
-    button.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 110, clientY: 100 }));
-    expect(invoke({ type: "poll" }).value.region).toBeNull();
-    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: 110, clientY: 100 }));
-    expect(invoke({ type: "poll" }).value.region).toEqual({ x: 10, y: 20, width: 100, height: 80 });
+    vi.advanceTimersByTime(1000);
+    button.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 13, clientY: 22 }));
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: 13, clientY: 22 }));
+    const state = invoke({ type: "poll" }).value;
+    expect(state.region).toBeNull();
+    expect(state.selection.selector).toBe("#buy");
+  });
+  it.each(["pointercancel", "Escape"])("discards a region after %s without capturing on a later release", (cancel) => {
+    const button = document.getElementById("buy")! as HTMLElement;
+    const state = select(button);
+    invoke({ type: "preview", documentId: state.documentId, selectionId: state.selection.id, property: "color", value: "red" });
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 100, clientY: 100 }));
+    button.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 20, clientY: 20 }));
+    expect(button.style.color).toBe("rgb(0, 0, 0)");
+    if (cancel === "Escape") window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    else button.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+    button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, clientX: 20, clientY: 20 }));
+    expect(invoke({ type: "poll" }).value).toMatchObject({ selection: null, region: null, exitRequested: false });
   });
 });
 

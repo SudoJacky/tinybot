@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUp, SlidersHorizontal, X } from "lucide-react";
+import { ArrowUp, GripVertical, SlidersHorizontal, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { annotationElementRect, annotationSourceText, type AnnotationRect, type BrowserAnnotationAction, type BrowserAnnotationState } from "../../app-core/native/browserAnnotation";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { importDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
-import { BrowserAnnotationImage, annotationImageFile, type AnnotationMark } from "./BrowserAnnotationImage";
+import { BrowserAnnotationImage, annotationImageFile } from "./BrowserAnnotationImage";
+import { AnnotationStyleEditor } from "./AnnotationStyleEditor";
 import "./BrowserAnnotationWorkspace.css";
 
 type Props = {
@@ -24,14 +25,17 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
   const [state, setState] = useState<BrowserAnnotationState>({ active: false });
   const [capture, setCapture] = useState<BrowserAnnotationState>();
   const [region, setRegion] = useState<AnnotationRect>();
-  const [marks, setMarks] = useState<AnnotationMark[]>([]);
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [propertiesValid, setPropertiesValid] = useState(true);
   const pageRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 12, top: 12 });
+  const placedTarget = useRef("");
+  const positionRef = useRef(position);
+  const drag = useRef<{ id: number; x: number; y: number; left: number; top: number } | undefined>(undefined);
   const [resetEpoch, setResetEpoch] = useState(0);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const current = useRef({ onClose, onReference, onError });
@@ -42,7 +46,7 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
   const draftTarget = useRef("");
   const acceptState = useCallback((next: BrowserAnnotationState, retainDraft = false) => {
     const identity = next.documentId + ":" + (next.selection?.id ?? (next.region ? next.selectionId : ""));
-    if (identity !== draftTarget.current && !retainDraft) { setInstruction(""); setExpanded(false); }
+    if (identity !== draftTarget.current) { setPropertiesValid(true); if (!retainDraft) { setInstruction(""); setExpanded(false); } }
     draftTarget.current = identity;
     setState(next);
   }, []);
@@ -66,7 +70,7 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
     let lastPollError = "";
     live.current = true;
     generation.current += 1; busyRef.current = false;
-    setError(""); setBusy(false); setState({ active: false }); setCapture(undefined); setRegion(undefined); setMarks([]); setInstruction(""); setExpanded(false); handledRegion.current = undefined;
+    setError(""); setBusy(false); setState({ active: false }); setCapture(undefined); setRegion(undefined); setInstruction(""); setExpanded(false); handledRegion.current = undefined;
     const poll = async () => {
       if (cancelled) return;
       try {
@@ -114,7 +118,7 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
     const next = await command({ type: "capture" });
     if (!next.dataUrl || !next.viewport) throw new Error(t("annotation.captureFailed"));
     if (!live.current || generation.current !== epoch) return;
-    setCapture(next); setRegion(initialRegion); setMarks([]);
+    setCapture(next); setRegion(initialRegion);
   }, [command, t]);
 
   const handledRegion = useRef<number | undefined>(undefined);
@@ -140,7 +144,7 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
       throw new Error(t("annotation.selectionChanged"));
     }
     if (!evidence.dataUrl || !evidence.viewport) throw new Error(t("annotation.captureFailed"));
-    const file = await annotationImageFile(evidence.dataUrl, evidence.viewport, capture ? region : annotationElementRect(evidence), marks);
+    const file = await annotationImageFile(evidence.dataUrl, evidence.viewport, capture ? region : annotationElementRect(evidence));
     const [image] = await importDesktopChatFiles([file]);
     if (!image?.contentHash) throw new Error(t("annotation.importFailed"));
     if (!live.current || generation.current !== epoch) return;
@@ -157,12 +161,30 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
       revision: evidence.documentId,
     });
     setState({ ...evidence, selection: null, region: null });
-    setCapture(undefined); setRegion(undefined); setMarks([]); setInstruction(""); setExpanded(false);
+    setCapture(undefined); setRegion(undefined); setInstruction(""); setExpanded(false);
   }
 
 
   const selectionRect = selected?.rect ?? region;
   const hasEditor = active && Boolean(selected || capture);
+  const editorTarget = `${state.documentId}:${selected?.id ?? state.selectionId}:${Boolean(capture)}`;
+  const overlayPending = useRef<{ rect: (AnnotationRect & { deviceScale: number }) | null } | undefined>(undefined);
+  const overlaySending = useRef(false);
+  // Coalesce drag frames while native clipping is in flight, keeping the latest position.
+  const updateOverlay = useCallback((rect: (AnnotationRect & { deviceScale: number }) | null) => {
+    overlayPending.current = { rect };
+    if (overlaySending.current) return;
+    overlaySending.current = true;
+    void (async () => {
+      try {
+        while (overlayPending.current && live.current) {
+          const next = overlayPending.current; overlayPending.current = undefined;
+          await command({ type: "overlay", rect: next.rect });
+        }
+      } catch (reason) { report(reason); }
+      finally { overlaySending.current = false; }
+    })();
+  }, [command, report]);
   useLayoutEffect(() => {
     if (!active || !state.active) return;
     let disposed = false;
@@ -173,20 +195,26 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
       const card = cardRef.current;
       if (!page) return;
       if (!hasEditor || !card || capture) {
-        if (previous !== "none") { previous = "none"; void command({ type: "overlay", rect: null }).catch(report); }
+        if (previous !== "none") { previous = "none"; updateOverlay(null); }
+        if (!hasEditor) placedTarget.current = "";
         if (!card) return;
       }
       const bounds = page.getBoundingClientRect();
       const width = card.offsetWidth;
-      const height = card.offsetHeight;
-      const left = Math.max(8, Math.min(selectionRect?.x ?? 12, bounds.width - width - 8));
+      const initial = placedTarget.current !== editorTarget;
       const bottom = (selectionRect?.y ?? 0) + (selectionRect?.height ?? 0) + 8;
-      const top = Math.max(8, Math.min(bottom + height <= bounds.height - 8 ? bottom : (selectionRect?.y ?? bounds.height) - height - 8, bounds.height - height - 8));
+      const left = Math.max(8, Math.min(initial ? selectionRect?.x ?? 12 : positionRef.current.left, bounds.width - width - 8));
+      // Reserve enough room for expanded controls at initial placement and during dragging.
+      const top = Math.max(8, Math.min(initial ? bottom : positionRef.current.top, bounds.height - Math.min(180, bounds.height - 16) - 8));
+      placedTarget.current = editorTarget;
+      positionRef.current = { left, top };
+      card.style.maxHeight = `${Math.max(48, bounds.height - top - 8)}px`;
+      const height = card.offsetHeight;
       setPosition((current) => current.left === left && current.top === top ? current : { left, top });
       if (capture) return;
       const rect = { x: left, y: top, width, height, deviceScale: window.devicePixelRatio || 1 };
       const key = JSON.stringify(rect);
-      if (key !== previous) { previous = key; void command({ type: "overlay", rect }).catch(report); }
+      if (width > 0 && height > 0 && key !== previous) { previous = key; updateOverlay(rect); }
     };
     place();
     const observer = new ResizeObserver(place);
@@ -194,11 +222,19 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
     if (cardRef.current) observer.observe(cardRef.current);
     window.addEventListener("resize", place);
     return () => { disposed = true; observer.disconnect(); window.removeEventListener("resize", place); };
-  }, [active, state.active, hasEditor, capture, expanded, selectionRect?.x, selectionRect?.y, selectionRect?.width, selectionRect?.height, command, report]);
+  }, [active, state.active, hasEditor, capture, expanded, editorTarget, position.left, position.top, selectionRect?.x, selectionRect?.y, selectionRect?.width, selectionRect?.height, updateOverlay]);
+
+  function moveEditor(left: number, top: number) {
+    const page = pageRef.current?.getBoundingClientRect();
+    const card = cardRef.current;
+    if (!page || !card) return;
+    const next = { left: Math.max(8, Math.min(left, page.width - card.offsetWidth - 8)), top: Math.max(8, Math.min(top, page.height - Math.min(180, page.height - 16) - 8)) };
+    positionRef.current = next; setPosition(next);
+  }
 
   async function clearSelection() {
     await apply({ type: "clear" });
-    setCapture(undefined); setRegion(undefined); setMarks([]); setInstruction(""); setExpanded(false);
+    setCapture(undefined); setRegion(undefined); setInstruction(""); setExpanded(false);
   }
 
   return <div className="browser-annotation-workspace" data-annotating={active} onKeyDown={(event) => {
@@ -210,60 +246,52 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
       else { await command({ type: "stop" }); current.current.onClose(); }
     });
   }}>
-    {active ? <div className="browser-annotation-toolbar">
-      <span>{t(capture ? "annotation.drawHint" : "annotation.selectHint")}</span>
-      <button type="button" disabled={busy || !state.active} onClick={() => void execute(async () => { await clearSelection(); if (!capture) await freeze(); })}>{t(capture ? "annotation.selectElement" : "annotation.selectRegion")}</button>
-      <button type="button" disabled={busy} onClick={() => void execute(async () => { await command({ type: "stop" }); current.current.onClose(); })}>{t("annotation.done")}</button>
-    </div> : null}
     <div ref={pageRef} className="browser-annotation-page">
       {renderSurface(Boolean(active && capture))}
-      {active && capture?.dataUrl && capture.viewport ? <BrowserAnnotationImage dataUrl={capture.dataUrl} width={capture.viewport.width} height={capture.viewport.height} region={region} onRegion={setRegion} marks={marks} onMarks={setMarks} /> : null}
+      {active && capture?.dataUrl && capture.viewport ? <BrowserAnnotationImage dataUrl={capture.dataUrl} width={capture.viewport.width} height={capture.viewport.height} region={region} onRegion={setRegion} /> : null}
       {hasEditor ? <div ref={cardRef} className="browser-annotation-editor" role="group" aria-label={t("annotation.title")} data-expanded={expanded && !capture} style={position}>
         <div className="browser-annotation-comment-row">
+          <button type="button" className="browser-annotation-drag" aria-label={t("annotation.moveEditor")} title={t("annotation.moveEditor")} disabled={busy}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
+              drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, ...positionRef.current };
+            }} onPointerMove={(event) => {
+              const start = drag.current;
+              if (start?.id === event.pointerId) moveEditor(start.left + event.clientX - start.x, start.top + event.clientY - start.y);
+            }} onPointerUp={(event) => {
+              drag.current = undefined;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+            }} onPointerCancel={() => { drag.current = undefined; }} onLostPointerCapture={() => { drag.current = undefined; }}
+            onKeyDown={(event) => {
+              const delta = event.shiftKey ? 40 : 10;
+              const direction = { ArrowLeft: [-delta, 0], ArrowRight: [delta, 0], ArrowUp: [0, -delta], ArrowDown: [0, delta] }[event.key];
+              if (direction) { event.preventDefault(); moveEditor(position.left + direction[0], position.top + direction[1]); }
+            }}><GripVertical size={14} /></button>
           {!capture ? <button type="button" className="browser-annotation-round" aria-label={t("annotation.editProperties")} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}><SlidersHorizontal size={16} /></button> : null}
           <textarea aria-label={t("annotation.instruction")} value={instruction} maxLength={8000} rows={1} disabled={busy} placeholder={t("annotation.commentPlaceholder")}
             onChange={(event) => setInstruction(event.currentTarget.value)} onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && (instruction.trim() || changes) && !error && !busy && (selected || region)) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && (instruction.trim() || changes) && !error && propertiesValid && !busy && (selected || region)) {
                 event.preventDefault(); void execute(attach);
               }
             }} />
-          <button type="button" className="browser-annotation-send browser-annotation-round" aria-label={t("annotation.attach")} title={t("annotation.attach")} disabled={busy || Boolean(error) || (!selected && !region) || (!instruction.trim() && !changes)} onClick={() => void execute(attach)}><ArrowUp size={17} /></button>
+          <button type="button" className="browser-annotation-send browser-annotation-round" aria-label={t("annotation.attach")} title={t("annotation.attach")} disabled={busy || Boolean(error) || !propertiesValid || (!selected && !region) || (!instruction.trim() && !changes)} onClick={() => void execute(attach)}><ArrowUp size={17} /></button>
           <button type="button" className="browser-annotation-round" aria-label={t("annotation.cancel")} disabled={busy} onClick={() => void execute(clearSelection)}><X size={15} /></button>
         </div>
-        {expanded && !capture && selected && target ? <>
+        {!capture && selected && target ? <div className="annotation-expanded-content" hidden={!expanded}>
           <div className="browser-annotation-element"><strong>{selected.tag}</strong>
             <select aria-label={t("annotation.parents")} value="" disabled={busy} onChange={(event) => { if (event.currentTarget.value) void execute(() => apply({ type: "parent", ...target, index: Number(event.currentTarget.value) - 1 })); }}>
               <option value="">{selected.selector}</option>
               {selected.ancestors.map((ancestor, index) => <option value={index + 1} key={index}>{ancestor.tag} · {ancestor.selector}</option>)}
             </select>
           </div>
-          <div className="browser-annotation-properties">
-            {[...(selected.editableText ? ["text"] : []), ...Object.keys(selected.styles)].map((property) => <label key={[state.documentId,selected.id,resetEpoch,property].join(":")}>
-              <span>{t("annotation.properties." + property, { defaultValue: property })}</span>
-              <AnnotationPropertyInput disabled={busy} value={selected.changes[property]?.after ?? (property === "text" ? selected.text : selected.styles[property])}
-                onPreview={(value) => { setError(""); void apply({ type: "preview", ...target, property, value }).catch(report); }} />
-            </label>)}
-          </div>
+          <AnnotationStyleEditor key={[state.documentId, selected.id, resetEpoch].join(":")} disabled={busy} onValidityChange={setPropertiesValid}
+            values={Object.fromEntries([...(selected.editableText ? ["text"] : []), ...Object.keys(selected.styles)].map((property) => [property, selected.changes[property]?.after ?? (property === "text" ? selected.text : selected.styles[property])]))}
+            onPreview={(property, value) => { setError(""); void apply({ type: "preview", ...target, property, value }).catch(report); }} />
           <footer><span>{t("annotation.livePreview")}</span><button type="button" disabled={busy || !changes} onClick={() => void execute(async () => { await apply({ type: "reset", ...target }); setResetEpoch((value) => value + 1); })}>{t("annotation.reset")}</button></footer>
-        </> : null}
+        </div> : null}
       </div> : null}
     </div>
     {active && error ? <div role="alert" className="browser-annotation-error">{error}<button type="button" onClick={() => void execute(clearSelection)}>{t("annotation.cancel")}</button></div> : null}
   </div>;
-}
-
-function AnnotationPropertyInput({ value, disabled, onPreview }: { value: string; disabled: boolean; onPreview(value: string): void }) {
-  const [draft, setDraft] = useState(value);
-  const timer = useRef(0);
-  const latest = useRef(onPreview); latest.current = onPreview;
-  const submitted = useRef(value);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  function submit(next: string) {
-    window.clearTimeout(timer.current);
-    if (next !== submitted.current) { submitted.current = next; latest.current(next); }
-  }
-  return <input disabled={disabled} value={draft} onChange={(event) => {
-    const next = event.currentTarget.value; setDraft(next); window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => submit(next), 300);
-  }} onBlur={() => submit(draft)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />;
 }

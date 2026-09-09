@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
@@ -17,9 +17,10 @@ const evidence: BrowserAnnotationState = {
 };
 
 beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ clearRect() {}, fillRect() {}, getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }) } as unknown as CanvasRenderingContext2D);
   vi.mocked(importDesktopChatFiles).mockReset().mockResolvedValue([{ contentHash: "hash", path: "C:/attachments/annotation.png", name: "annotation.png", mimeType: "image/png", sizeBytes: 3 }]);
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.restoreAllMocks(); });
 
 function setup() {
   const order: string[] = [];
@@ -54,7 +55,7 @@ it("queues property edits before capture and restores the page before attaching 
   expect(reference[0].userAnnotation).toBe("Use the brand color");
   expect(reference[0].sourceText).toContain('"after": "blue"');
   expect(reference[0].contentHash).toBe("hash");
-  expect(annotationImageFile).toHaveBeenLastCalledWith(expect.any(String), evidence.viewport, { x: 8, y: 8, width: 104, height: 64 }, []);
+  expect(annotationImageFile).toHaveBeenLastCalledWith(expect.any(String), evidence.viewport, { x: 8, y: 8, width: 104, height: 64 });
   expect(reference[0].sourceText).not.toContain('"styles"');
   expect(reference[0].sourceText).not.toContain('"ancestors"');
   expect(view.order.indexOf("preview")).toBeLessThan(view.order.indexOf("capture"));
@@ -105,7 +106,7 @@ it("starts with a comment-only editor and can attach without opening properties"
   const user = userEvent.setup();
   const view = setup();
   const comment = await screen.findByLabelText("Requested change");
-  expect(screen.queryByLabelText("Text color")).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Text color" })).toBeNull();
   await user.type(comment, "Make this clearer{Enter}");
   await waitFor(() => expect(view.onReference).toHaveBeenCalledOnce());
   expect(view.onClose).not.toHaveBeenCalled();
@@ -123,9 +124,33 @@ it("preserves the comment when toggling property controls and cancels previews e
   await user.click(toggle);
   expect(screen.getByLabelText("Text color")).toBeTruthy();
   await user.click(toggle);
-  expect(screen.queryByLabelText("Text color")).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Text color" })).toBeNull();
   expect((screen.getByLabelText("Requested change") as HTMLTextAreaElement).value).toBe("Keep my comment");
   await user.click(screen.getByRole("button", { name: "Cancel annotation" }));
   await waitFor(() => expect(view.order).toContain("clear"));
   expect(view.onReference).not.toHaveBeenCalled();
+});
+
+it("keeps the comment anchored across expansion and preserves a dragged position through collapse", async () => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, toJSON: () => ({}) });
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(350);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function(this: HTMLElement) { return this.dataset.expanded === "true" ? 380 : 64; });
+  const user = userEvent.setup();
+  const view = setup();
+  const editor = await screen.findByRole("group", { name: "Annotate page" });
+  const top = editor.style.top;
+  await user.click(screen.getByRole("button", { name: "Edit element properties" }));
+  expect(editor.style.top).toBe(top);
+  const handle = screen.getByRole("button", { name: /Move annotation editor/ });
+  handle.setPointerCapture = vi.fn(); handle.hasPointerCapture = () => false;
+  fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 30, clientY: 80 });
+  fireEvent.pointerMove(handle, { pointerId: 1, clientX: 170, clientY: 140 });
+  fireEvent.pointerUp(handle, { pointerId: 1 });
+  expect(editor.style.left).toBe("160px");
+  expect(editor.style.top).toBe(`${Number.parseFloat(top) + 60}px`);
+  await user.click(screen.getByRole("button", { name: "Edit element properties" }));
+  await user.click(screen.getByRole("button", { name: "Edit element properties" }));
+  expect(editor.style.left).toBe("160px");
+  expect(editor.style.top).toBe(`${Number.parseFloat(top) + 60}px`);
+  await waitFor(() => expect(view.annotate).toHaveBeenCalledWith(expect.objectContaining({ action: { type: "overlay", rect: expect.objectContaining({ x: 160, y: Number.parseFloat(top) + 60 }) } })));
 });

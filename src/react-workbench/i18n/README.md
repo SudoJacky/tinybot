@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:eb6e5547971b749ef6eeb4323e81d1a613696c584f9b553bc84bdb87040d97da -->
+<!-- tinybot-module-fingerprint: sha256:fa5d384a5cf5c07bd270363f3508d124368cd023d9755bb5b5e529a78b324792 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -114,3 +114,6 @@ The compact browser annotation group localizes its count and bulk-remove action.
 The comment-first page editor localizes its property toggle, placeholder,
 cancel action, and live-preview label. Adding a reference permits another
 annotation; finishing the mode is separate from attaching a comment.
+
+Typed style controls localize the drag handle and scrubbing hint, unit and slider
+labels, color alpha, four spacing directions, linkage, and invalid CSS feedback.

@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:47b509cf96b54aa06e66391912ebed42d7350ca3e11eb04ced7860ad3a20779e -->
+<!-- tinybot-module-fingerprint: sha256:e4c3136d97b6fd980c51e13962975d707df04995cf02c6e728e67f1c3261aeb7 -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent
@@ -149,8 +149,10 @@ interaction and navigation/tab changes are rejected until annotation stops.
 Stopping restores temporary changes before releasing control and invalidating
 the Agent observation. Failures remain visible and emit browser diagnostics.
 
-`annotation.js` provides element selection, ancestor selection, a 400 ms
-long-press region gesture, and temporary leaf-text or allowlisted CSS previews.
+`annotation.js` provides element selection, ancestor selection, direct region
+dragging, and temporary leaf-text or allowlisted CSS previews. Moving more than
+5 CSS pixels starts a region; smaller movements remain an element click. Regions
+become capturable on release, and cancellation discards the unfinished gesture.
 Preview, parent, and reset actions require matching document and selection IDs.
 Detached elements and conflicting page updates fail visibly; restoration does
 not overwrite later framework changes. Form values and nested text containers
@@ -168,3 +170,8 @@ editor by subtracting its physical bounds from the Wry child window region. It
 does not resize the page or inject comment controls into remote content. Null
 clears the exclusion; stop restores the full region. The integration fixture
 checks the native region, unchanged viewport, and restoration on exit.
+
+Spacing previews use individual padding and margin longhands so each direction
+has its own original value, requested change, and restoration ownership. Returning
+a style or text to its original value removes it from the change list. Script
+tests cover simultaneous longhands and restoration of original shorthand priorities.

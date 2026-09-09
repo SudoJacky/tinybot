@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:caadf66b55fb9dfcd5a11b5bd98c339ab6cf7a67cd8bd7cd0913a846f56cec1d -->
+<!-- tinybot-module-fingerprint: sha256:2f7d1417725258c7d7e3f0e6df8367d9f25f73c18916f2242a9827fdcd5477b4 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -154,3 +154,6 @@ and property changes, omitting inspection-only ancestors and unchanged styles.
 Annotation `overlay` actions carry a CSS rectangle plus renderer device scale,
 or null to restore the native surface. These are presentation requests from the
 trusted renderer and do not expose an additional command to remote pages.
+
+Annotation script tests also cover per-side spacing previews, original inline
+priorities, and removal of changes when the user returns to the original value.
