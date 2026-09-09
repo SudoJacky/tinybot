@@ -6,6 +6,7 @@ import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativ
 import type { BrowserAnnotationState } from "../../app-core/native/browserAnnotation";
 import { importDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { BrowserAnnotationWorkspace } from "./BrowserAnnotationWorkspace";
+import { annotationImageFile } from "./BrowserAnnotationImage";
 
 vi.mock("../../app-core/native/desktopNativeFilePicker", () => ({ importDesktopChatFiles: vi.fn() }));
 vi.mock("./BrowserAnnotationImage", () => ({ BrowserAnnotationImage: () => null, annotationImageFile: vi.fn(async () => new File(["png"], "annotation.png", { type: "image/png" })) }));
@@ -51,6 +52,9 @@ it("queues property edits before capture and restores the page before attaching 
   expect(reference[0].userAnnotation).toBe("Use the brand color");
   expect(reference[0].sourceText).toContain('"after": "blue"');
   expect(reference[0].contentHash).toBe("hash");
+  expect(annotationImageFile).toHaveBeenLastCalledWith(expect.any(String), evidence.viewport, { x: 8, y: 8, width: 104, height: 64 }, []);
+  expect(reference[0].sourceText).not.toContain('"styles"');
+  expect(reference[0].sourceText).not.toContain('"ancestors"');
   expect(view.order.indexOf("preview")).toBeLessThan(view.order.indexOf("capture"));
   expect(view.order.indexOf("stop")).toBeLessThan(view.order.indexOf("attached"));
   expect(view.onClose).toHaveBeenCalledOnce();

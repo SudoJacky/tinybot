@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/chat/reasoningEffort";
 import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import { formatFileMetadata } from "./composerFileMetadata";
+import { ComposerAnnotations } from "./ComposerAnnotations";
 import {
   AlertCircle,
   Archive,
@@ -94,6 +95,7 @@ export interface ComposerSendOptions {
 }
 
 export interface ComposerContextReference {
+  presentation?: "compact-annotation";
   mimeType?: string;
   imageUrl?: string;
   annotation?: {
@@ -977,7 +979,8 @@ export function ClaudeStyleAiInput({
               removeLabel={t("composer.remove", { name: reference.label })}
             />
           ))}
-          {contextReferences.map((reference) => (
+          <ComposerAnnotations references={contextReferences.filter((reference) => reference.presentation === "compact-annotation")} onRemove={(id) => onRemoveContextReference?.(id)} />
+          {contextReferences.filter((reference) => reference.presentation !== "compact-annotation").map((reference) => (
             <AttachmentChip
               imageUrl={reference.imageUrl}
               annotation={reference.annotation}

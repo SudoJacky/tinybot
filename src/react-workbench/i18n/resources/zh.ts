@@ -563,6 +563,7 @@ export const zh = {
     },
     tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     annotation: {
+      count_one: "{{count}} 条批注", count_other: "{{count}} 条批注", removeAll: "移除全部批注",
       applyProperties: "请根据批注中的属性差异修改源码。",
       selectionChanged: "截图前选中的元素已变化，请重新选择后添加批注。",
       title: "网页批注", done: "完成", selectElement: "选择元素", selectRegion: "框选区域",

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:4a336292dd50cd8d95eeb84027e686b8d463843af62b5eb3a76e4be27c309e68 -->
+<!-- tinybot-module-fingerprint: sha256:c6840108313f9b2aa1fcd04595c00ca8b38be7370e6ddfac3f569b8c8b9a899f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -446,3 +446,5 @@ Browser annotations enter the composer as managed image references with page
 evidence in `sourceText` and the editable request in `userAnnotation`. Chat
 preserves the current draft, exposes preview/removal controls, and submits
 these references only when the user sends the composer.
+Browser references use the compact annotation group with editable hover/click
+details; the raw `sourceText` evidence is never used as its visible body.

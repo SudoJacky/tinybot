@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:3244c31847c712f0fe830a9db18172039cb9c55cc06a299b77af02798250a1dd -->
+<!-- tinybot-module-fingerprint: sha256:28c3fe20bb47cb699a49542a4ad00351f1c84ed5ec54773501b7807a36125c22 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -182,3 +182,7 @@ managed file storage, restores the native preview, and then reports the
 reference to Chat. Import failures keep the draft; stale asynchronous imports
 cannot attach to a later workspace. Tests cover restoration-before-attachment,
 import failure, unmount cleanup, and late completion.
+Element attachments crop the capture to the selected element plus 12 CSS pixels
+of context; region attachments retain the user-selected bounds. Reference
+titles describe the element and details list only changed properties. Full
+inspection state remains in the workspace rather than the composer attachment.

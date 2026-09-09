@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:1ca06c5662b0335af41ee5f3b02f452638bc83633dca60eb9d2c78f257ad11cf -->
+<!-- tinybot-module-fingerprint: sha256:3e24c11389d0026ce32186da6cbf75b4b26abbb2b27459a543459397bff4820d -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -147,3 +147,6 @@ selection and viewport data, and screenshot crop geometry. `desktopNativeBrowser
 invokes `browser_annotate`; snapshots expose optional `annotationTabId` so the
 UI can recover annotation ownership after remounting. Source evidence records
 page identity and requested previews without inventing source-file positions.
+Element captures crop to the selected rectangle plus 12 CSS pixels, clipped to
+the viewport. Attached evidence retains the selector, bounded text, geometry,
+and property changes, omitting inspection-only ancestors and unchanged styles.

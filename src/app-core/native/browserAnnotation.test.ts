@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { annotationSourceText, clampAnnotationRect } from "./browserAnnotation";
+import { annotationElementRect, annotationSourceText, clampAnnotationRect, type BrowserAnnotationState } from "./browserAnnotation";
 
 const source = readFileSync("src-tauri/src/native_browser/annotation.js", "utf8");
 const invoke = new Function("input", `return (${source})(input);`) as (input: Record<string, unknown>) => { ok: boolean; error?: string; value: Record<string, any> };
@@ -100,4 +100,16 @@ it("keeps screenshot bounds in CSS coordinates and includes page provenance", ()
   expect(text).toContain('"deviceScale": 2');
   expect(text).toContain('"scrollY": 100');
   expect(text).toContain("not instructions");
+});
+
+it("clips the element crop at viewport edges and omits unrelated inspection data", () => {
+  const state: BrowserAnnotationState = { active: true, documentId: "doc", url: "http://localhost", viewport: { width: 300, height: 200, deviceScale: 2, scrollX: 0, scrollY: 0 },
+    selection: { id: 1, tag: "button", selector: "#buy", text: "x".repeat(1000), editableText: true, styles: { color: "red" }, ancestors: [{ tag: "body", selector: "body" }], rect: { x: 0, y: 170, width: 80, height: 30 }, changes: { opacity: { before: "1", after: "0.94" } } } };
+  expect(annotationElementRect(state)).toEqual({ x: 0, y: 158, width: 92, height: 42 });
+  const text = annotationSourceText(state);
+  expect(text).toContain('"after": "0.94"');
+  expect(text).toContain('"selector": "#buy"');
+  expect(text).not.toContain('"styles"');
+  expect(text).not.toContain('"ancestors"');
+  expect(text).not.toContain("x".repeat(241));
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
-import { annotationSourceText, type AnnotationRect, type BrowserAnnotationAction, type BrowserAnnotationState } from "../../app-core/native/browserAnnotation";
+import { annotationElementRect, annotationSourceText, type AnnotationRect, type BrowserAnnotationAction, type BrowserAnnotationState } from "../../app-core/native/browserAnnotation";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { importDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { BrowserAnnotationImage, annotationImageFile, type AnnotationMark } from "./BrowserAnnotationImage";
@@ -128,17 +128,17 @@ export function BrowserAnnotationWorkspace({ active, browserSessionId, tabId, ru
       throw new Error(t("annotation.selectionChanged"));
     }
     if (!evidence.dataUrl || !evidence.viewport) throw new Error(t("annotation.captureFailed"));
-    const file = await annotationImageFile(evidence.dataUrl, evidence.viewport, capture ? region : undefined, marks);
+    const file = await annotationImageFile(evidence.dataUrl, evidence.viewport, capture ? region : annotationElementRect(evidence), marks);
     const [image] = await importDesktopChatFiles([file]);
     if (!image?.contentHash) throw new Error(t("annotation.importFailed"));
     if (!live.current || generation.current !== epoch) return;
     // Restore the actual page before exposing the request to the composer.
     await command({ type: "stop" });
     if (!live.current || generation.current !== epoch) return;
-    const label = capture ? t("annotation.regionTitle") : t("annotation.elementTitle", { tag: evidence.selection?.tag ?? "element" });
+    const label = capture ? t("annotation.regionTitle") : `${evidence.selection!.tag}${evidence.selection!.text ? ` · ${evidence.selection!.text.slice(0, 60)}` : ""}`;
     current.current.onReference({
       id: `browser-annotation:${crypto.randomUUID()}`, kind: "reference", referenceKind: "image",
-      title: label, detail: instruction.trim() || t("annotation.changeCount", { count: changes }),
+      title: label, detail: capture ? "" : Object.entries(evidence.selection!.changes).map(([property, change]) => `${property}: ${change.before} → ${change.after}`).join("\n"),
       rawPath: image.path, contentHash: image.contentHash, mimeType: image.mimeType, sizeBytes: image.sizeBytes,
       sourceText: annotationSourceText(evidence, capture ? region : undefined),
       userAnnotation: instruction.trim() || t("annotation.applyProperties"),

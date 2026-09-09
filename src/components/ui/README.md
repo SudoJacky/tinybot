@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:b3057522baa547c6d6537536a1c65def11014b6ad93cdd35e7d770e8dc2ce397 -->
+<!-- tinybot-module-fingerprint: sha256:36bc7b49b480f41ebcacf93f112a4b93af5e27fde9dab446f6371c3e342901c2 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -64,6 +64,9 @@ Mutation and resize observers track relevant overlay changes; finite overlay
 motion is measured per frame, while unrelated streaming text does not trigger
 geometry reads. Native hosts expose `data-occlusion` for inspection.
 
-Browser annotation context cards include an image preview, page details, an
-editable user request, and removal. Context-reference images participate in the
-same model image-input validation as ordinary file attachments.
+Browser annotation references share one compact count chip. Hover or focus
+opens a viewport-bounded detail popover; click pins it for comment editing.
+Escape and outside clicks dismiss it. Each entry shows a local crop, element
+label, editable request, property differences, and removal. Raw evidence stays
+out of the visible card. The portal participates in native-surface occlusion.
+Context-reference images retain ordinary model image-input validation.

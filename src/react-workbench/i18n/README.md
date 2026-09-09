@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:104bd07b4edf74a19ae26a3ef1dc92349d5fd7cd0dcc9af0b160ab6842984d6b -->
+<!-- tinybot-module-fingerprint: sha256:408e1451beeca84c34972b320ab7f58a71c04b6d988b27a87a366c7c26562bcb -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -109,3 +109,4 @@ the shared content-change editor use localized `chat.details` labels.
 Browser annotation entry, element properties, region drawing, capture/import
 status, stale-selection errors, and composer actions use English and Chinese
 resources. Page text, selectors, CSS values, and user requests remain data.
+The compact browser annotation group localizes its count and bulk-remove action.

@@ -1116,6 +1116,7 @@ export const en = {
     },
     tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
     annotation: {
+      count_one: "{{count}} annotation", count_other: "{{count}} annotations", removeAll: "Remove all annotations",
       applyProperties: "Apply the property changes in this annotation to the source code.",
       selectionChanged: "The selected element changed before capture. Select it again before attaching.",
       title: "Annotate page", done: "Finish", selectElement: "Element", selectRegion: "Region",

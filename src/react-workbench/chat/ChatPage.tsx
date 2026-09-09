@@ -368,11 +368,12 @@ export function ChatPage({
     [...composerArtifactReferences.map((reference): ComposerContextReference => ({
       mimeType: reference.mimeType,
       ...(reference.userAnnotation !== undefined ? {
+        presentation: "compact-annotation" as const,
         imageUrl: reference.rawPath && "__TAURI_INTERNALS__" in window ? convertFileSrc(reference.rawPath) : undefined,
         annotation: { label: t("annotation.instruction"), text: reference.userAnnotation, onChange: (text: string) => setComposerArtifactReferences((current) => current.map((item) => item.id === reference.id ? { ...item, userAnnotation: text } : item)) },
       } : {}),
       id: reference.id, kind: "file", label: reference.title, detail: reference.detail,
-      body: reference.id.startsWith("browser-annotation:") ? reference.sourceText : reference.sourcePath !== reference.title ? reference.sourcePath : undefined,
+      body: reference.userAnnotation === undefined && reference.sourcePath !== reference.title ? reference.sourcePath : undefined,
     })), ...composerSpreadsheetAnnotations.map((annotation): ComposerContextReference => ({
       annotation: {
         label: t("composer.spreadsheetAnnotation.count", { count: 1 }),
