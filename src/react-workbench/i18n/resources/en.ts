@@ -1114,7 +1114,7 @@ export const en = {
       workspacePicker: "Workspace: {{workspace}}",
       workspaceMenu: "Choose a workspace",
     },
-    tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
+    tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", status: { running: "running", failed: "failed", unread: "unread activity" } },
     annotation: {
       moveEditor: "Move annotation editor (drag or use arrow keys)",
       scrubHint: "Click to type; drag up or down to adjust. Hold Shift for larger steps.",

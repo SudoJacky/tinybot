@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:4bb106104a14172295e77fdfca067d88eee5cc6e96bf6355fc2862ff53727efd -->
+<!-- tinybot-doc-fingerprint: sha256:11910b4eeef9e29191c18bfc2ff043666cf903050ae27f39d1dabf0ea5660234 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -73,9 +73,11 @@ Every registry entry declares:
 - parallelism, mutation, cancellation, and cleanup policy.
 
 Provider-visible schemas describe nested argument contracts, not only their
-top-level names. For example, `publish_data_view` exposes the supported view
-kinds and requires table `defaultSort` to use `{field, direction}` so providers
-can construct the same shape the native validator accepts.
+top-level names. For example, `publish_data_view` exposes disjoint view shapes
+and reserves numeric formatting for number columns. Table `defaultSort` uses
+`{field, direction}`; view fields retain camelCase in persisted artifacts.
+Row IDs accept unique nonblank natural identifiers. Publication has no per-Turn
+count quota; each artifact still obeys the native size and data limits.
 
 The dispatcher prepares application tool contributions asynchronously through
 `prepare_tools`, returning a catalog plus the effective selection or a cancellation

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a2809560a91cf206588b62fb3fe5a1d916f28aa2390b2f026fd990fa548e5dae -->
+<!-- tinybot-module-fingerprint: sha256:4523dbdd728e62952123fc981ac2b78a55e9c4f36047770b0b18ac618f094638 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -19,6 +19,9 @@ shared modal focus and native-surface occlusion conventions.
 Conversation content and the composer share an 800px maximum width and remain
 centered within the Chat surface. Horizontal gutters scale with the available
 Chat width from 20px to 40px, including docked Sidecar and empty-chat layouts.
+`SessionTabStrip` presents open conversations directly in the header. Overflowing
+tabs remain reachable through horizontal wheel scrolling and keyboard navigation;
+activating a tab scrolls it into view. Each tab retains its close action.
 `SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
 width defaults to 240 px and ranges from 220 to 420 px, with the maximum reduced
 to reserve 480 px for the chat workspace where possible. Pointer movement updates

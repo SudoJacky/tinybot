@@ -1,10 +1,14 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:3b3c373016c8c8ce7dd4c96a274f534b2dcdf34589d5819cb93180efa01b517c -->
+<!-- tinybot-module-fingerprint: sha256:39bbecbddab5dc740fc4fa0cb868b91793096a4d883d745a0f9f86896d91614c -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
 instructions into typed agent items, runtime events, checkpoints, usage, and a
 terminal result.
+
+Data-view validation accepts unique nonblank natural row IDs, while column and
+source identifiers follow the registry's documented pattern. View-specific wire
+fields use camelCase (`defaultSort`, `totalField`) on input and persisted output.
 
 Execution results stay as `AgentTurnResult` through provider/tool iterations,
 task ownership, lifecycle hooks, bridge persistence, and Graph/workspace-thread

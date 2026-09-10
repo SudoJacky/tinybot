@@ -384,39 +384,152 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             vec![WorkerCapability::SessionWrite],
             json!({
                 "type": "object",
-                "required": ["schemaVersion", "title", "insight", "dataset", "view", "provenance"],
+                "required": [
+                    "schemaVersion",
+                    "title",
+                    "insight",
+                    "dataset",
+                    "view",
+                    "provenance"
+                ],
                 "properties": {
-                    "schemaVersion": { "type": "string", "const": "tinybot.data_view.v1" },
-                    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
-                    "insight": { "type": "string", "minLength": 1, "maxLength": 500 },
+                    "schemaVersion": {
+                        "type": "string",
+                        "const": "tinybot.data_view.v1"
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                    },
+                    "insight": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                    },
                     "dataset": {
                         "type": "object",
-                        "required": ["columns", "rows"],
+                        "required": [
+                            "columns",
+                            "rows"
+                        ],
                         "properties": {
                             "columns": {
-                                "type": "array", "minItems": 1, "maxItems": 20,
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 20,
                                 "items": {
-                                    "type": "object", "required": ["key", "label", "type"],
-                                    "properties": {
-                                        "key": { "type": "string" },
-                                        "label": { "type": "string" },
-                                        "type": { "type": "string", "enum": ["category", "string", "number", "date", "datetime", "boolean"] },
-                                        "format": { "type": "string", "enum": ["number", "integer", "compact", "percent", "currency"] },
-                                        "currency": { "type": "string", "description": "Three-letter ISO 4217 code, for example USD." },
-                                        "unit": { "type": "string", "description": "Display unit only; values must already use this unit." },
-                                        "fractionDigits": { "type": "integer", "minimum": 0, "maximum": 4 }
-                                    },
-                                    "additionalProperties": false
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "required": [
+                                                "key",
+                                                "label",
+                                                "type"
+                                            ],
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string",
+                                                    "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+                                                    "description": "Unique column key referenced by row values and view fields."
+                                                },
+                                                "label": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 120
+                                                },
+                                                "type": {
+                                                    "type": "string",
+                                                    "const": "number"
+                                                },
+                                                "format": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "number",
+                                                        "integer",
+                                                        "compact",
+                                                        "percent",
+                                                        "currency"
+                                                    ],
+                                                    "description": "Only for number columns. Percent uses percentage points: 9.4 displays as 9.4%. Currency format requires currency."
+                                                },
+                                                "currency": {
+                                                    "type": "string",
+                                                    "description": "Only with currency format. Required uppercase three-letter ISO 4217 code, for example USD."
+                                                },
+                                                "unit": {
+                                                    "type": "string",
+                                                    "description": "Display unit only; values must already use this unit."
+                                                },
+                                                "fractionDigits": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "maximum": 4
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        },
+                                        {
+                                            "type": "object",
+                                            "required": [
+                                                "key",
+                                                "label",
+                                                "type"
+                                            ],
+                                            "properties": {
+                                                "key": {
+                                                    "type": "string",
+                                                    "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+                                                    "description": "Unique column key referenced by row values and view fields."
+                                                },
+                                                "label": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 120
+                                                },
+                                                "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "category",
+                                                        "string",
+                                                        "date",
+                                                        "datetime",
+                                                        "boolean"
+                                                    ],
+                                                    "description": "date cells use YYYY-MM-DD; datetime cells use RFC3339 with timezone."
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        }
+                                    ]
                                 }
                             },
                             "rows": {
-                                "type": "array", "minItems": 1, "maxItems": 1000,
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 1000,
                                 "items": {
-                                    "type": "object", "required": ["id", "values"],
+                                    "type": "object",
+                                    "required": [
+                                        "id",
+                                        "values"
+                                    ],
                                     "properties": {
-                                        "id": { "type": "string" },
-                                        "values": { "type": "object", "description": "Keys must match declared columns; values must match column types. Null is allowed for missing data." },
-                                        "sourceIds": { "type": "array", "items": { "type": "string" } }
+                                        "id": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "description": "Unique nonblank row ID. Natural identifiers such as owner/repo and Unicode names are accepted."
+                                        },
+                                        "values": {
+                                            "type": "object",
+                                            "description": "Keys must match declared columns; values must match column types. Null is allowed for missing data."
+                                        },
+                                        "sourceIds": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
                                     },
                                     "additionalProperties": false
                                 }
@@ -425,83 +538,250 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                         "additionalProperties": false
                     },
                     "view": {
-                        "type": "object",
-                        "required": ["kind"],
-                        "properties": {
-                            "kind": {
-                                "type": "string",
-                                "enum": ["metrics", "table", "cartesian", "waterfall"]
+                        "description": "Choose exactly one shape; never mix fields from different kinds. Table fields may be omitted or empty to show all columns.",
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "required": [
+                                    "kind",
+                                    "items"
+                                ],
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "const": "metrics"
+                                    },
+                                    "items": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 6,
+                                        "items": {
+                                            "type": "object",
+                                            "required": [
+                                                "field"
+                                            ],
+                                            "properties": {
+                                                "field": {
+                                                    "type": "string",
+                                                    "description": "Key of a number column."
+                                                },
+                                                "comparisonField": {
+                                                    "type": "string",
+                                                    "description": "Key of a number column."
+                                                },
+                                                "direction": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "higher_is_better",
+                                                        "lower_is_better",
+                                                        "neutral"
+                                                    ]
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        }
+                                    }
+                                },
+                                "additionalProperties": false
                             },
-                            "items": {
-                                "type": "array", "minItems": 1, "maxItems": 6,
+                            {
+                                "type": "object",
+                                "required": [
+                                    "kind"
+                                ],
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "const": "table"
+                                    },
+                                    "fields": {
+                                        "type": "array",
+                                        "maxItems": 20,
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "defaultSort": {
+                                        "type": "object",
+                                        "required": [
+                                            "field",
+                                            "direction"
+                                        ],
+                                        "properties": {
+                                            "field": {
+                                                "type": "string"
+                                            },
+                                            "direction": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "asc",
+                                                    "desc"
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "required": [
+                                    "kind",
+                                    "x",
+                                    "series"
+                                ],
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "const": "cartesian"
+                                    },
+                                    "x": {
+                                        "type": "string",
+                                        "description": "Key of a category, string, date or datetime column, never number. Rows determine display order; sort dataset.rows before publishing."
+                                    },
+                                    "series": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 6,
+                                        "items": {
+                                            "type": "object",
+                                            "required": [
+                                                "field",
+                                                "mark"
+                                            ],
+                                            "properties": {
+                                                "field": {
+                                                    "type": "string",
+                                                    "description": "Key of a number column."
+                                                },
+                                                "mark": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "line",
+                                                        "bar",
+                                                        "area"
+                                                    ]
+                                                },
+                                                "axis": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "left",
+                                                        "right"
+                                                    ],
+                                                    "description": "Defaults to left. Right requires a left series, at most two series total, and a different unit, format or currency."
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "stack": {
+                                        "type": "string",
+                                        "enum": [
+                                            "none",
+                                            "normal"
+                                        ],
+                                        "description": "Defaults to none. Normal stacking permits only bar/area series on the same axis."
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "required": [
+                                    "kind",
+                                    "category",
+                                    "value"
+                                ],
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "const": "waterfall"
+                                    },
+                                    "category": {
+                                        "type": "string",
+                                        "description": "Key of a category or string column."
+                                    },
+                                    "value": {
+                                        "type": "string",
+                                        "description": "Key of a number column."
+                                    },
+                                    "totalField": {
+                                        "type": "string",
+                                        "description": "Key of a boolean column; true marks an absolute total instead of a delta."
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        ]
+                    },
+                    "provenance": {
+                        "type": "object",
+                        "required": [
+                            "status"
+                        ],
+                        "properties": {
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "sourced",
+                                    "user_provided",
+                                    "unsourced"
+                                ],
+                                "description": "Sourced requires at least one source."
+                            },
+                            "asOf": {
+                                "type": "string"
+                            },
+                            "sources": {
+                                "type": "array",
+                                "maxItems": 64,
                                 "items": {
-                                    "type": "object", "required": ["field"],
+                                    "type": "object",
+                                    "required": [
+                                        "id",
+                                        "kind",
+                                        "title"
+                                    ],
                                     "properties": {
-                                        "field": { "type": "string" },
-                                        "comparisonField": { "type": "string" },
-                                        "direction": {
+                                        "id": {
                                             "type": "string",
-                                            "enum": ["higher_is_better", "lower_is_better", "neutral"]
+                                            "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$"
+                                        },
+                                        "kind": {
+                                            "type": "string",
+                                            "enum": [
+                                                "url",
+                                                "file",
+                                                "user_input"
+                                            ]
+                                        },
+                                        "title": {
+                                            "type": "string"
+                                        },
+                                        "uri": {
+                                            "type": "string",
+                                            "description": "Required for url sources; use an absolute HTTP or HTTPS URL."
+                                        },
+                                        "locator": {
+                                            "type": "string"
+                                        },
+                                        "publishedAt": {
+                                            "type": "string"
                                         }
                                     },
                                     "additionalProperties": false
                                 }
                             },
-                            "fields": {
-                                "type": "array", "maxItems": 20,
-                                "items": { "type": "string" }
+                            "methodology": {
+                                "type": "string"
                             },
-                            "defaultSort": {
-                                "type": "object", "required": ["field", "direction"],
-                                "properties": {
-                                    "field": { "type": "string" },
-                                    "direction": { "type": "string", "enum": ["asc", "desc"] }
-                                },
-                                "additionalProperties": false
-                            },
-                            "x": { "type": "string" },
-                            "series": {
-                                "type": "array", "minItems": 1, "maxItems": 6,
+                            "caveats": {
+                                "type": "array",
                                 "items": {
-                                    "type": "object", "required": ["field", "mark"],
-                                    "properties": {
-                                        "field": { "type": "string" },
-                                        "mark": { "type": "string", "enum": ["line", "bar", "area"] },
-                                        "axis": { "type": "string", "enum": ["left", "right"] }
-                                    },
-                                    "additionalProperties": false
+                                    "type": "string"
                                 }
-                            },
-                            "stack": { "type": "string", "enum": ["none", "normal"] },
-                            "category": { "type": "string" },
-                            "value": { "type": "string" },
-                            "totalField": { "type": "string" }
-                        },
-                        "additionalProperties": false,
-                        "description": "Choose the fields that match kind: metrics uses items; table uses fields and optional defaultSort {field,direction}; cartesian uses x, series and optional stack; waterfall uses category, value and optional totalField."
-                    },
-                    "provenance": {
-                        "type": "object", "required": ["status"],
-                        "properties": {
-                            "status": { "type": "string", "enum": ["sourced", "user_provided", "unsourced"] },
-                            "asOf": { "type": "string" },
-                            "sources": {
-                                "type": "array", "maxItems": 64,
-                                "items": {
-                                    "type": "object", "required": ["id", "kind", "title"],
-                                    "properties": {
-                                        "id": { "type": "string" },
-                                        "kind": { "type": "string", "enum": ["url", "file", "user_input"] },
-                                        "title": { "type": "string" },
-                                        "uri": { "type": "string" },
-                                        "locator": { "type": "string" },
-                                        "publishedAt": { "type": "string" }
-                                    },
-                                    "additionalProperties": false
-                                }
-                            },
-                            "methodology": { "type": "string" },
-                            "caveats": { "type": "array", "items": { "type": "string" } }
+                            }
                         },
                         "additionalProperties": false
                     }

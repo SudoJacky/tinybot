@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { AlertTriangle, Circle, List, Loader2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { AlertTriangle, Circle, Loader2, X } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { SessionSummary } from "../services";
@@ -23,13 +23,8 @@ export function SessionTabStrip({
   tabs,
 }: SessionTabStripProps) {
   const { t } = useTranslation("chat");
-  const [menuOpen, setMenuOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [activeSessionId]);
 
   useLayoutEffect(() => {
     tabRefs.current.get(activeSessionId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -161,39 +156,6 @@ export function SessionTabStrip({
           </div>
         )}
       </div>
-      {tabs.length > 1 ? (
-        <div className="react-session-tabs__controls">
-          <div className="react-session-tabs__overflow">
-            <button
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              aria-label={t("tabs.menu")}
-              title={t("tabs.openTabs")}
-              type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <List aria-hidden="true" size={15} />
-            </button>
-            {menuOpen ? (
-              <div className="react-popover-surface react-session-tabs__menu" role="menu">
-                {tabs.map((tab) => (
-                  <button
-                    aria-current={tab.id === activeSessionId ? "page" : undefined}
-                    className="react-popover-item"
-                    key={tab.id}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => onActivate(tab.id)}
-                  >
-                    <SessionTabStatus tab={tab} />
-                    <span className="react-session-tabs__menu-title">{tab.title}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

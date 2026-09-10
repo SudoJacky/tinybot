@@ -458,7 +458,7 @@ async fn execute_publish_data_views(
             planned_call.tool_call
         };
 
-        let result = publish_data_view_result(context, state, &tool_call);
+        let result = publish_data_view_result(context, &tool_call);
         commit_executed_tool_observation(context, state, iteration, tool_call, result).await?;
     }
 
@@ -480,34 +480,10 @@ async fn execute_publish_data_views(
 
 fn publish_data_view_result(
     context: &AgentTurnContext,
-    state: &AgentTurnState,
     tool_call: &PreparedToolCall,
 ) -> super::NativeAgentToolResult {
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
-    let published_count = state
-        .completed_tool_results
-        .iter()
-        .filter(|result| {
-            result
-                .envelope
-                .pointer("/structured/kind")
-                .and_then(Value::as_str)
-                == Some("data_view_published")
-        })
-        .count();
-    if published_count >= 3 {
-        context
-            .metrics()
-            .record_duration("tool.durationMs", tool_started_at.elapsed());
-        context.metrics().increment("tool.failed");
-        return super::NativeAgentToolResult::generic_error(
-            tool_call,
-            "data_view_turn_limit: at most three data views may be published in one turn"
-                .to_string(),
-        );
-    }
-
     let published = match super::data_view::publish_data_view(
         tool_call.arguments(),
         &context.turn_id,

@@ -2338,6 +2338,7 @@ fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
         ("call-data-view-1", "Revenue", "bar"),
         ("call-data-view-2", "Profit", "line"),
         ("call-data-view-3", "Cash flow", "bar"),
+        ("call-data-view-4", "Expenses", "line"),
     ]
     .into_iter()
     .map(|(id, title, mark)| {
@@ -2389,7 +2390,7 @@ fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
                 "fixture": {
                     "responses": [
                         { "content": "", "toolCalls": tool_calls },
-                        { "content": "Published three data views." }
+                        { "content": "Published four data views." }
                     ]
                 }
             }
@@ -2401,7 +2402,7 @@ fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
     let completed = result["completedToolResults"]
         .as_array()
         .expect("completed tool results should be present");
-    assert_eq!(completed.len(), 3);
+    assert_eq!(completed.len(), 4);
     assert!(completed.iter().all(|result| {
         result["envelope"]["status"] == "ok"
             && result["envelope"]["artifacts"][0]["kind"] == "data_view"
@@ -2415,7 +2416,12 @@ fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
         .collect::<Vec<_>>();
     assert_eq!(
         result_call_ids,
-        vec!["call-data-view-1", "call-data-view-2", "call-data-view-3"]
+        vec![
+            "call-data-view-1",
+            "call-data-view-2",
+            "call-data-view-3",
+            "call-data-view-4"
+        ]
     );
 }
 
