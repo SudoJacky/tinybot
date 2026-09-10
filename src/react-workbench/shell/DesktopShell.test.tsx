@@ -1079,7 +1079,7 @@ describe("DesktopShell", () => {
         profiles: {
           "deepseek-default": {
             provider: "deepseek",
-            models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
+            models: ["deepseek-v4-pro", "deepseek-flash", "deepseek-v4-flash", "deepseek-live"],
             enabledModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
             defaultModel: "deepseek-v4-flash",
             modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],
@@ -1089,9 +1089,7 @@ describe("DesktopShell", () => {
       },
     });
 
-    await user.click(screen.getByRole("button", { name: "More actions for OpenAI" }));
-    const providerActions = screen.getByRole("menu", { name: "OpenAI provider actions" });
-    await user.click(within(providerActions).getByRole("menuitem", { name: "Configure" }));
+    await user.click(screen.getByRole("button", { name: "Configure OpenAI" }));
     const dialog = screen.getByRole("dialog", { name: "Configure OpenAI" });
     expect((within(dialog).getByLabelText("API base") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
     expect(within(dialog).getByText("Configured")).toBeTruthy();
@@ -1195,9 +1193,7 @@ describe("DesktopShell", () => {
     });
     expect(await screen.findByRole("article", { name: "Local OpenAI provider" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "More actions for Local OpenAI" }));
-    await user.click(within(screen.getByRole("menu", { name: "Local OpenAI provider actions" }))
-      .getByRole("menuitem", { name: "Configure" }));
+    await user.click(screen.getByRole("button", { name: "Configure Local OpenAI" }));
     const configureDialog = screen.getByRole("dialog", { name: "Configure Local OpenAI" });
     const configuredReasoningEffort = within(configureDialog)
       .getByRole("checkbox", { name: "Send reasoning effort" }) as HTMLInputElement;

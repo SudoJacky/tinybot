@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:78cea5ab0520b89c807ce2932e826b10648ca36d224cc7abcb6900aa2a8854e8 -->
+<!-- tinybot-module-fingerprint: sha256:f24cd0b1c68e1dc1a127f0423c6baaca44bcea75fd1fac28267c67736f0a7bb9 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -126,3 +126,6 @@ profiles remain enabled by default; newly discovered models enter the catalog
 disabled so large Provider listings do not flood Chat and Agent Graph controls.
 Known vision models receive their automatic image capability, which users can
 override per profile.
+
+Provider rows expose Models and Configure as direct actions for every connection
+status; model selection and connection credentials keep their separate sheets.

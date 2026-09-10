@@ -1,5 +1,6 @@
 export const en = {
   common: {
+    notifications: { dismiss: "Dismiss notification" },
     routes: {
       chat: "Chat",
       graphs: "Agent Graphs",
@@ -826,11 +827,7 @@ export const en = {
       notSelected: "Not selected",
       apiKeyMissing: "API key not set",
       manageModels: "Manage {{name}} models",
-      manage: "Manage",
       configureProvider: "Configure {{name}}",
-      setUp: "Set up",
-      moreActions: "More actions for {{name}}",
-      providerActions: "{{name}} provider actions",
       models: "Models",
       configure: "Configure",
       status: { connected: "Connected", attention: "Needs attention", notConfigured: "Not configured" },
@@ -1206,6 +1203,8 @@ export const en = {
     },
     artifacts: { label: "Artifacts", preview: "Preview {{name}}" },
     dataView: {
+      downloadStarted: "Download requested: {{fileName}}. Check your Downloads folder or the save location you selected.",
+      downloadFailed: "Could not start the download: {{error}}",
       actions: "Data view actions", invalid: "This data view could not be rendered safely.", views: "Data view display",
       chart: "Chart", data: "Data", chartLabel: "{{title}}. {{insight}}", expand: "Expand {{title}}", expandAction: "Expand data view",
       download: "Download {{title}} as CSV", downloadAction: "Download CSV", sourced: "Sourced", userProvided: "User-provided", unsourced: "Unsourced",

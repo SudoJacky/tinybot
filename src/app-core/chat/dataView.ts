@@ -134,7 +134,10 @@ function parseRow(
   sourceIds: Set<string>,
 ): DataViewRow {
   const raw = objectValue(value, "row");
-  const id = identifierValue(raw.id, "row id");
+  if (typeof raw.id !== "string" || !raw.id.trim()) {
+    throw new Error("row id must be a nonblank string.");
+  }
+  const id = raw.id;
   const rawValues = objectValue(raw.values, `row ${id} values`);
   const values: Record<string, DataViewCell> = {};
   for (const [key, cell] of Object.entries(rawValues)) {

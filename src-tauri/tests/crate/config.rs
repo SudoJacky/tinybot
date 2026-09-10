@@ -114,7 +114,7 @@ fn ensure_default_config_file_creates_schema_v2_deepseek_profile_when_missing() 
     );
     assert_eq!(
         saved["providers"]["profiles"]["deepseek-default"]["models"],
-        serde_json::json!(["deepseek-v4-pro", "deepseek-v4-flash"])
+        serde_json::json!(["deepseek-v4-pro", "deepseek-flash"])
     );
     assert!(saved.get("gateway").is_none());
     assert!(!fixture.root.join(".tinybot").join("workspace").exists());

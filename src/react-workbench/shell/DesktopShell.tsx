@@ -1,3 +1,4 @@
+import { AppToastViewport } from "../lib/AppToast";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { TFunction } from "i18next";
@@ -193,6 +194,7 @@ export function DesktopShell(props: DesktopShellProps) {
   return (
     <AppLanguageProvider>
       <AppAppearanceProvider>
+        <AppToastViewport />
         <AppShortcutProvider>
           <DesktopShellContent {...props} />
         </AppShortcutProvider>

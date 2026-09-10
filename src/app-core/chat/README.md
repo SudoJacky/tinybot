@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:3fced8f15652daf9f044f9d60b578adc4b0623fb65be20288b38c66d42e43f38 -->
+<!-- tinybot-module-fingerprint: sha256:d1a26f3a1e9d6583758d0dd51746196d8b6b9299a548eb75b5dab7630abe4291 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -69,3 +69,7 @@ Browser image references may carry `sourceText` for page evidence and
 `userAnnotation` for the explicit user-authored request. Keep these fields
 separate so page content cannot become a user instruction. Managed image
 metadata is retained without persisting screenshot data URLs.
+
+Data-view parsing matches native publication for row IDs: any unique nonblank
+string is accepted and preserved verbatim, including Unicode names and numeric
+prefixes. Column and source references retain their identifier constraints.

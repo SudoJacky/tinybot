@@ -2888,7 +2888,6 @@
 }
 
 .react-provider-card__actions {
-  position: relative;
   justify-content: flex-end;
 }
 
@@ -2912,31 +2911,6 @@
 
 .react-provider-card__actions > button {
   min-width: 82px;
-}
-
-.react-provider-card__actions > .react-provider-card__more {
-  min-width: 32px;
-  width: 32px;
-  border-color: transparent;
-  padding: 0;
-}
-
-.react-provider-card__menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  min-width: 140px;
-}
-
-.react-provider-card__menu button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  min-width: 0;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 650;
 }
 
 .react-provider-add {

@@ -1386,6 +1386,7 @@ fn rust_provider_dispatches_the_request_used_for_the_final_estimate() {
 #[test]
 fn context_window_uses_whitelisted_model_default_when_unconfigured() {
     for model in [
+        "deepseek-flash",
         "deepseek-v4-flash",
         "deepseek-v4-flash-vision-exp",
         "deepseek-v4-pro",

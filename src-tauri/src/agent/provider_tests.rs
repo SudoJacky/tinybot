@@ -103,6 +103,10 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         .find(|entry| entry["id"] == "deepseek")
         .unwrap();
     assert_eq!(deepseek["capabilities"], json!(["reasoning"]));
+    assert_eq!(
+        deepseek["curatedModelIds"],
+        json!(["deepseek-v4-pro", "deepseek-flash"])
+    );
     let zai = body["providers"]
         .as_array()
         .unwrap()
@@ -221,6 +225,8 @@ fn resolves_model_image_input_defaults_and_profile_overrides() {
     assert!(built_in.supports_input_modality("glm-5.3-flash", "image"));
     assert!(!built_in.supports_input_modality("glm-5.3", "image"));
     assert!(built_in.supports_input_modality("deepseek-v4-flash-vision-exp", "image"));
+    assert!(built_in.supports_input_modality("deepseek-flash", "image"));
+    assert!(!built_in.supports_input_modality("deepseek-v4-pro", "image"));
 
     let overridden = resolve_provider_profile(
         &json!({

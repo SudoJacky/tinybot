@@ -3,6 +3,7 @@ use serde_json::Value;
 
 const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS: i64 = 128_000;
 const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS: &[(&str, i64)] = &[
+    ("deepseek-flash", 1_000_000),
     ("deepseek-v4-flash", 1_000_000),
     ("deepseek-v4-flash-vision-exp", 1_000_000),
     ("deepseek-v4-pro", 1_000_000),
