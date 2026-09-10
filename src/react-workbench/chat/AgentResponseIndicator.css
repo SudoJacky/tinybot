@@ -1,0 +1,34 @@
+.react-agent-response {
+  margin-top: 10px;
+  min-height: 24px;
+}
+
+.react-agent-response__board {
+  vertical-align: top;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.react-agent-response__board .split-flap-text__tile {
+  flex-shrink: 0;
+  height: 1.6em;
+  box-shadow: none;
+}
+
+.react-agent-response__board[data-cjk] .split-flap-text__tile {
+  width: 1.3em;
+}
+
+.react-agent-response__board .split-flap-text__char {
+  text-shadow: none;
+}
+
+.react-agent-response__board .split-flap-text__tile::before {
+  background: var(--color-hairline);
+  box-shadow: none;
+}
+
+.react-agent-response__board .split-flap-text__tile::after {
+  border-color: var(--color-hairline);
+  box-shadow: none;
+}

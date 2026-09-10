@@ -625,6 +625,7 @@ export const zh = {
       description: "首 token 包含思考和工具调用输出。速度按已记录的模型生成时间计算，不含工具执行和调用之间的等待。",
     },
     turn: {
+      flapWords: { building: "脑洞施工中", stirring: "灵感搅拌中", polishing: "给答案抛光", baking: "文字出炉中" },
       label: "会话轮次", workPerformed: "已执行的工作",
       agentResponding: "Agent 正在回复", copyMessage: "复制消息", branchHere: "从此处分支", formErrors: "表单错误", agentForms: "Agent 表单",
       openDetails: "打开 {{name}} 的详情", contextCompacted: "上下文已压缩", compactionDetails: "压缩详情",

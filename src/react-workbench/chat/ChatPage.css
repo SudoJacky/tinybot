@@ -766,23 +766,6 @@
   color: var(--color-muted);
 }
 
-.react-message__streaming {
-  display: inline-block;
-  width: 24px;
-  height: 8px;
-  margin-top: 8px;
-  border-radius: 999px;
-  background: radial-gradient(circle closest-side, var(--color-muted) 90%, transparent) 0 50% / 8px 8px repeat-x;
-  opacity: 0.55;
-  animation: react-streaming-pulse 900ms ease-in-out infinite;
-}
-
-@keyframes react-streaming-pulse {
-  50% {
-    opacity: 0.25;
-  }
-}
-
 .react-message-markdown [data-streamdown="table-wrapper"] {
   max-width: 100%;
   overflow-x: auto;
@@ -4608,7 +4591,6 @@
 
   .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
 .react-message-markdown [data-sd-animate],
-.react-message__streaming,
 .react-right-drawer[data-motion="fade-content"] {
     opacity: 1;
     transform: none;
