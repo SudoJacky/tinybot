@@ -3143,6 +3143,22 @@
   line-height: 1.45;
 }
 
+.react-provider-config__key-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-self: start;
+  color: var(--color-primary);
+  font-size: 12px;
+  text-underline-offset: 3px;
+}
+
+.react-provider-config__key-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
 .react-provider-config__switch {
   position: relative;
   display: grid !important;

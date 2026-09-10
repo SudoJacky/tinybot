@@ -1,4 +1,6 @@
-import { Check, ChevronRight, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Check, ChevronRight, ExternalLink, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { showAppToast } from "../lib/AppToast";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -695,6 +697,24 @@ function ProviderConfigureDialog({
                   : t("provider.configureDialog.keyIfRequired")}
               </small>
             </label>
+            {provider.apiKeyUrl ? (
+              <a
+                className="react-provider-config__key-link"
+                href={provider.apiKeyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openUrl(event.currentTarget.href).catch((error: unknown) => {
+                    console.error("Failed to open provider API key page", error);
+                    showAppToast(t("provider.configureDialog.openKeyPageFailed"), "error");
+                  });
+                }}
+              >
+                {t("provider.configureDialog.getApiKey")}
+                <ExternalLink aria-hidden="true" size={13} />
+              </a>
+            ) : null}
           </section>
 
           <section className="react-provider-config__section" aria-labelledby="provider-profile-title">

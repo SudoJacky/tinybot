@@ -841,6 +841,8 @@ export const en = {
         notConfigured: "Not configured",
         newApiKey: "Enter a new API key",
         replaceKey: "Entering a new key replaces the current key.",
+        getApiKey: "Get API Key",
+        openKeyPageFailed: "Could not open the API Key page. Please try again.",
         keyIfRequired: "Enter a key if this endpoint requires one.",
         profile: "Profile",
         activeProfile: "Active profile",

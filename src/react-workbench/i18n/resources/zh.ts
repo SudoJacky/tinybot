@@ -416,6 +416,8 @@ export const zh = {
       configureDialog: {
         close: "关闭 {{name}} 配置", description: "更新此 Provider 使用的连接。", connection: "连接", apiBase: "API Base", apiKey: "API Key",
         configured: "已配置", notConfigured: "未配置", newApiKey: "输入新的 API Key", replaceKey: "输入新 Key 会替换当前 Key。",
+        getApiKey: "获取 API Key",
+        openKeyPageFailed: "无法打开 API Key 页面，请重试。",
         keyIfRequired: "如果 Endpoint 需要，请输入 Key。", profile: "Profile", activeProfile: "当前 Profile", setActiveProfile: "设为当前 Profile",
         activeDescription: "新任务当前使用此 Provider。", setActiveDescription: "保存后让新 Agent 任务使用此 Provider。", apiMode: "API 模式", features: "功能支持",
         responsesHelp: "仅当 Endpoint 支持 /responses 时使用 Responses API。", chatOnlyHelp: "此 Provider 仅支持 Chat Completions。",
