@@ -1,5 +1,5 @@
 # Thread Stores
-<!-- tinybot-module-fingerprint: sha256:69fc0f62ef53d1a1ea7f558a7b4b3a5789645238bcee7403dff4c7b4bd446cb1 -->
+<!-- tinybot-module-fingerprint: sha256:cfb75e89e8281e5e3c5afad1010f7aa2accaf0f4318b808e7b1430a77d45ae79 -->
 
 This module implements thread storage operations and projections used by the
 thread domain.
@@ -21,3 +21,6 @@ event's source sequence as identity metadata.
 Generated-title mutation validates the first user Turn while holding the store
 lock, rejects archived or manually titled Threads, and records `titleSource` as
 `model` only when the compare-and-set succeeds.
+
+Runtime projection also replays persisted form resolutions as completed form
+Items, preserving submitted values and the original form identity.

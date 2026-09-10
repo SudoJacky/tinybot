@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:cef6f29fdaa854720c19ca7285c9a923b45caaa8e4a73c36c9aa394d6b65bf5d -->
+<!-- tinybot-doc-fingerprint: sha256:6a32ced58c9ee9279c705c38ace56c9cf9de660982e1395ebfbce6755a637875 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -49,6 +49,11 @@ context compaction/trimming, errors/cancellation, usage updates, and user file/i
 Runtime event `itemId` is derived from the same typed item ID, so live delivery, trace persistence,
 and replay refer to one semantic item. Unknown or malformed internally constructed semantic events
 fail at the projection boundary instead of being persisted as an incomplete item.
+
+`agent.form.resolution` is durable and carries the form identity, submit/cancel
+action, values, and command correlation. Its completed timeline Item is published
+after persistence. The desktop bridge uses that Item to resolve the interactive
+form cache and notify Chat; late awaiting-form delivery cannot reopen it.
 
 `agent.plan.progress` is durable and carries the complete current plan snapshot. Repeated updates
 revise the same Turn-local plan item, and an authoritative timeline reload restores the latest

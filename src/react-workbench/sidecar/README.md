@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:97fa6bb5a3a7ac1f1ecd68a38851776fabce176c9e213ed72cf47d66fc26fe53 -->
+<!-- tinybot-module-fingerprint: sha256:80a6cd877c4fcfbd4fbb0317f29d93888ffa045a655b1be70eb22b69c736faf6 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -81,6 +81,14 @@ main startup bundle. Mounting and unmounting the React view never terminate the 
 hiding Sidecar and switching resources may remount the view, while closing the
 resource invokes termination through `SidecarResources`. Terminal input is serialized with
 polling so cursor-based output cannot be reordered.
+
+The default docked width is 520px; explicit saved widths remain respected.
+CSV and TSV files render as bounded tables (200 rows, 50 columns) with a source
+switch, row/column counts, and the existing reference-in-chat action. Extension
+recognition also handles files reported as text/plain. Parsing preserves quoted
+fields and numeric precision; malformed data produces a visible, logged error
+and leaves the original source available. File metadata is collapsed below the
+preview. File refreshes and revision-bound references use the existing lifecycle.
 
 Artifact presentation is supplied by Chat through the Sidecar render contract;
 Artifact domain state does not live in this module. Artifact tabs may come from

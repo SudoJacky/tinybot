@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:c6087b0f65c474508965db38f167c2035e0c7ef658a802502f94b56d64a27a14 -->
+<!-- tinybot-module-fingerprint: sha256:40affc317b842f994fa0aa02e6c23979df437bd701c275c56b20fe330ac7c3c0 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -53,3 +53,7 @@ Provider model settings keep the discovered `models` catalog separate from
 persist image-input overrides through `modelCapabilities`; the known defaults
 for `glm-5.3-flash` and `deepseek-v4-flash-vision-exp` stay aligned with the
 Rust provider resolver.
+
+The default light appearance uses a near-white canvas, cooler navigation chrome,
+and graphite emphasis. Loading the unchanged previous default palette upgrades
+it to these defaults; customized palettes and the dark theme are preserved.

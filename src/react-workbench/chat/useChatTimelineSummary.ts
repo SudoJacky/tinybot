@@ -29,7 +29,9 @@ function projectSummary(timeline: ChatTimelineSnapshot | null, defaults: Context
   const active = reversed.find((turn) => (
     turn.status === "pending" || turn.status === "running" || turn.status === "awaiting_user"
   ));
+  const resolvedForm = [...(active?.canonicalItems ?? [])].reverse().find((item) => item.kind === "form" && item.status === "completed");
   return {
+    formResolutionKey: resolvedForm ? `${resolvedForm.itemId}:${resolvedForm.revision}` : "",
     sessionId: timeline?.sessionId,
     turnCount: turns.length,
     completedTask: turns.some((turn) => turn.status === "completed" && Boolean(turn.userMessage.text.trim())),

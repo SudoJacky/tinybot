@@ -148,3 +148,26 @@ it("clears application state on removal without waiting for page animations", as
   expect(result.current.state.optimisticMessages).toEqual([]);
   expect(result.current.turns.queue("s2").inputs).toEqual([input]);
 });
+
+it("refreshes stop capability when a form resolves within the same running turn", async () => {
+  const { store, render, listeners } = setup();
+  // A live resume/ack patch may precede the durable form resolution.
+  store.loadEffectiveCapabilities.mockImplementation(async (id) => capabilities(id, false));
+  const { result } = render();
+  await waitFor(() => expect(result.current.state.status).toBe("ready"));
+  await waitFor(() => expect(store.loadEffectiveCapabilities).toHaveBeenCalled());
+  expect(result.current.state.canCancel).toBe(false);
+  store.loadEffectiveCapabilities.mockImplementation(async (id) => capabilities(id, true));
+  const resumed = timeline("s1");
+  resumed.turns[0].canonicalItems = [{
+    schemaVersion: "tinybot.turn_item.v2", sessionId: "s1", turnId: "turn-s1", sequence: 2, createdAt: "2026-09-10T03:25:10Z",
+    itemId: "form-1", revision: 2, kind: "form", status: "completed",
+    data: { type: "form", formId: "form-1", action: "submit", status: "completed", values: {}, fieldIds: [] },
+  }] as ChatTurn["canonicalItems"];
+  act(() => listeners.get("s1")!({ type: "timeline.patch", timeline: resumed }));
+  await waitFor(() => expect(result.current.state.canCancel).toBe(true));
+  const loads = store.loadEffectiveCapabilities.mock.calls.length;
+  act(() => listeners.get("s1")!({ type: "timeline.patch", timeline: { ...resumed } }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+  expect(store.loadEffectiveCapabilities).toHaveBeenCalledTimes(loads);
+});

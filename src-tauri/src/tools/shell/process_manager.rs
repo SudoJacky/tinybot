@@ -1319,14 +1319,13 @@ impl ShellProcessRecord {
             if remaining.is_zero() {
                 return false;
             }
-            let (next_state, wait_result) = self
+            // A platform timeout can precede the monotonic deadline. Recheck
+            // the deadline and process state after every wakeup.
+            let (next_state, _) = self
                 .changed
                 .wait_timeout(state, remaining)
                 .expect("shell process state lock should not be poisoned while waiting");
             state = next_state;
-            if wait_result.timed_out() && state.status.is_running() {
-                return false;
-            }
         }
         true
     }
@@ -1345,14 +1344,13 @@ impl ShellProcessRecord {
             if remaining.is_zero() {
                 break;
             }
-            let (next_state, wait_result) = self
+            // A platform timeout can precede the monotonic deadline. Recheck
+            // the deadline and process state after every wakeup.
+            let (next_state, _) = self
                 .changed
                 .wait_timeout(state, remaining)
                 .expect("shell process state lock should not be poisoned while waiting");
             state = next_state;
-            if wait_result.timed_out() {
-                break;
-            }
         }
         self.snapshot_from_state(&state, cursor)
     }
@@ -1782,6 +1780,10 @@ fn ceil_utf8_boundary(bytes: &[u8], minimum: usize) -> usize {
 #[cfg(test)]
 #[path = "process_manager_output_tests.rs"]
 mod output_tests;
+
+#[cfg(test)]
+#[path = "process_manager_wait_tests.rs"]
+mod wait_tests;
 
 struct BufferedOutputChunk {
     sequence: u64,

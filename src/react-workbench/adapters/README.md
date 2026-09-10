@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:58cc71677518931135f864372f5bc29a1e888a51266a11ce9592eb13b77580d7 -->
+<!-- tinybot-module-fingerprint: sha256:6c8a648f3b86faac3fb749eaf2fb0cfcf5c531640d7ca7d732efc99eab8d2f6d -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -67,3 +67,8 @@ completed after navigation still reaches the sidebar.
 `desktopArtifactReviewStore` validates native review responses, decodes binary
 snapshots and forwards expected revisions and content hashes. Workspace store
 initialization precedes review calls, and failures propagate to Chat/Sidecar.
+
+The native event bridge reconciles form caches from completed canonical form
+Items before notifying Chat. Submit and cancel resolutions carry their values
+and terminal status; a late awaiting-form event cannot reopen a resolved form.
+Resolution diagnostics record identities and revisions without answer content.

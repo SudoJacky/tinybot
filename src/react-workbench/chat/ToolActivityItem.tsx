@@ -219,7 +219,7 @@ function toolActivityDescriptor(toolCall: ToolCallState, status: ChatStepStatus,
     return genericDescriptor(title, t("toolActivity.category.subagent"), "subagent", toolCall, fallbackSummary, task);
   }
   if (name === "request_user_input") {
-    return genericDescriptor(t("toolActivity.requestedInput"), t("toolActivity.category.interaction"), "generic", toolCall, fallbackSummary);
+    return genericDescriptor(t(status === "completed" ? "toolActivity.receivedInput" : "toolActivity.requestedInput"), t("toolActivity.category.interaction"), "generic", toolCall, fallbackSummary);
   }
   return genericDescriptor(humanizeToolName(toolCall.name, t), t("toolActivity.category.tool"), "generic", toolCall, fallbackSummary);
 }

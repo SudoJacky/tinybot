@@ -1,14 +1,16 @@
 :root {
-  --color-canvas: #faf9f5;
+  --color-canvas: #fcfcfa;
   --color-panel: #fff;
   --color-panel-warm: #fffdfa;
-  --color-surface-soft: #f5f0e8;
-  --color-surface-card: #efe9de;
-  --color-cream-strong: #e8e0d2;
-  --color-ink: #141413;
+  --color-surface-soft: #f3f3f1;
+  --color-surface-card: #eaebe8;
+  --color-cream-strong: #e2e3e0;
+  --color-chrome: #f0f1f2;
+  --color-emphasis: #343936;
+  --color-ink: #202521;
   --color-body: #3d3d3a;
   --color-muted: #6c6a64;
-  --color-muted-soft: #8e8b82;
+  --color-muted-soft: #737770;
   --color-scrollbar-thumb: color-mix(in srgb, var(--color-ink) 16%, transparent);
   --color-scrollbar-thumb-hover: color-mix(in srgb, var(--color-ink) 42%, transparent);
   --color-scrollbar-thumb-active: color-mix(in srgb, var(--color-ink) 56%, transparent);
@@ -17,7 +19,7 @@
   --color-on-primary: #fff;
   --color-accent: var(--color-primary);
   --color-surface: var(--color-panel);
-  --color-hairline: #e6dfd8;
+  --color-hairline: #d9dad7;
   --color-success: #5db872;
   --color-warning: #d4a017;
   --color-error: #c64545;
@@ -37,7 +39,7 @@
   --lieflat-porcelain-halo: rgba(247, 242, 235, 0.92);
   --font-ui: Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
   --font-code: "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
-  --sidebar-background: var(--color-surface-soft);
+  --sidebar-background: var(--color-chrome);
   --sidebar-backdrop-filter: none;
   --motion-duration-fast: 160ms;
   --motion-duration-medium: 220ms;
@@ -803,7 +805,7 @@ button:disabled {
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  width: var(--session-sidebar-width, 280px);
+  width: var(--session-sidebar-width, 240px);
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--color-hairline);
@@ -1623,10 +1625,29 @@ button:disabled {
   animation-delay: calc(var(--react-session-row-index, 0) * 30ms);
 }
 
-.react-session-row[data-active="true"],
 .react-session-row:hover,
 .react-session-row:focus-within {
   background: var(--color-cream-strong);
+}
+
+.react-session-row[data-active="true"] {
+  background: var(--color-cream-strong);
+}
+
+:root[data-theme="light"] .react-session-row[data-active="true"] {
+  background: var(--color-emphasis);
+}
+
+:root[data-theme="light"] .react-session-row[data-active="true"] :is(.react-session-row__title, .react-session-row__select small, .react-session-row__delete) {
+  color: var(--color-canvas);
+}
+
+:root[data-theme="light"] .react-session-row[data-active="true"] .react-session-row__delete:hover {
+  background: color-mix(in srgb, var(--color-canvas) 18%, transparent);
+}
+
+.react-session-row[data-active="true"] .react-session-row__title {
+  font-weight: 600;
 }
 
 .react-session-row__select {
@@ -1791,8 +1812,8 @@ button:disabled {
 }
 
 .react-session-tab[data-active="true"] {
-  background: color-mix(in srgb, var(--color-cream-strong) 54%, var(--color-canvas));
-  box-shadow: inset 0 -2px var(--color-primary);
+  background: var(--color-panel);
+  box-shadow: inset 0 -2px var(--color-emphasis);
   color: var(--color-ink);
 }
 
@@ -2012,7 +2033,7 @@ button:disabled {
 
 @media (prefers-reduced-transparency: reduce) {
   .react-session-list {
-    background: var(--color-panel);
+    background: var(--color-chrome);
     backdrop-filter: none;
   }
 }

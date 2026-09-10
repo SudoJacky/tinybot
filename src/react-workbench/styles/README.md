@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:f8c4cf133bf8ae5d8c220a1e75fff7a2495296ef154d3c33d44f20a464225cd1 -->
+<!-- tinybot-module-fingerprint: sha256:42dd4f9001c88f5f031316122dc71128c33e3d45cfbd29cb8de1e88ed3a8937b -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -77,7 +77,10 @@ workspace folder icons reflect the open or closed state.
 Workspace, project, and session rows share a 36px minimum height, 8px corners,
 and a 16px icon column. Session rows reserve that column with an aria-hidden
 placeholder so their titles align with the workspace title. Project contents
-keep one nesting inset. Session hover and selection use the same surface color.
+keep one nesting inset. Light-theme selected sessions use a graphite surface and light text, distinct
+from the subtle hover surface. Chat uses a near-white reading surface, while
+the sidebar and Sidecar chrome use a cooler neutral surface. Reduced-transparency
+mode keeps those opaque region colors.
 Workspace and project headers highlight only on hover or keyboard focus, not
 because they contain the active session.
 Workspace paths appear only in header tooltips; nested workspace actions share

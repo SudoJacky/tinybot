@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2101d3ed902e4c6715c1f09817b995e39dd6f51d4ff9fdf866339775961ad538 -->
+<!-- tinybot-module-fingerprint: sha256:a2809560a91cf206588b62fb3fe5a1d916f28aa2390b2f026fd990fa548e5dae -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -16,8 +16,11 @@ successful canonical user Turns establish task completion. Errors remain
 visible with retry. Examples append to the composer without sending, and
 project examples use the existing workspace picker. The model dialog uses the
 shared modal focus and native-surface occlusion conventions.
+Conversation content and the composer share an 800px maximum width and remain
+centered within the Chat surface. Horizontal gutters scale with the available
+Chat width from 20px to 40px, including docked Sidecar and empty-chat layouts.
 `SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
-width defaults to 280 px and ranges from 220 to 420 px, with the maximum reduced
+width defaults to 240 px and ranges from 220 to 420 px, with the maximum reduced
 to reserve 480 px for the chat workspace where possible. Pointer movement updates
 only sidebar geometry and the separator, without rerendering Chat content.
 Dragging 48 px beyond the minimum invokes the existing collapse operation while
@@ -151,14 +154,15 @@ lifecycle. Execution summaries also keep their children mounted so folding the
 whole trace preserves individually expanded rows. Flat legacy tool groups use
 the same list renderer without a disclosure shell. Business-specific renderers
 own content and lifecycle decisions; they do not create disclosure buttons or IDs.
-`FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
-a fixed top-right note without introducing another plan store. A newer Turn
-without a plan keeps the previous plan visible; the next plan replaces it. New
-plans and status revisions open the note briefly before it contracts to a
-progress capsule; manual expansion stays open until the user closes it, and
-reduced-motion mode replaces the slide with a short opacity transition. Normal
-Turn completion keeps the last canonical plan state; failed or interrupted
-Turns still reconcile unfinished steps to their terminal outcome.
+`FloatingPlanStatus` mirrors the latest canonical plan at the top right across Turns.
+The capsule expands into step details; updates expand it for five seconds, while
+manual expansion stays open. Failed and interrupted Turns reconcile unfinished
+steps to their terminal outcome. Each floating step shows its status through a
+labelled leading icon, without a duplicate text column; the heading retains the
+overall progress count. Reduced motion disables its spatial transitions.
+Form completion refreshes stop capabilities even when the active Turn ID and
+status are unchanged, because a live resume acknowledgement may arrive before
+the persisted resolution. Successful form-command status no longer stays above the composer; failures remain visible.
 `AssistantMarkdown.tsx` owns assistant prose and link presentation. Streaming
 prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
 for uninterrupted CJK text and no stagger delay. Existing character nodes are
@@ -205,8 +209,7 @@ appearance uses the original flat fills; dimensional appearance adds only SVG
 gradient lighting and restrained shadows. Reduced-motion mode preserves each
 mood's static pose without transitions or looping animation.
 Ambient mascot animation also pauses when the document or native pet preference
-is hidden. Floating plan controls let the browser manage temporary compositor
-layers instead of retaining a permanent `will-change` hint.
+is hidden.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Composer submission turns native managed

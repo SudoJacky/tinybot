@@ -110,6 +110,7 @@ fn persisted_semantic_event(value: &Value) -> Option<(AgentEventKind, Value)> {
         EventNameResolution::Canonical(
             kind @ (AgentEventKind::ContextCompacted
             | AgentEventKind::ContextTrimmed
+            | AgentEventKind::FormResolution
             | AgentEventKind::PlanProgress
             | AgentEventKind::ReasoningCompleted
             | AgentEventKind::Usage

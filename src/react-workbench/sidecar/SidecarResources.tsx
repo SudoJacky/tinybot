@@ -15,6 +15,8 @@ import { useArtifactFile } from "../chat/useArtifactFile";
 import { DataViewCard } from "../chat/DataViewCard";
 import { AssistantMarkdown } from "../chat/AssistantMarkdown";
 import { ArtifactReviewPanel } from "./ArtifactReviewPanel";
+import { DelimitedTextPreview } from "./DelimitedTextPreview";
+import { artifactDelimiter } from "./delimitedText";
 import { OfficeArtifactPreview } from "./OfficeArtifactPreview";
 import { Sidecar } from "./Sidecar";
 import { SidecarBrowser } from "./SidecarBrowser";
@@ -573,26 +575,25 @@ function ArtifactDetails({
     });
   }
   const markdown = isMarkdownArtifact(artifact, detail);
+  const delimiter = !markdown && !office && !detail?.dataView && !detail?.imageDataUrl
+    ? artifactDelimiter(artifact.fetchPath || artifact.title, detail?.mimeType || artifact.mimeType) : undefined;
+  const delimited = delimiter !== undefined && detail?.textContent !== undefined;
+  const referenceAction = <button disabled={loading || Boolean(error)} onClick={referenceArtifact} type="button">{t("details.referenceInChat")}</button>;
   const markdownContent = detail?.textContent && markdown
     ? { text: detail.textContent, title: detail.title }
     : undefined;
   return (
     <div className="react-artifact-detail" data-content={markdown || office?.kind === "document" ? "document" : "preview"}>
-      <div className="react-artifact-detail__toolbar">
-        <button disabled={loading || Boolean(error)} onClick={referenceArtifact} type="button">{t("details.referenceInChat")}</button>
+      {!delimited ? <div className="react-artifact-detail__toolbar">
         {localThreadId ? <span role="status">{t("details.fileAutoUpdates")}</span> : null}
-      </div>
+        <div className="react-artifact-detail__actions">{referenceAction}</div>
+      </div> : null}
       {localThreadId && artifact.fetchPath && workspaceStore?.artifactReviews ? (
         <ArtifactReviewPanel store={workspaceStore.artifactReviews} path={artifact.fetchPath} threadId={localThreadId}
           revision={error ? undefined : file.revision} epoch={reviewEpoch} responding={responding}
           kind={office?.kind} title={artifact.title} onRestored={() => setRefreshKey((value) => value + 1)} />
       ) : null}
-      {!markdown && !office ? (
-        <dl>
-          <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
-          {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
-        </dl>
-      ) : null}
+
       {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p className="react-artifact-detail__notice">{notice}</p> : null}
@@ -610,7 +611,7 @@ function ArtifactDetails({
           source={office}
         />
       ) : null}
-      {markdownContent ? (
+      {delimited ? <DelimitedTextPreview actions={referenceAction} delimiter={delimiter} key={artifact.id} text={detail.textContent!} title={artifact.title} truncated={Boolean(notice)} /> : markdownContent ? (
         <article aria-label={markdownContent.title} className="react-artifact-detail__document" role="document">
           <AssistantMarkdown
             onOpenFileLink={(link) => onOpenFileLink({ ...link, sourcePath: localThreadId ? artifact.fetchPath : undefined })}
@@ -619,7 +620,15 @@ function ArtifactDetails({
           />
         </article>
       ) : detail?.textContent ? <pre className="react-artifact-detail__text">{detail.textContent}</pre> : null}
-      {!loading && !error && !office && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
+      {!markdown && !office ? <details className="react-artifact-detail__metadata">
+        <summary>{t("details.fileDetails")}</summary>
+        <dl>
+          <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
+          {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
+          {localThreadId ? <div><dt>{t("details.status")}</dt><dd>{t("details.fileAutoUpdates")}</dd></div> : null}
+        </dl>
+      </details> : null}
+      {!loading && !error && !office && !delimited && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
     </div>
   );
 }

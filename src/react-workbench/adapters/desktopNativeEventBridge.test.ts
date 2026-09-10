@@ -183,6 +183,27 @@ describe("desktop native event bridge", () => {
     });
   });
 
+  it.each([['submit', 'submitted'], ['cancel', 'cancelled']])("reconciles a %s form from the canonical resolution while the agent continues", async (action, status) => {
+    const harness = createHarness();
+    await harness.bridge.register();
+    await harness.handlers.get("agent:awaiting_form")!({ payload: {
+      formId: "user-input:call-2", traceContext: { threadId: "thread-1", turnId: "turn-1" },
+      form: { title: "Research requirements", fields: [{ name: "goal", type: "text", label: "Goal" }] },
+    } });
+    expect(harness.bridge.listAgentUiForms("thread-1")[0].status).toBe("pending");
+    const timeline = { turns: [{ id: "turn-1", status: "running", canonicalItems: [{
+      schemaVersion: "tinybot.turn_item.v2", itemId: "user-input:call-2", sessionId: "thread-1",
+      turnId: "turn-1", sequence: 10, revision: 2, kind: "form", status: "completed",
+      createdAt: "2026-09-10T03:23:44Z", updatedAt: "2026-09-10T03:25:10Z",
+      data: { type: "form", formId: "user-input:call-2", status: "completed", action, fieldIds: ["goal"], values: { goal: "research" } },
+    }] }] } as unknown as ChatTimelineSnapshot;
+    harness.applyTimelinePatch.mockResolvedValue(timeline);
+    harness.notifySession.mockClear();
+    await harness.handlers.get("agent:timeline:patch")!({ payload: { sessionId: "thread-1", turnId: "turn-1" } });
+    expect(harness.bridge.listAgentUiForms("thread-1")[0]).toMatchObject({ status, values: { goal: "research" } });
+    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", { type: "agent-ui.form" });
+  });
+
   it("projects completed command hooks without exposing hashes or source paths", async () => {
     const harness = createHarness();
     await harness.bridge.register();

@@ -1,0 +1,97 @@
+.react-delimited-views {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--color-surface-card);
+}
+
+.react-artifact-detail__toolbar .react-delimited-views button {
+  min-height: 28px;
+  padding: 3px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.react-artifact-detail__toolbar .react-delimited-views button[aria-pressed="true"] {
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+}
+
+.react-delimited-dimensions {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-delimited-table {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+}
+
+.react-delimited-table:focus-visible {
+  outline: 2px solid var(--color-emphasis);
+  outline-offset: 2px;
+}
+
+.react-delimited-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 13px/1.5 var(--font-ui);
+}
+
+.react-delimited-table th, .react-delimited-table td {
+  height: 40px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--color-hairline);
+  border-right: 1px solid var(--color-hairline);
+  text-align: left;
+  white-space: pre;
+}
+
+.react-delimited-table thead th {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.react-delimited-table tbody th {
+  color: var(--color-muted);
+  font-weight: 400;
+  text-align: right;
+}
+
+.react-delimited-table td {
+  color: var(--color-body);
+}
+
+.react-delimited-table td[data-numeric] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-delimited-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.react-delimited-table tbody tr:hover {
+  background: var(--color-surface-soft);
+}
+
+.react-delimited-error {
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.react-delimited-limit {
+  color: var(--color-muted);
+  font-size: 12px;
+}

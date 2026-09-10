@@ -1,6 +1,7 @@
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import {
   AGENT_UI_EVENT_TYPES,
+  AGENT_UI_EVENT_SCHEMA_VERSION,
   createAgentUiEventState,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
@@ -104,6 +105,8 @@ export function createDesktopNativeEventBridge({
     if (normalizationError) {
       throw new Error(stringValue(normalizationError.payload.message) || `Native agent form ${formId} is invalid.`);
     }
+    const existing = agentUiState.forms.get(formId);
+    if (existing?.status === "submitted" || existing?.status === "cancelled") return { formId, sessionId: threadId, turnId, ignored: "already_resolved" };
     for (const agentUiEvent of agentUiEvents) {
       reduceAgentUiEventState(agentUiState, agentUiEvent);
     }
@@ -114,6 +117,30 @@ export function createDesktopNativeEventBridge({
       sessionId: threadId,
       turnId,
     };
+  }
+
+  function reconcileCanonicalForms(sessionId: string, timeline: ChatTimelineSnapshot): void {
+    let changed = false;
+    for (const turn of timeline.turns) {
+      for (const item of turn.canonicalItems ?? []) {
+        if (item.data.type !== "form" || item.status !== "completed") continue;
+        const { formId, action, values } = item.data;
+        const status = action === "cancel" ? "cancelled" : "submitted";
+        const existing = agentUiState.forms.get(formId);
+        if (existing?.status === status) continue;
+        reduceAgentUiEventState(agentUiState, {
+          schema_version: AGENT_UI_EVENT_SCHEMA_VERSION,
+          event_id: item.itemId + ":" + item.revision,
+          event_type: "ui.form." + status,
+          chat_id: sessionId, message_id: "", parent_id: "", turn_id: turn.id,
+          timestamp: item.updatedAt ?? item.createdAt, metadata: {},
+          payload: { form_id: formId, values, correlation: { session_key: sessionId, thread_id: sessionId, turn_id: turn.id } },
+        });
+        changed = true;
+        logDesktopNativeDebug("nativeEventBridge.agentForm.resolved", { sessionId, turnId: turn.id, formId, status, revision: item.revision });
+      }
+    }
+    if (changed) notifySession(sessionId, { type: "agent-ui.form" });
   }
 
   async function handleTimelinePatch(event: NativeEvent): Promise<void> {
@@ -156,6 +183,7 @@ export function createDesktopNativeEventBridge({
         turnCount: timeline?.turns.length ?? 0,
       });
       if (timeline) {
+        reconcileCanonicalForms(sessionId, timeline);
         notifySession(sessionId, { type: "timeline.patch", timeline });
         notifyTerminalTimelineState(sessionId, timeline);
       }

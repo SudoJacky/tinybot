@@ -477,7 +477,11 @@ export function ChatPage({
       && latestTurnStatus === "completed"
     );
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
+  const completedFormCommand = commandLifecycle.stage === "completed"
+    && commandLifecycle.completion.status !== "failed"
+    && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel");
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
+    && !completedFormCommand
     && commandLifecycle.command.kind !== "agent.cancel";
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
