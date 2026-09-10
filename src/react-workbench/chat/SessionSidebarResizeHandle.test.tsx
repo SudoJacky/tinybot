@@ -51,7 +51,7 @@ function setup() {
 test("tracks the grab offset without rerendering chat content and saves only on release", () => {
   const view = setup();
   const writes = vi.spyOn(Storage.prototype, "setItem");
-  view.down(275);
+  view.down(235);
   view.move(345);
   expect(view.width()).toBe(350);
   act(() => resize());
@@ -134,13 +134,13 @@ test("cancelling while collapsed ends capture and preserves the saved expanded w
 
 test.each(["escape", "pointercancel", "blur", "lostcapture"])("cancels %s without saving and restores page interaction", (reason) => {
   const view = setup();
-  view.down(280);
+  view.down(240);
   view.move(360);
   if (reason === "escape") fireEvent.keyDown(view.handle, { key: "Escape" });
   if (reason === "pointercancel") fireEvent.pointerCancel(view.handle, { pointerId: 1 });
   if (reason === "blur") fireEvent.blur(window);
   if (reason === "lostcapture") fireEvent.lostPointerCapture(view.handle, { pointerId: 1 });
-  expect(view.width()).toBe(280);
+  expect(view.width()).toBe(240);
   expect(localStorage.getItem(key)).toBeNull();
   expect(document.body.style.userSelect).toBe("");
   expect(document.body.style.cursor).toBe("");
@@ -163,9 +163,9 @@ test("temporarily limits width for the window and restores the saved preference 
 test("supports keyboard increments, bounds, and double-click reset", () => {
   const view = setup();
   fireEvent.keyDown(view.handle, { key: "ArrowRight" });
-  expect(view.width()).toBe(288);
+  expect(view.width()).toBe(248);
   fireEvent.keyDown(view.handle, { key: "ArrowLeft", shiftKey: true });
-  expect(view.width()).toBe(256);
+  expect(view.width()).toBe(220);
   fireEvent.keyDown(view.handle, { key: "Home" });
   fireEvent.keyDown(view.handle, { key: "ArrowLeft" });
   expect(view.width()).toBe(220);
@@ -173,14 +173,14 @@ test("supports keyboard increments, bounds, and double-click reset", () => {
   fireEvent.keyDown(view.handle, { key: "End" });
   expect(view.width()).toBe(420);
   fireEvent.doubleClick(view.handle);
-  expect(view.width()).toBe(280);
-  expect(localStorage.getItem(key)).toBe("280");
+  expect(view.width()).toBe(240);
+  expect(localStorage.getItem(key)).toBe("240");
 });
 
 test("releases global drag styles when the sidebar unmounts mid-gesture", () => {
   document.body.style.cursor = "crosshair";
   const view = setup();
-  view.down(280);
+  view.down(240);
   view.move(340);
   view.unmount();
   expect(document.body.style.cursor).toBe("crosshair");

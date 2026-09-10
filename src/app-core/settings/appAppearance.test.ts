@@ -33,6 +33,19 @@ describe("app appearance preference", () => {
     expect(loadAppearancePreferences(storage)).toEqual(preferences);
   });
 
+  test("upgrades the previous default light palette while preserving custom themes", () => {
+    const previousLight = {
+      accent: "#cc785c", background: "#faf9f5", foreground: "#141413",
+      uiFont: "inter", codeFont: "jetbrains", translucentSidebar: true, contrast: 45,
+    };
+    const read = (light: object) => loadAppearancePreferences(createStorage({
+      [APPEARANCE_STORAGE_KEY]: JSON.stringify({ ...DEFAULT_APPEARANCE_PREFERENCES, light }),
+    }));
+    expect(read(previousLight).light).toEqual(DEFAULT_APPEARANCE_PREFERENCES.light);
+    expect(read({ ...previousLight, accent: "#3366ff" }).light).toEqual({ ...previousLight, accent: "#3366ff" });
+    expect(read({ ...previousLight, contrast: 60 }).light).toEqual({ ...previousLight, contrast: 60 });
+  });
+
   test("normalizes malformed stored fields instead of applying invalid CSS", () => {
     const storage = createStorage({
       [APPEARANCE_STORAGE_KEY]: JSON.stringify({

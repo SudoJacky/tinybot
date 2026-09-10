@@ -88,11 +88,10 @@ export function FloatingPlanStatus({ identityKey, plan, revisionKey }: FloatingP
           <ol className="react-canonical-plan__steps">
             {plan.steps.map((step, index) => (
               <li data-status={step.status} key={`${index}:${step.step}`}>
-                <span aria-hidden="true" className="react-canonical-plan__step-icon">
+                <span aria-label={planStepStatusLabel(step.status, t)} className="react-canonical-plan__step-icon" role="img">
                   <FloatingPlanStepIcon status={step.status} />
                 </span>
                 <span>{step.step}</span>
-                <small>{planStepStatusLabel(step.status, t)}</small>
               </li>
             ))}
           </ol>

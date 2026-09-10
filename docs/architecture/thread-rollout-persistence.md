@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:8887faa06fdeacdfb24b55e38634b8ead2e4646e1f030e06ab8d72b38e22b8d9 -->
+<!-- tinybot-doc-fingerprint: sha256:2aef2e5e0cbc0fbb8b56a5be82377d41414f87308b2b6109af8731f0d6f0d783 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -119,6 +119,11 @@ diagnostic redaction or truncation. Blocking status boundaries and Turn exits
 are durable barriers. Eligible events may be appended in bounded batches while
 preserving their causal order, identity, timestamp, and sequence; streaming
 deltas and non-blocking status updates remain live-only.
+
+Form resolutions are durable semantic Items. Replay consumes the matching
+waiting checkpoint at that append position and restores the same Turn to running.
+Later checkpoints still supersede that resolution in append order; renderer
+form state and cancellation capability queries therefore share the same boundary.
 
 In Responses mode, reasoning completion can reach a durability boundary before
 the provider-native response batch. The Rollout therefore stores the completed

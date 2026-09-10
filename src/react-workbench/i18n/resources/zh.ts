@@ -647,8 +647,9 @@ export const zh = {
       label: "任务执行失败", cancelled: "任务已取消", interrupted: "任务已中断", copyError: "复制错误",
     },
     plan: {
+      floatingLabel: "任务进度", floatingExpand: "展开任务进度", floatingCollapse: "收起任务进度",
       label: "执行计划", completed: "已完成 {{completed}}/{{total}}", status: { completed: "已完成", inProgress: "执行中", failed: "失败", cancelled: "已取消", pending: "待执行" },
-      collapse: "收起", expand: "展开", floatingLabel: "任务进度", floatingExpand: "展开任务进度", floatingCollapse: "收起任务进度",
+      collapse: "收起", expand: "展开",
     },
     artifacts: { label: "产物", preview: "预览 {{name}}" },
     dataView: {
@@ -688,6 +689,8 @@ export const zh = {
       textTruncated: "仅显示此版本的前 32 KB。"
     },
     details: {
+      fileDetails: "文件详情", delimitedViews: "文件视图", delimitedTable: "表格", delimitedSource: "原文", delimitedRow: "行号",
+      delimitedFailed: "表格预览失败：{{message}}。可以切换到原文检查文件内容。",
       status: "状态", interruptedAt: "中断位置",
       unavailable: "详情不可用。", id: "ID", trace: "Trace", childTurn: "子任务轮次", loadingTrace: "正在加载 Trace…", finalOutput: "最终输出",
       type: "类型", loadingArtifact: "正在加载产物…", noPreview: "没有可预览的内容。", subagentTrace: "子 Agent Trace",
@@ -722,7 +725,7 @@ export const zh = {
       status: { running: "执行中", waiting: "等待中", failed: "失败", cancelled: "已取消", pending: "待执行" },
       category: { terminal: "终端", fileRead: "读取文件", web: "网页", planning: "计划", presentation: "数据视图", subagent: "子 Agent", interaction: "交互", tool: "工具" },
       command: "命令", workspaceFile: "工作区文件", currentPage: "当前页面", usedTool: "使用了工具",
-      updatedPlan: "更新了执行计划", preparingDataView: "正在准备数据视图…", publishedDataView: "已发布数据视图", dataViewFailed: "数据视图发布失败", dataViewCancelled: "已取消发布数据视图", delegated: "委派了任务", waitedSubagents: "等待子 Agent", updatedSubagent: "更新了子 Agent", requestedInput: "请求用户输入",
+      updatedPlan: "更新了执行计划", preparingDataView: "正在准备数据视图…", publishedDataView: "已发布数据视图", dataViewFailed: "数据视图发布失败", dataViewCancelled: "已取消发布数据视图", delegated: "委派了任务", waitedSubagents: "等待子 Agent", updatedSubagent: "更新了子 Agent", requestedInput: "请求用户输入", receivedInput: "已收到用户输入",
       commandFailed: "命令执行失败", commandCancelled: "命令已取消", runningCommand: "正在执行 {{command}}", waitingCommand: "等待执行 {{command}}", ranCommand: "已执行 {{command}}",
       inspectFailed: "无法查看 {{target}}", inspecting: "正在查看 {{target}}", inspected: "已查看 {{target}}", webFailed: "网页操作失败",
       opening: "正在打开 {{page}}", opened: "已打开 {{page}}", reviewing: "正在查看 {{page}}", reviewed: "已查看 {{page}}", scrolled: "已滚动 {{page}}",

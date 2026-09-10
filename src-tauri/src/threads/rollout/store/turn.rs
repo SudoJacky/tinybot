@@ -1025,6 +1025,51 @@ pub(super) fn turn_records_from_lines(
                     &line.timestamp,
                 );
             }
+            super::EventKind::ThreadItem => {
+                let Some(event) = payload.pointer("/item/kind/payload") else {
+                    continue;
+                };
+                if event.get("eventName").and_then(Value::as_str) != Some("agent.form.resolution") {
+                    continue;
+                }
+                let turn_id = payload
+                    .pointer("/item/turnId")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        turn_replay_error("form resolution is missing turnId", line, payload)
+                    })?;
+                let record = turns.get_mut(turn_id).ok_or_else(|| {
+                    turn_replay_error("form resolution references an unknown turn", line, payload)
+                })?;
+                let resolution = event.get("payload").unwrap_or(&Value::Null);
+                let form_id = resolution
+                    .get("formId")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        turn_replay_error("form resolution is missing formId", line, payload)
+                    })?;
+                if record
+                    .checkpoint
+                    .as_ref()
+                    .and_then(|checkpoint| checkpoint.pointer("/payload/formId"))
+                    .and_then(Value::as_str)
+                    != Some(form_id)
+                {
+                    return Err(turn_replay_error(
+                        "form resolution does not match the waiting checkpoint",
+                        line,
+                        payload,
+                    ));
+                }
+                // A persisted resolution consumes the wait before its live patch is published.
+                // Cancellation continues to the runtime's terminal cancellation boundary.
+                record.checkpoint = None;
+                record.pending_tool_calls.clear();
+                record.status = AgentTurnStatus::Running;
+                record.phase = "planning".to_string();
+                record.stop_reason = None;
+                record.updated_at = line.timestamp.clone();
+            }
             super::EventKind::SessionCleared => {
                 for record in turns.values_mut() {
                     record.checkpoint = None;
@@ -1038,8 +1083,7 @@ pub(super) fn turn_records_from_lines(
             | super::EventKind::ThreadRolledBack
             | super::EventKind::TokenCount
             | super::EventKind::MetadataUpdated
-            | super::EventKind::SessionTrimmed
-            | super::EventKind::ThreadItem => {}
+            | super::EventKind::SessionTrimmed => {}
         }
     }
     Ok(turns.into_values().collect())

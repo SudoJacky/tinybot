@@ -39,11 +39,11 @@ export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
   mode: "system",
   light: {
     accent: "#cc785c",
-    background: "#faf9f5",
-    foreground: "#141413",
+    background: "#fcfcfa",
+    foreground: "#202521",
     uiFont: "inter",
     codeFont: "jetbrains",
-    translucentSidebar: true,
+    translucentSidebar: false,
     contrast: 45,
   },
   dark: {
@@ -92,10 +92,11 @@ export function applyAppearancePreferences(
 ): ResolvedTheme {
   const resolvedTheme = resolveThemeMode(preferences.mode, systemDark);
   const theme = preferences[resolvedTheme];
+  const light = resolvedTheme === "light";
   const surfaceSoftStrength = 2 + theme.contrast * 0.05;
   const surfaceCardStrength = 4 + theme.contrast * 0.09;
   const surfaceStrongStrength = 6 + theme.contrast * 0.13;
-  const hairlineStrength = 7 + theme.contrast * 0.08;
+  const hairlineStrength = 7 + theme.contrast * (light ? 0.2 : 0.08);
 
   root.dataset.theme = resolvedTheme;
   root.dataset.themeMode = preferences.mode;
@@ -104,14 +105,22 @@ export function applyAppearancePreferences(
   root.style.setProperty("--font-code", CODE_FONT_STACKS[theme.codeFont]);
   root.style.setProperty("--color-canvas", theme.background);
   root.style.setProperty("--color-ink", theme.foreground);
-  root.style.setProperty("--color-body", "color-mix(in srgb, var(--color-ink) 82%, var(--color-canvas))");
+  root.style.setProperty("--color-body", `color-mix(in srgb, var(--color-ink) ${light ? 90 : 82}%, var(--color-canvas))`);
   root.style.setProperty("--color-muted", "color-mix(in srgb, var(--color-ink) 62%, var(--color-canvas))");
-  root.style.setProperty("--color-muted-soft", "color-mix(in srgb, var(--color-ink) 46%, var(--color-canvas))");
+  root.style.setProperty("--color-muted-soft", `color-mix(in srgb, var(--color-ink) ${light ? 62 : 46}%, var(--color-canvas))`);
   root.style.setProperty("--color-primary", theme.accent);
   root.style.setProperty("--color-primary-active", "color-mix(in srgb, var(--color-primary) 78%, var(--color-ink))");
   root.style.setProperty("--color-on-primary", contrastingTextColor(theme.accent));
   root.style.setProperty("--color-accent", theme.accent);
-  root.style.setProperty("--color-panel", "color-mix(in srgb, var(--color-canvas), var(--color-ink) 1%)");
+  root.style.setProperty("--color-panel", light
+    ? "color-mix(in srgb, var(--color-canvas) 35%, white)"
+    : "color-mix(in srgb, var(--color-canvas), var(--color-ink) 1%)");
+  root.style.setProperty("--color-chrome", light
+    ? "color-mix(in srgb, var(--color-canvas) 90%, #83909d)"
+    : "var(--color-surface-soft)");
+  root.style.setProperty("--color-emphasis", light
+    ? "color-mix(in srgb, var(--color-ink) 92%, var(--color-canvas))"
+    : "var(--color-primary)");
   root.style.setProperty("--color-panel-warm", "color-mix(in srgb, var(--color-canvas), var(--color-primary) 2%)");
   root.style.setProperty("--color-surface", "var(--color-panel)");
   root.style.setProperty("--color-surface-soft", colorMixWithInk(surfaceSoftStrength));
@@ -122,8 +131,8 @@ export function applyAppearancePreferences(
   root.style.setProperty(
     "--sidebar-background",
     theme.translucentSidebar
-      ? "color-mix(in srgb, var(--color-surface-soft) 78%, transparent)"
-      : "var(--color-surface-soft)",
+      ? `color-mix(in srgb, var(${light ? "--color-chrome" : "--color-surface-soft"}) 78%, transparent)`
+      : `var(${light ? "--color-chrome" : "--color-surface-soft"})`,
   );
   root.style.setProperty("--sidebar-backdrop-filter", theme.translucentSidebar ? "blur(18px) saturate(1.08)" : "none");
   return resolvedTheme;
@@ -133,9 +142,20 @@ function normalizePreferences(input: unknown): AppearancePreferences {
   const source = isRecord(input) ? input : {};
   return {
     mode: isThemeMode(source.mode) ? source.mode : DEFAULT_APPEARANCE_PREFERENCES.mode,
-    light: normalizeTheme(source.light, DEFAULT_APPEARANCE_PREFERENCES.light),
+    light: normalizeTheme(isPreviousDefaultLightTheme(source.light) ? undefined : source.light, DEFAULT_APPEARANCE_PREFERENCES.light),
     dark: normalizeTheme(source.dark, DEFAULT_APPEARANCE_PREFERENCES.dark),
   };
+}
+
+// Theme switches persist both palettes. Upgrade the unchanged previous default,
+// while retaining every intentionally customized palette.
+function isPreviousDefaultLightTheme(input: unknown): boolean {
+  if (!isRecord(input)) return false;
+  const previous: AppearanceTheme = {
+    accent: "#cc785c", background: "#faf9f5", foreground: "#141413",
+    uiFont: "inter", codeFont: "jetbrains", translucentSidebar: true, contrast: 45,
+  };
+  return Object.entries(previous).every(([key, value]) => input[key] === value);
 }
 
 function normalizeTheme(input: unknown, fallback: AppearanceTheme): AppearanceTheme {

@@ -70,7 +70,7 @@ export function useChatApplication(options: Options) {
       ));
     });
     return () => { cancelled = true; };
-  }, [timelineSummary.activeTurnId, timelineSummary.activeTurnStatus, persistedSessionId, chatStore, t]);
+  }, [timelineSummary.activeTurnId, timelineSummary.activeTurnStatus, timelineSummary.formResolutionKey, persistedSessionId, chatStore, t]);
 
   function receiveTimeline(targetSessionId: string, snapshot: ChatTimelineSnapshot) {
     sessions.receiveTimeline(targetSessionId, snapshot);

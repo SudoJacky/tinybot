@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:e7b4c8e2fac2a7d390b61b22ca5435f9deb487af19df5b1d63943cd004427a1e -->
+<!-- tinybot-module-fingerprint: sha256:bff1fdaee4c3e6fd14a249664a396ddadc3098a269a4bd9225a4509eb4eb1a53 -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.
@@ -27,3 +27,7 @@ Usage Items optionally carry `modelTiming` with a model-call identity, TTFT,
 and decode duration in milliseconds. Typed live projection and durable replay
 retain the same values. Older v2 Items omit the field; no schema migration is
 needed and absent timing remains unavailable.
+
+Form resolution is a durable event. Its values and command correlation are
+persisted before the completed form timeline patch reaches the renderer.
+The initial form request remains represented durably by its awaiting-form checkpoint.

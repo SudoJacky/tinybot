@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent } fro
 import { useTranslation } from "react-i18next";
 
 const STORAGE_KEY = "tinybot.session-sidebar-width";
-const DEFAULT_WIDTH = 280;
+const DEFAULT_WIDTH = 240;
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 420;
 const MIN_CHAT_WIDTH = 480;

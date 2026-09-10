@@ -7,7 +7,7 @@
   min-height: 0;
   overflow: visible;
   border-left: 1px solid var(--color-hairline);
-  background: var(--color-panel);
+  background: var(--color-chrome);
 }
 
 .react-sidecar[data-presentation="expanded"] {
@@ -65,7 +65,7 @@
   min-width: 0;
   align-items: stretch;
   border-bottom: 1px solid var(--color-hairline);
-  background: color-mix(in srgb, var(--color-canvas) 92%, var(--color-panel));
+  background: var(--color-chrome);
 }
 
 .react-sidecar-tabs {
@@ -108,7 +108,11 @@
 }
 
 .react-sidecar-tab[data-active="true"]::after {
-  background: var(--color-primary);
+  background: var(--color-emphasis);
+}
+
+.react-sidecar-tab[data-active="true"] .react-sidecar-tab__select {
+  font-weight: 600;
 }
 
 .react-sidecar-tab__select {

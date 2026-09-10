@@ -20,6 +20,33 @@ function setup(href = "report.md", workingDirectory = "D:\\work") {
 }
 
 describe("Artifact collaboration", () => {
+  it("opens CSV as a table, refreshes it, and references the viewed source revision", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    stores.chatStore.load = vi.fn(async (id) => timelineFromReactMessages(id, [{
+      id: "csv-message", role: "assistant", createdAtMs: 1, status: "complete", text: "[repos.csv](repos.csv)",
+    }]));
+    let revision = "csv-v1";
+    let content = "Repository,Stars\nAutoGPT,187218";
+    const readThreadFile = vi.fn(async () => ({ path: "repos.csv", revision, content, contentType: "text" as const, sizeBytes: content.length }));
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} workspaceStore={{ readThreadFile, artifactReviews: { prepare: vi.fn().mockResolvedValue({}), load: vi.fn().mockResolvedValue(null), compare: vi.fn(), resolve: vi.fn() } }} />);
+    await user.click(await screen.findByRole("link", { name: "repos.csv" }));
+    expect(within(await screen.findByRole("table", { name: "repos.csv" })).getByText("187218")).toBeTruthy();
+    content = "Repository,Stars\nAutoGPT,187219";
+    revision = "csv-v2";
+    fireEvent.focus(window);
+    await screen.findByText("187219");
+    await user.click(screen.getByRole("button", { name: "Source" }));
+    expect(screen.getByLabelText("repos.csv", { selector: "pre" }).textContent).toBe(content);
+    await user.click(screen.getByRole("button", { name: "Reference in chat" }));
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Explain this data");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ references: [expect.objectContaining({ sourcePath: "repos.csv", revision: "csv-v2", sourceText: expect.stringContaining(content) })] }),
+    })));
+  });
+
+
   it("opens a report's sibling PPT relative to the displayed Markdown file", async () => {
     const user = userEvent.setup();
     const root = "C:/Users/viewer/.tinybot/workspace";

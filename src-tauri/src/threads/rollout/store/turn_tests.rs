@@ -1350,3 +1350,84 @@ fn invalid_token_count_batch_does_not_append_partial_rollout_items() {
     drop(rpc);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn submitted_form_restores_cancellation_and_consumes_the_waiting_checkpoint() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-form-resume-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+    let checkpoint = json!({
+        "sessionId": "form-session", "turnId": "form-turn", "phase": "awaiting_form",
+        "stopReason": "awaiting_form", "messages": [{"role":"user", "content":"research"}],
+        "pendingToolCalls": [{"toolCallId":"call-2", "toolName":"request_user_input", "argumentsJson":"{}"}],
+        "payload": {"kind":"user_input", "formId":"user-input:call-2"}
+    });
+    rpc.set_turn_checkpoint("form-session", "form-turn", checkpoint.clone())
+        .unwrap();
+    assert_eq!(
+        rpc.get_turn("form-session", "form-turn")
+            .unwrap()
+            .unwrap()
+            .status,
+        AgentTurnStatus::Waiting
+    );
+    let event = json!({
+        "eventId":"form-resolution-1", "eventName":"agent.form.resolution",
+        "sessionId":"form-session", "turnId":"form-turn", "itemId":"user-input:call-2",
+        "sequence": 20, "timestamp":"1789010710769", "phase":"awaiting_form",
+        "payload":{"formId":"user-input:call-2", "status":"completed", "action":"submit", "values":{"goal":"research"}}
+    });
+    rpc.append_turn_semantic_event("form-session", "form-turn", event)
+        .unwrap();
+    let resumed = rpc.get_turn("form-session", "form-turn").unwrap().unwrap();
+    assert_eq!(resumed.status, AgentTurnStatus::Running);
+    assert!(resumed.checkpoint.is_none());
+    assert!(resumed.pending_tool_calls.is_empty());
+    assert!(resumed.stop_reason.is_none());
+    assert!(rpc
+        .latest_turn_checkpoint("form-session")
+        .unwrap()
+        .is_none());
+    let capabilities = crate::desktop_commands::thread::build_thread_effective_capabilities(
+        "form-session",
+        &json!({"turns":[resumed]}),
+    );
+    assert_eq!(
+        capabilities["capabilities"]["agent"]["cancel"]["available"],
+        true
+    );
+    let runtime = rpc
+        .get_turn_runtime_state("form-session", "form-turn")
+        .unwrap()
+        .unwrap();
+    assert!(runtime
+        .timeline
+        .items
+        .iter()
+        .any(|item| item.item_id == "user-input:call-2"
+            && item.status == crate::agent::runtime_protocol::AgentTurnItemStatus::Completed));
+    rpc.set_turn_checkpoint("form-session", "form-turn", checkpoint)
+        .unwrap();
+    assert_eq!(
+        rpc.get_turn("form-session", "form-turn")
+            .unwrap()
+            .unwrap()
+            .status,
+        AgentTurnStatus::Waiting
+    );
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}

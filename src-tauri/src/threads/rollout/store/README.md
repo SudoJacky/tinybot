@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:b1b76c04dac503a66175be0add3210a6cccdef256a5cee7be402effe9e81fc8b -->
+<!-- tinybot-module-fingerprint: sha256:726b3dc700566e9df7a84752c40ef5faa5e1e5ff58e38e3363c0709dd5c4cb18 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -194,3 +194,8 @@ ordinal validation, reconstruction and projection build/install. Cache hit,
 miss and eviction counts plus decoded line bytes and line counts explain work
 volume. Timings can be nested; per-file I/O/parse sums are not wall-clock spans.
 The read/parse total retains failure outcomes without changing storage results.
+
+A durable form resolution consumes its matching waiting checkpoint and restores
+the same Turn to running before live publication. Replay applies this boundary
+in append order, so later form checkpoints still wait and completed answers
+cannot leave cancellation capabilities stuck in the waiting state.

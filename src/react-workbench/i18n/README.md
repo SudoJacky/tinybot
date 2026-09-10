@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:fa5d384a5cf5c07bd270363f3508d124368cd023d9755bb5b5e529a78b324792 -->
+<!-- tinybot-module-fingerprint: sha256:fa379c284e2ce1bf1615bd5465ab86b6eca2d24215ad02235fc705d6fc38d967 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -117,3 +117,7 @@ annotation; finishing the mode is separate from attaching a comment.
 
 Typed style controls localize the drag handle and scrubbing hint, unit and slider
 labels, color alpha, four spacing directions, linkage, and invalid CSS feedback.
+
+Delimited file views localize the Table/Source switch, row label, parse-error
+message, and collapsed file details. The floating plan capsule keeps localized expand/collapse labels. Successful
+user-input tool calls have a distinct received-input title.

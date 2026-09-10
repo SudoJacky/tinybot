@@ -6,7 +6,7 @@ src-tauri/src/agent/runtime_protocol_tests.rs
 src-tauri/src/desktop_commands/runtime.rs
 src-tauri/src/desktop_commands/runtime_tests.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:afd287b5e77769d3a787c1cefd186988952fe71dcccbd4c57f40786ca92b888e -->
+<!-- tinybot-doc-fingerprint: sha256:db8fec478c26c2f23796d627b97b8008f6a8b75ab3c6458633c8d097b2b2575d -->
 
 This document covers native Agent turn execution and provider-facing behavior.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -215,3 +215,7 @@ after its active Turn stops, continue the conversation through the normal compos
 resolution and before any resumed provider request, so transport callers do not wait for the
 provider response to confirm submission. Submitting resumes the same provider chain, while
 cancellation returns `stopReason: "form_cancelled"`.
+
+Accepted form resolutions are persisted as `agent.form.resolution` before their
+completed timeline Item is published. Replay consumes the matching waiting
+checkpoint and returns the same Turn to running, restoring cancellation capability.

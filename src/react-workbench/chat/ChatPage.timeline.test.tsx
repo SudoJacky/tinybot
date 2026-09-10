@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatStep } from "../../app-core/chat/chatTurnContracts";
+import { createDesktopNativeEventBridge } from "../adapters/desktopNativeEventBridge";
 import type { ChatEvent } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -417,6 +418,60 @@ describe("ChatPage", () => {
       target: expect.objectContaining({ turnId: "turn-1", sessionId: "s1" }),
     }));
     expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("removes the submitted form and enables Stop while native output continues", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_id, callback) => { listener = callback; return () => {}; });
+    const handlers = new Map<string, (event: { payload: unknown }) => void | Promise<void>>();
+    let canonical = timelineFromReactMessages("s1", [{ id: "u-form", turnId: "turn-1", role: "user", text: "Research", status: "complete", createdAtMs: 1 }]);
+    canonical.turns[0].status = "awaiting_user";
+    const bridge = createDesktopNativeEventBridge({
+      controller: {
+        state: { threads: [{ threadId: "s1", title: "Research", status: "running", createdAt: "1", updatedAt: "1" }], activeThreadId: "s1", respondingThreadIds: new Set(["s1"]), error: "" },
+        loadSessions: vi.fn(async () => 1), applyTimelinePatch: vi.fn(async () => canonical),
+      },
+      listen: async (name, handler) => { handlers.set(name, handler); return () => {}; },
+      notifyAll: (event) => listener?.(event), notifySession: (_id, event) => listener?.(event),
+    });
+    await bridge.register();
+    await handlers.get("agent:awaiting_form")!({ payload: {
+      formId: "user-input:call-2", traceContext: { threadId: "s1", turnId: "turn-1" },
+      form: { title: "Research requirements", fields: [{ name: "goal", type: "text", label: "Goal", required: true }] },
+    } });
+    stores.chatStore.load = vi.fn(async () => canonical);
+    stores.chatStore.listAgentUiForms = vi.fn(async (id) => bridge.listAgentUiForms(id));
+    stores.chatStore.loadEffectiveCapabilities = vi.fn(async (threadId) => ({
+      schemaVersion: "tinybot.effective_capabilities.v2" as const, threadId, evaluatedTurnId: "turn-1",
+      capabilities: { agent: { cancel: { available: canonical.turns[0].status === "running" }, retry: { available: false } } },
+    }));
+    render(<ChatPage chatStore={stores.chatStore} now={() => 1000} sessionStore={stores.sessionStore} />);
+    const form = await screen.findByRole("form", { name: "Research requirements" });
+    await user.type(within(form).getByLabelText("Goal"), "Smart home agents");
+    await user.click(within(form).getByRole("button", { name: "Submit" }));
+    const command = vi.mocked(stores.chatStore.dispatch).mock.calls[0][0];
+    canonical = timelineFromReactMessages("s1", [
+      { id: "u-form", turnId: "turn-1", role: "user", text: "Research", status: "complete", createdAtMs: 1 },
+      { id: "a-resume", turnId: "turn-1", role: "assistant", text: "Continuing the research with your answers.", status: "streaming", createdAtMs: 2000 },
+    ]);
+    canonical.turns[0].canonicalItems = [{
+      schemaVersion: "tinybot.turn_item.v2", itemId: "ack", turnId: "turn-1", sessionId: "s1", sequence: 2, revision: 1, kind: "system_notice", status: "completed", createdAt: "2026-09-10T03:25:10Z",
+      data: { type: "system_notice", message: "", detail: { commandId: command.commandId, commandStatus: "acknowledged" } },
+    }, {
+      schemaVersion: "tinybot.turn_item.v2", itemId: "user-input:call-2", turnId: "turn-1", sessionId: "s1", sequence: 3, revision: 2, kind: "form", status: "completed", createdAt: "2026-09-10T03:25:10Z",
+      data: { type: "form", formId: "user-input:call-2", commandId: command.commandId, status: "completed", action: "submit", values: { goal: "Smart home agents" }, fieldIds: ["goal"] },
+    }];
+    canonical.turns[0].canonicalItems.push({
+      schemaVersion: "tinybot.turn_item.v2", itemId: "a-resume", turnId: "turn-1", sessionId: "s1", sequence: 4, revision: 1, kind: "assistant_message", status: "running", createdAt: "2026-09-10T03:25:11Z",
+      data: { type: "assistant_message", messageId: "a-resume", modelCallId: "model-2", phase: "commentary", content: "Continuing the research with your answers." },
+    });
+    await act(async () => handlers.get("agent:timeline:patch")!({ payload: { sessionId: "s1", turnId: "turn-1" } }));
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Research requirements" })).toBeNull());
+    await waitFor(() => expect(document.body.textContent).toContain("Continuing the research with your answers."));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Stop/ }).hasAttribute("disabled")).toBe(false));
+    expect(document.querySelector('.react-agent-command-status')).toBeNull();
   });
 
   it("cancels active agent-ui forms through Thread command dispatch", async () => {

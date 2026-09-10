@@ -577,7 +577,7 @@ impl AgentEventKind {
                 UserVisibility,
                 Some(Form),
                 FormIdentity,
-                Ephemeral,
+                Durable,
             ),
             Self::Checkpoint => definition(
                 "agent.checkpoint",

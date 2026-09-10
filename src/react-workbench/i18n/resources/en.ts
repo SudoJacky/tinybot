@@ -1200,8 +1200,9 @@ export const en = {
       label: "Task execution failed", cancelled: "Task cancelled", interrupted: "Task interrupted", copyError: "Copy error",
     },
     plan: {
+      floatingLabel: "Task progress", floatingExpand: "Expand task progress", floatingCollapse: "Collapse task progress",
       label: "Execution plan", completed: "{{completed}} of {{total}} completed", status: { completed: "Completed", inProgress: "In progress", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
-      collapse: "Collapse", expand: "Expand", floatingLabel: "Task progress", floatingExpand: "Expand task progress", floatingCollapse: "Collapse task progress",
+      collapse: "Collapse", expand: "Expand",
     },
     artifacts: { label: "Artifacts", preview: "Preview {{name}}" },
     dataView: {
@@ -1241,6 +1242,8 @@ export const en = {
       textTruncated: "Showing the first 32 KB of this version."
     },
     details: {
+      fileDetails: "File details", delimitedViews: "File view", delimitedTable: "Table", delimitedSource: "Source", delimitedRow: "Row",
+      delimitedFailed: "Table preview failed: {{message}}. Switch to Source to inspect the original text.",
       status: "Status", interruptedAt: "Interrupted at",
       unavailable: "Details unavailable.", id: "ID", trace: "Trace", childTurn: "Child turn", loadingTrace: "Loading trace…", finalOutput: "Final output",
       type: "Type", loadingArtifact: "Loading artifact…", noPreview: "No preview content is available.", subagentTrace: "Subagent trace",
@@ -1275,7 +1278,7 @@ export const en = {
       status: { running: "Running", waiting: "Waiting", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
       category: { terminal: "Terminal", fileRead: "File read", web: "Web", planning: "Planning", presentation: "Data view", subagent: "Subagent", interaction: "Interaction", tool: "Tool" },
       command: "command", workspaceFile: "workspace file", currentPage: "current page", usedTool: "Used a tool",
-      updatedPlan: "Updated execution plan", preparingDataView: "Preparing data view…", publishedDataView: "Published data view", dataViewFailed: "Data view publication failed", dataViewCancelled: "Data view publication cancelled", delegated: "Delegated a task", waitedSubagents: "Waited for subagents", updatedSubagent: "Updated a subagent", requestedInput: "Requested user input",
+      updatedPlan: "Updated execution plan", preparingDataView: "Preparing data view…", publishedDataView: "Published data view", dataViewFailed: "Data view publication failed", dataViewCancelled: "Data view publication cancelled", delegated: "Delegated a task", waitedSubagents: "Waited for subagents", updatedSubagent: "Updated a subagent", requestedInput: "Requested user input", receivedInput: "Received user input",
       commandFailed: "Command failed", commandCancelled: "Command cancelled", runningCommand: "Running {{command}}", waitingCommand: "Waiting to run {{command}}", ranCommand: "Ran {{command}}",
       inspectFailed: "Could not inspect {{target}}", inspecting: "Inspecting {{target}}", inspected: "Inspected {{target}}", webFailed: "Web action failed",
       opening: "Opening {{page}}", opened: "Opened {{page}}", reviewing: "Reviewing {{page}}", reviewed: "Reviewed {{page}}", scrolled: "Scrolled {{page}}",

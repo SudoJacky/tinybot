@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:9acb94eaea607edbf77eef9db7fdb556600eccc061bb34625959e0732395e8de -->
+<!-- tinybot-doc-fingerprint: sha256:9872376cb0956022a81f0936b14721517ca1883069c7685a8e02a910eebf521f -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -220,6 +220,9 @@ derives these figures from canonical Items on live updates and history reload.
 - A form submit or cancel command is acknowledged with its command identity
   before provider work resumes. Submitted values become the original pending
   tool call's model-visible result in that same provider chain.
+- A form resolution is persisted before its completed timeline Item is published.
+  Replay consumes the matching waiting checkpoint and restores the same Turn to
+  running; cancellation capabilities therefore reflect the resumed execution.
 - Cancellation is cooperative at provider and tool seams. A replaced
   generation may drain, but its late result cannot become the current terminal
   result.

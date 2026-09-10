@@ -1,4 +1,4 @@
-export const DEFAULT_SIDECAR_WIDTH = 480;
+export const DEFAULT_SIDECAR_WIDTH = 520;
 export const MIN_DOCKED_CHAT_WIDTH = 320;
 export const MIN_SIDECAR_WIDTH = 380;
 export const SIDECAR_OVERLAY_BREAKPOINT = 1100;
