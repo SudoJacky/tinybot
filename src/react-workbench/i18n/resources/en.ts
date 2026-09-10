@@ -841,6 +841,8 @@ export const en = {
         notConfigured: "Not configured",
         newApiKey: "Enter a new API key",
         replaceKey: "Entering a new key replaces the current key.",
+        getApiKey: "Get API Key",
+        openKeyPageFailed: "Could not open the API Key page. Please try again.",
         keyIfRequired: "Enter a key if this endpoint requires one.",
         profile: "Profile",
         activeProfile: "Active profile",
@@ -1172,6 +1174,7 @@ export const en = {
       description: "First token includes reasoning and tool calls. Speed uses recorded model generation time and excludes tool execution and waits between calls.",
     },
     turn: {
+      flapWords: { building: "BRAIN AT WORK", stirring: "IDEA SOUP", polishing: "WORD POLISH", baking: "FRESHLY BAKED" },
       label: "Chat turn", workPerformed: "Work performed",
       agentResponding: "Agent is responding", copyMessage: "Copy message", branchHere: "Branch from here", formErrors: "Form errors", agentForms: "Agent forms",
       openDetails: "Open details for {{name}}", contextCompacted: "Context compacted", compactionDetails: "Compaction details",

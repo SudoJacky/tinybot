@@ -1,8 +1,11 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:610a6588aa987bddef83e905614214ecdae332d42b4a6057b7809058aad42786 -->
+<!-- tinybot-module-fingerprint: sha256:d6ddd835d1ad938550799c31a312ddf060bff49998ba81f12fdf0bb8f2cbd7c7 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
+
+Built-in cloud provider presets carry their official API-key console URL into
+the provider card model; keyless local and custom providers omit this link.
 
 It is the source of truth for secret handling, defaults, commit behavior, and
 dirty-state semantics. React pages present these models, while the desktop

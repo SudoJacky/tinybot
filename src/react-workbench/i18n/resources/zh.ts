@@ -416,6 +416,8 @@ export const zh = {
       configureDialog: {
         close: "关闭 {{name}} 配置", description: "更新此 Provider 使用的连接。", connection: "连接", apiBase: "API Base", apiKey: "API Key",
         configured: "已配置", notConfigured: "未配置", newApiKey: "输入新的 API Key", replaceKey: "输入新 Key 会替换当前 Key。",
+        getApiKey: "获取 API Key",
+        openKeyPageFailed: "无法打开 API Key 页面，请重试。",
         keyIfRequired: "如果 Endpoint 需要，请输入 Key。", profile: "Profile", activeProfile: "当前 Profile", setActiveProfile: "设为当前 Profile",
         activeDescription: "新任务当前使用此 Provider。", setActiveDescription: "保存后让新 Agent 任务使用此 Provider。", apiMode: "API 模式", features: "功能支持",
         responsesHelp: "仅当 Endpoint 支持 /responses 时使用 Responses API。", chatOnlyHelp: "此 Provider 仅支持 Chat Completions。",
@@ -623,6 +625,7 @@ export const zh = {
       description: "首 token 包含思考和工具调用输出。速度按已记录的模型生成时间计算，不含工具执行和调用之间的等待。",
     },
     turn: {
+      flapWords: { building: "脑洞施工中", stirring: "灵感搅拌中", polishing: "给答案抛光", baking: "文字出炉中" },
       label: "会话轮次", workPerformed: "已执行的工作",
       agentResponding: "Agent 正在回复", copyMessage: "复制消息", branchHere: "从此处分支", formErrors: "表单错误", agentForms: "Agent 表单",
       openDetails: "打开 {{name}} 的详情", contextCompacted: "上下文已压缩", compactionDetails: "压缩详情",

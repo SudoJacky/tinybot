@@ -1,5 +1,9 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:f24cd0b1c68e1dc1a127f0423c6baaca44bcea75fd1fac28267c67736f0a7bb9 -->
+<!-- tinybot-module-fingerprint: sha256:0afa3990b9fbb9ed36477d72e145397fe5663b18ccffa2d3a5bb54cb714281ab -->
+
+Provider configuration shows a Get API Key link below the credential field for
+built-in cloud providers. The native opener launches the official console in
+the system browser; failures are logged and shown as a transient error notice.
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as

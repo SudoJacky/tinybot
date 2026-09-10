@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:6894ce24dbc3b48e302b4c8a8cca44d13f54bbbdf07a0a7a0990618cdbdc9319 -->
+<!-- tinybot-module-fingerprint: sha256:743983b7c59ba03f6088fb16e90ebc0c4ba61a1e069621f300069ca08ab33f1f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -462,3 +462,7 @@ composer draft and prevents dispatch.
 CSV export reports the requested filename and Downloads/save-location guidance
 through the shared top-of-window notification. It reports initiation failures and does not claim completion,
 since the WebView anchor download does not expose a completion callback.
+
+AgentResponseIndicator replaces streaming dots with a compact React Bits split-flap
+board. Localized playful phrases cycle while responding, with a stable accessible
+label. Offscreen/background indicators pause, and reduced motion stays static.

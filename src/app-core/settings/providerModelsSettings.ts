@@ -7,6 +7,7 @@ export type BuiltInProviderPreset = {
   label: string;
   builtIn: true;
   defaultBaseUrl: string;
+  apiKeyUrl?: string;
   defaultModels: string[];
   apiKeyRequired: boolean;
   supportsResponsesApi: boolean;
@@ -36,6 +37,7 @@ export type ProviderCardModel = {
   statusLabel: string;
   profileId: string;
   baseUrl: string;
+  apiKeyUrl?: string;
   apiKeyConfigured: boolean;
   apiKeyRequired: boolean;
   useResponsesApi: boolean;
@@ -148,6 +150,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     label: "DeepSeek",
     builtIn: true,
     defaultBaseUrl: "https://api.deepseek.com",
+    apiKeyUrl: "https://platform.deepseek.com/",
     defaultModels: ["deepseek-v4-pro", "deepseek-flash"],
     apiKeyRequired: true,
     supportsResponsesApi: true,
@@ -158,6 +161,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     label: "DashScope",
     builtIn: true,
     defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKeyUrl: "https://bailian.console.aliyun.com/cn-beijing?tab=model",
     defaultModels: ["qwen-plus", "qwen-max", "qwen-turbo"],
     apiKeyRequired: true,
     supportsResponsesApi: true,
@@ -168,6 +172,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     label: "OpenAI",
     builtIn: true,
     defaultBaseUrl: "https://api.openai.com/v1",
+    apiKeyUrl: "https://platform.openai.com/api-keys",
     defaultModels: ["gpt-4.1"],
     apiKeyRequired: true,
     supportsResponsesApi: true,
@@ -178,6 +183,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     label: "Z.ai",
     builtIn: true,
     defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    apiKeyUrl: "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
     defaultModels: ["glm-5.3", "glm-5.3-flash", "glm-5.2"],
     apiKeyRequired: true,
     supportsResponsesApi: false,
@@ -472,6 +478,7 @@ function buildProviderCard(
     baseUrl: stringValue(pick(profile, "apiBase", "api_base")) || preset.defaultBaseUrl,
     apiKeyConfigured,
     apiKeyRequired: preset.apiKeyRequired,
+    apiKeyUrl: preset.apiKeyUrl,
     useResponsesApi: preset.supportsResponsesApi && usesResponsesApi(profile),
     supportsResponsesApi: preset.supportsResponsesApi,
     modelCount: enabledModelItems.length,

@@ -37,6 +37,7 @@ import {
   type ToolCallSummary,
 } from "./messageActions";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { AgentResponseIndicator } from "./AgentResponseIndicator";
 import type { AssistantFileLink } from "./assistantFileLinks";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
@@ -609,7 +610,7 @@ function CanonicalMessage({
         ))}
         {role === "assistant" ? <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
-        {streaming ? <span aria-label={t("turn.agentResponding")} className="react-message__streaming" /> : null}
+        {streaming ? <AgentResponseIndicator /> : null}
       </div>
       {(allowActions && text.trim()) || footer ? (
         <div className="react-message__actions" data-align={role === "user" ? "right" : "left"}>
@@ -1043,7 +1044,7 @@ function MessageBubble({
         )}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
-        {message.status === "streaming" ? <span className="react-message__streaming" aria-label={t("turn.agentResponding")} /> : null}
+        {message.status === "streaming" ? <AgentResponseIndicator /> : null}
       </div>
       {showCopyAction || showBranchAction ? (
         <div className="react-message__actions" data-align={actionAlignment}>
