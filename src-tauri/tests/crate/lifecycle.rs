@@ -843,7 +843,7 @@ fn native_config_defaults_to_schema_v2_deepseek_profile_without_config_file() {
                         "displayName": "DeepSeek",
                         "enabled": true,
                         "apiBase": "https://api.deepseek.com",
-                        "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+                        "models": ["deepseek-v4-pro", "deepseek-flash"],
                         "defaultModel": "deepseek-v4-pro",
                         "supportsModelDiscovery": true,
                         "capabilities": ["reasoning"]
