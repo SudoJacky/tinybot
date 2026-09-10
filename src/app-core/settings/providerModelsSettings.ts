@@ -151,7 +151,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://api.deepseek.com",
     apiKeyUrl: "https://platform.deepseek.com/",
-    defaultModels: ["deepseek-v4-pro", "deepseek-flash"],
+    defaultModels: ["deepseek-flash", "deepseek-v4-pro"],
     apiKeyRequired: true,
     supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },

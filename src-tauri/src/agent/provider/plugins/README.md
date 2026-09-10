@@ -1,5 +1,5 @@
 # Provider Plugins
-<!-- tinybot-module-fingerprint: sha256:bb2191cd0f806f81255a1cce39e8b2c883b38e3a624b0f158f56347faa43ba02 -->
+<!-- tinybot-module-fingerprint: sha256:609b2bc12c8051ffd4ab7445a13e4d1865d6427399939dfc88873dc1594e6902 -->
 
 This module contains the statically registered adapters for built-in
 Providers. A Provider plugin owns vendor-specific catalog metadata, reasoning

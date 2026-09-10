@@ -235,7 +235,7 @@ pub(crate) fn native_default_config_snapshot() -> Value {
         "agents": {
             "defaults": {
                 "activeProfile": "deepseek-default",
-                "model": "deepseek-v4-pro",
+                "model": "deepseek-flash",
                 "workspace": "~/.tinybot/workspace"
             }
         },
@@ -246,8 +246,8 @@ pub(crate) fn native_default_config_snapshot() -> Value {
                     "displayName": "DeepSeek",
                     "enabled": true,
                     "apiBase": "https://api.deepseek.com",
-                    "models": ["deepseek-v4-pro", "deepseek-flash"],
-                    "defaultModel": "deepseek-v4-pro",
+                    "models": ["deepseek-flash", "deepseek-v4-pro"],
+                    "defaultModel": "deepseek-flash",
                     "supportsModelDiscovery": true,
                     "capabilities": ["reasoning"]
                 }

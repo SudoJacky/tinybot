@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from "react";
-import { AlertTriangle, Circle, Loader2, X } from "lucide-react";
-import type { TFunction } from "i18next";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { SessionSummary } from "../services";
+import { SessionStatus, sessionStatusLabel } from "./SessionStatus";
 
 export type SessionTabItem = Pick<SessionSummary, "id" | "status"> & {
   title: string;
@@ -97,7 +97,7 @@ export function SessionTabStrip({
       >
         {tabs.length ? tabs.map((tab) => {
           const active = tab.id === activeSessionId;
-          const statusLabel = sessionTabStatusLabel(tab, t);
+          const statusLabel = sessionStatusLabel(tab, t);
           return (
             <div
               className="react-session-tab"
@@ -126,7 +126,7 @@ export function SessionTabStrip({
                 onClick={() => onActivate(tab.id)}
                 onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
               >
-                <SessionTabStatus tab={tab} />
+                <SessionStatus status={tab.status} unread={tab.unread} />
                 <span>{tab.title}</span>
               </button>
               <button
@@ -158,24 +158,4 @@ export function SessionTabStrip({
       </div>
     </div>
   );
-}
-
-function SessionTabStatus({ tab }: { tab: SessionTabItem }) {
-  if (tab.status === "running") {
-    return <Loader2 aria-hidden="true" className="react-session-tab__status" data-kind="running" size={11} />;
-  }
-  if (tab.status === "failed") {
-    return <AlertTriangle aria-hidden="true" className="react-session-tab__status" data-kind="failed" size={11} />;
-  }
-  if (tab.unread) {
-    return <Circle aria-hidden="true" className="react-session-tab__status" data-kind="unread" fill="currentColor" size={8} />;
-  }
-  return null;
-}
-
-function sessionTabStatusLabel(tab: SessionTabItem, t: TFunction<"chat">): string {
-  if (tab.status === "running") return t("tabs.status.running");
-  if (tab.status === "failed") return t("tabs.status.failed");
-  if (tab.unread) return t("tabs.status.unread");
-  return "";
 }

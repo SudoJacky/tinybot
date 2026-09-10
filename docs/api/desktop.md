@@ -527,7 +527,7 @@ a schema v2 default config with:
 
 - `schemaVersion: 2`
 - `agents.defaults.activeProfile: "deepseek-default"`
-- `agents.defaults.model: "deepseek-v4-pro"`
+- `agents.defaults.model: "deepseek-flash"`
 - `providers.profiles.deepseek-default` with DeepSeek V4 models and the built-in `reasoning` capability
 
 Existing files are never overwritten by this initialization path, including invalid JSON or non-object

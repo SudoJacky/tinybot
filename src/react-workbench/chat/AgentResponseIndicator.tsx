@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import SplitFlapText from "../lib/SplitFlapText";
 import "./AgentResponseIndicator.css";
 
-export const AgentResponseIndicator = memo(function AgentResponseIndicator() {
+export const AgentResponseIndicator = memo(function AgentResponseIndicator({ awaitingUser = false }: { awaitingUser?: boolean }) {
   const { t, i18n } = useTranslation("chat");
   const ref = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(true);
@@ -29,8 +29,8 @@ export const AgentResponseIndicator = memo(function AgentResponseIndicator() {
     t("turn.flapWords.baking"),
   ];
   return (
-    <div ref={ref} className="react-agent-response" role="img" aria-label={t("turn.agentResponding")}>
-      <SplitFlapText
+    <div ref={ref} className="react-agent-response" role="img" aria-label={awaitingUser ? t("execution.status.awaiting") : t("turn.agentResponding")}>
+      {awaitingUser ? <span className="react-agent-response__waiting">{t("execution.status.awaiting")}</span> : <SplitFlapText
         aria-hidden="true"
         className="react-agent-response__board"
         data-cjk={i18n.resolvedLanguage?.startsWith("zh") || undefined}
@@ -44,11 +44,11 @@ export const AgentResponseIndicator = memo(function AgentResponseIndicator() {
         tileRadius={3}
         tileColor="var(--color-surface-soft)"
         textColor="var(--color-muted)"
-        cycleDelay={3200}
+        cycleDelay={1500}
         flipDuration={0.1}
         stagger={0.015}
         flipsPerChar={1}
-      />
+      />}
     </div>
   );
 });

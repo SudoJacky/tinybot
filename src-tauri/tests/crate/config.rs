@@ -106,7 +106,7 @@ fn ensure_default_config_file_creates_schema_v2_deepseek_profile_when_missing() 
         saved["providers"]["profiles"]["deepseek-default"]["capabilities"],
         serde_json::json!(["reasoning"])
     );
-    assert_eq!(saved["agents"]["defaults"]["model"], "deepseek-v4-pro");
+    assert_eq!(saved["agents"]["defaults"]["model"], "deepseek-flash");
     assert!(saved["agents"]["defaults"].get("provider").is_none());
     assert_eq!(
         saved["providers"]["profiles"]["deepseek-default"]["provider"],
@@ -114,7 +114,7 @@ fn ensure_default_config_file_creates_schema_v2_deepseek_profile_when_missing() 
     );
     assert_eq!(
         saved["providers"]["profiles"]["deepseek-default"]["models"],
-        serde_json::json!(["deepseek-v4-pro", "deepseek-flash"])
+        serde_json::json!(["deepseek-flash", "deepseek-v4-pro"])
     );
     assert!(saved.get("gateway").is_none());
     assert!(!fixture.root.join(".tinybot").join("workspace").exists());

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use super::plugins::{provider_plugin_by_id, registered_provider_plugins, OPENAI_API_MODES};
 
-const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
+const DEFAULT_AGENT_MODEL: &str = "deepseek-flash";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
 const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &[
     "deepseek-flash",

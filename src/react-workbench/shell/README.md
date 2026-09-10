@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:11fdac790e85ffeacc8651155b43bd96bd6ae96e1420a85cd9da0bf7de031a54 -->
+<!-- tinybot-module-fingerprint: sha256:53df2e9b6f66cbdfd86a8db3aad9b68c5882d08d25d02c6808b3db753b7c7c80 -->
 
 Desktop-pet quick chat shares composer drop and clipboard import with main Chat;
 its window permission set includes the bounded binary attachment import command.

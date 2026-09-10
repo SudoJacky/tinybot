@@ -319,6 +319,47 @@ describe("ChatPage", () => {
     consoleError.mockRestore();
   });
 
+  it("follows each new user input after sending from a scrolled-up conversation", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    let receive!: (event: ChatEvent) => void;
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => { receive = listener; return () => {}; });
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
+    await screen.findByText("Can you help?");
+    const conversation = screen.getByLabelText("Conversation");
+    Object.defineProperties(conversation, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 1200 },
+      scrollTop: { configurable: true, writable: true, value: 200 },
+    });
+    const end = conversation.lastElementChild!;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(end, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const messages: ReactChatMessage[] = [];
+    for (const index of [1, 2]) {
+      fireEvent.scroll(conversation);
+      expect(screen.getByRole("button", { name: "Back to latest" })).toBeTruthy();
+      scrollIntoView.mockClear();
+      const text = `New task ${index}`;
+      const input = screen.getByRole("textbox", { name: /message/i });
+      await user.clear(input);
+      await user.type(input, text);
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(turnSubmitCommands(stores.chatStore)).toHaveLength(index));
+      messages.push({ id: `sent-${index}`, role: "user", text, status: "complete", createdAtMs: index });
+      act(() => receive({ type: "agent_timeline_updated", timeline: timelineFromReactMessages("s1", messages) }));
+      await screen.findByTestId(`message-sent-${index}`);
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "end" }));
+      expect(screen.queryByRole("button", { name: "Back to latest" })).toBeNull();
+      fireEvent.scroll(conversation);
+      scrollIntoView.mockClear();
+      messages.push({ id: `answer-${index}`, role: "assistant", text: `Answer ${index}`, status: "complete", createdAtMs: index });
+      act(() => receive({ type: "agent_timeline_updated", timeline: timelineFromReactMessages("s1", messages) }));
+      await screen.findByTestId(`message-answer-${index}`);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    }
+  });
+
   it("preserves manual scroll position and offers a back-to-latest action", async () => {
     const user = userEvent.setup();
     const stores = createStores();

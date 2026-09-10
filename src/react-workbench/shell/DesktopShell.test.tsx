@@ -1079,7 +1079,7 @@ describe("DesktopShell", () => {
         profiles: {
           "deepseek-default": {
             provider: "deepseek",
-            models: ["deepseek-v4-pro", "deepseek-flash", "deepseek-v4-flash", "deepseek-live"],
+            models: ["deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
             enabledModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
             defaultModel: "deepseek-v4-flash",
             modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],

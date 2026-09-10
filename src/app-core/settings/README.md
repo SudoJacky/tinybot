@@ -1,11 +1,12 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:d6ddd835d1ad938550799c31a312ddf060bff49998ba81f12fdf0bb8f2cbd7c7 -->
+<!-- tinybot-module-fingerprint: sha256:dcf6a171d7cc6c8dd166b30f68f31b758037a96d80e158957a6f429ec76f154f -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
 
 Built-in cloud provider presets carry their official API-key console URL into
 the provider card model; keyless local and custom providers omit this link.
+The DeepSeek preset lists `deepseek-flash` first, matching the native default.
 
 It is the source of truth for secret handling, defaults, commit behavior, and
 dirty-state semantics. React pages present these models, while the desktop

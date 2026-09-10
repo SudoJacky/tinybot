@@ -322,31 +322,6 @@ pub(super) async fn execute_tool_calls_for_iteration(
         };
     }
 
-    if tool_calls
-        .iter()
-        .any(|tool_call| tool_call.name == PUBLISH_DATA_VIEW_METHOD)
-    {
-        if tool_calls
-            .iter()
-            .any(|tool_call| tool_call.name != PUBLISH_DATA_VIEW_METHOD)
-        {
-            let (data_view_calls, other_tool_calls): (Vec<_>, Vec<_>) = tool_calls
-                .into_iter()
-                .partition(|tool_call| tool_call.name == PUBLISH_DATA_VIEW_METHOD);
-            for tool_call in data_view_calls {
-                record_tool_failure(
-                    context,
-                    state,
-                    iteration,
-                    &tool_call,
-                    "publish_data_view cannot be mixed with other tools in its provider response",
-                )?;
-            }
-            return execute_tool_batch(services, context, state, iteration, other_tool_calls).await;
-        }
-        return execute_publish_data_views(services, context, state, iteration, tool_calls).await;
-    }
-
     execute_tool_batch(services, context, state, iteration, tool_calls).await
 }
 
@@ -416,66 +391,6 @@ async fn commit_executed_tool_observation(
         result.replace_model_content(evaluation.tool_feedback.join("\n"));
     }
     commit_tool_observation(context, state, iteration, tool_call.into_original(), result)
-}
-
-async fn execute_publish_data_views(
-    services: &NativeAgentRuntimeServices,
-    context: &mut AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    tool_calls: Vec<PreparedToolCall>,
-) -> Result<NativeAgentToolExecutionOutcome, AgentError> {
-    let is_multi_call = tool_calls.len() > 1;
-    let planned_calls = tool_calls
-        .into_iter()
-        .enumerate()
-        .map(|(index, tool_call)| PlannedToolCall {
-            index,
-            mode: ToolExecutionMode::Exclusive,
-            tool_call,
-        })
-        .collect::<Vec<_>>();
-    if is_multi_call {
-        queue_tool_batch(services, context, state, iteration, &planned_calls)?;
-    }
-
-    for (wave_index, planned_call) in planned_calls.into_iter().enumerate() {
-        if context_is_cancelled(context) {
-            state.clear_pending_tool_calls();
-            return cancelled_result(services, context, state, iteration);
-        }
-        let tool_call = if is_multi_call {
-            let wave = ToolWave::Exclusive(planned_call);
-            mark_tool_wave_running(services, context, state, iteration, wave_index, &wave)?;
-            match wave {
-                ToolWave::Exclusive(call) => call.tool_call,
-                ToolWave::Parallel(_) => {
-                    unreachable!("data views are always published sequentially")
-                }
-            }
-        } else {
-            start_tool_call(services, context, state, iteration, &planned_call.tool_call)?;
-            planned_call.tool_call
-        };
-
-        let result = publish_data_view_result(context, &tool_call);
-        commit_executed_tool_observation(context, state, iteration, tool_call, result).await?;
-    }
-
-    state.apply_pending_tool_hook_context(context)?;
-    state.clear_pending_tool_calls();
-    state.transition_phase(
-        AgentRuntimePhase::Planning,
-        iteration,
-        AgentEventKind::ToolResult.wire_name(),
-    )?;
-    save_phase_checkpoint(
-        services,
-        context,
-        state.phase.clone(),
-        state.active_checkpoint_payload("data_views_published"),
-    );
-    Ok(NativeAgentToolExecutionOutcome::Continue)
 }
 
 fn publish_data_view_result(
@@ -762,6 +677,16 @@ async fn execute_tool_wave(
             Ok(vec![execute_update_plan_call(
                 context, state, iteration, call,
             )?])
+        }
+        ToolWave::Exclusive(call) if call.tool_call.name == PUBLISH_DATA_VIEW_METHOD => {
+            let result = publish_data_view_result(context, &call.tool_call);
+            Ok(vec![IndexedToolDispatchOutcome {
+                index: call.index,
+                outcome: ToolDispatchOutcome::Completed(ToolDispatchCompleted {
+                    tool_call: call.tool_call,
+                    result,
+                }),
+            }])
         }
         ToolWave::Exclusive(call) => Ok(vec![
             execute_planned_tool_call(services.clone(), context.clone(), call).await,

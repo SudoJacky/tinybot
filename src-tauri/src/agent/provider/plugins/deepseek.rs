@@ -14,7 +14,7 @@ static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     api_key_env_vars: &["DEEPSEEK_API_KEY"],
     api_base_env_vars: &["DEEPSEEK_BASE_URL"],
     supports_model_discovery: true,
-    curated_model_ids: &["deepseek-v4-pro", "deepseek-flash"],
+    curated_model_ids: &["deepseek-flash", "deepseek-v4-pro"],
     model_prefixes: &["deepseek"],
     capabilities: &["reasoning"],
     supported_api_modes: OPENAI_API_MODES,

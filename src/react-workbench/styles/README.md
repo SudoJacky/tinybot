@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:7d93a8a23a777f345d018a6e41645cd5ee4bdb8fd02011c6cdd6ffbefc92ba3b -->
+<!-- tinybot-module-fingerprint: sha256:1f09e4df2e95e9a266052d84fef3c525b360b93e358ea82f8f0802ded5659557 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -86,6 +86,9 @@ because they contain the active session.
 Workspace paths appear only in header tooltips; nested workspace actions share
 one trailing flex container to keep both buttons on the title line.
 The session list keeps a 2px right inset beside its scrollbar and an 8px left inset.
+Session rows use the default cursor at rest and retain drag sorting. Running and
+failure icons share the trailing delete-action slot; hover, focus, and delete
+confirmation replace the status with the delete button. Idle rows keep timestamps.
 
 The desktop document root is fixed to the WebView viewport and never owns page
 scrolling. `html`, `body`, and `#root` contain the `100%` shell while route,

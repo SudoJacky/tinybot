@@ -1,8 +1,11 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:a6b8b252dfbd034e9d3b52cf15b89aadc86397511b778aaf0de797b64c62fce7 -->
+<!-- tinybot-module-fingerprint: sha256:8724286feee694840347abbcfcf9ef2cee8bfefb0db14dc5754ce49618674cec -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
+
+The built-in default model is `deepseek-flash`; explicit configured models retain
+their existing selection.
 
 - `plugins/` contains the statically registered Provider adapters. Every
   built-in Provider implements the shared `ProviderPlugin` interface and owns

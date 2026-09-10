@@ -14,6 +14,53 @@ afterEach(() => {
 });
 
 describe("ChatTimeline", () => {
+  test("keeps one indicator at the turn tail through dispatch, tools, and answer streaming", () => {
+    const base = completedTurn();
+    const timeline = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
+      <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId=""
+        optimisticMessages={optimisticMessages} sessionRunning turns={turns} />
+    );
+    const { rerender } = render(timeline([], [optimisticMessage()]));
+    expect(screen.getAllByRole("img", { name: "Agent is responding" })).toHaveLength(1);
+
+    const pending: ChatTurn = { ...base, status: "pending", finalMessage: undefined, executionItems: [], steps: [] };
+    rerender(timeline([pending], [optimisticMessage()]));
+    const indicator = screen.getByRole("img", { name: "Agent is responding" });
+    const turnElement = indicator.closest(".react-canonical-turn")!;
+    expect(turnElement.lastElementChild).toBe(indicator);
+    expect(screen.getAllByRole("img", { name: "Agent is responding" })).toHaveLength(1);
+
+    const tool: ChatStep = {
+      id: "tool-running", kind: "tool_call", sequence: 1, title: "Read file", status: "running",
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      toolCall: { id: "tool-running", name: "read_file" },
+    };
+    const running: ChatTurn = { ...pending, status: "running", executionItems: [tool], steps: [tool] };
+    rerender(timeline([running]));
+    expect(screen.getByRole("img", { name: "Agent is responding" })).toBe(indicator);
+    expect(turnElement.lastElementChild).toBe(indicator);
+
+    rerender(timeline([{ ...running, finalMessage: base.finalMessage }]));
+    expect(screen.getByTestId("message-assistant-1").textContent).toContain("Canonical answer");
+    expect(screen.getAllByRole("img", { name: "Agent is responding" })).toEqual([indicator]);
+    expect(turnElement.lastElementChild).toBe(indicator);
+
+    rerender(timeline([{ ...running, status: "awaiting_user" }]));
+    expect(screen.queryByRole("img", { name: "Agent is responding" })).toBeNull();
+    const waiting = screen.getByRole("img", { name: "Awaiting input" });
+    expect(waiting.textContent).toBe("Awaiting input");
+    expect(waiting.querySelector(".react-agent-response__board")).toBeNull();
+    expect(turnElement.lastElementChild).toBe(waiting);
+
+    rerender(timeline([running]));
+    expect(screen.getByRole("img", { name: "Agent is responding" })).toBe(indicator);
+    for (const status of ["completed", "failed", "interrupted"] as const) {
+      rerender(timeline([{ ...running, status, finalMessage: base.finalMessage }]));
+      expect(screen.queryByRole("img", { name: "Agent is responding" })).toBeNull();
+      expect(screen.queryByRole("img", { name: "Awaiting input" })).toBeNull();
+    }
+  });
+
   test("renders canonical and optimistic messages and routes message actions through its interface", () => {
     const actions = createActions();
     const turn = completedTurn();

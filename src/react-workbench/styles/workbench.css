@@ -1572,6 +1572,10 @@ button:disabled {
   outline-offset: -2px;
 }
 
+.react-session-row[draggable="true"] {
+  cursor: default;
+}
+
 .react-session-workspace[data-dragging="true"],
 .react-project-group[data-dragging="true"],
 .react-project-workspace[data-dragging="true"],
@@ -1706,7 +1710,27 @@ button:disabled {
 
 .react-session-row:hover .react-session-row__select small,
 .react-session-row:focus-within .react-session-row__select small,
+.react-session-row[data-has-status="true"] .react-session-row__select small,
 .react-session-row[data-confirming="true"] .react-session-row__select small {
+  opacity: 0;
+}
+
+.react-session-row__status {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 140ms ease;
+}
+
+.react-session-row:hover .react-session-row__status,
+.react-session-row:focus-within .react-session-row__status,
+.react-session-row[data-confirming="true"] .react-session-row__status {
   opacity: 0;
 }
 
@@ -1861,25 +1885,25 @@ button:disabled {
   font-weight: 650;
 }
 
-.react-session-tab__status {
+.react-session-status {
   min-width: 11px;
   flex: 0 0 auto;
 }
 
-.react-session-tab__status[data-kind="running"] {
+.react-session-status[data-kind="running"] {
   color: #5f806c;
   animation: react-session-tab-spin 1.2s linear infinite;
 }
 
-.react-session-tab__status[data-kind="waiting"] {
+.react-session-status[data-kind="waiting"] {
   color: #a97821;
 }
 
-.react-session-tab__status[data-kind="failed"] {
+.react-session-status[data-kind="failed"] {
   color: var(--color-error);
 }
 
-.react-session-tab__status[data-kind="unread"] {
+.react-session-status[data-kind="unread"] {
   color: var(--color-primary);
 }
 
