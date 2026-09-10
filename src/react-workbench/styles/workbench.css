@@ -1908,66 +1908,6 @@ button:disabled {
   outline-offset: -3px;
 }
 
-.react-session-tabs__controls {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  padding: 0 4px;
-  border-left: 1px solid color-mix(in srgb, var(--color-hairline) 76%, transparent);
-}
-
-.react-session-tabs__controls > button,
-.react-session-tabs__overflow > button {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
-  padding: 0;
-  color: var(--color-muted);
-}
-
-.react-session-tabs__controls > button:hover,
-.react-session-tabs__controls > button:focus-visible,
-.react-session-tabs__overflow > button:hover,
-.react-session-tabs__overflow > button:focus-visible {
-  color: var(--color-ink);
-}
-
-.react-session-tabs__overflow {
-  position: relative;
-}
-
-.react-session-tabs__menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  right: 0;
-  z-index: 20;
-  width: min(280px, 42vw);
-  max-height: min(360px, 60vh);
-  overflow: auto;
-}
-
-.react-session-tabs__menu button {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 8px 10px;
-}
-
-.react-session-tabs__menu button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-session-tabs__menu-title {
-  grid-column: 2;
-}
-
 @keyframes react-session-tab-spin {
   to {
     transform: rotate(360deg);

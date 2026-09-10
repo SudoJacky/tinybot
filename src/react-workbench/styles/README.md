@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:42dd4f9001c88f5f031316122dc71128c33e3d45cfbd29cb8de1e88ed3a8937b -->
+<!-- tinybot-module-fingerprint: sha256:7d93a8a23a777f345d018a6e41645cd5ee4bdb8fd02011c6cdd6ffbefc92ba3b -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -20,7 +20,7 @@ held drag can reverse direction and reopen the sidebar.
 
 Workspace session reveal buttons align with session titles and use the sidebar's
 muted text, row hover surface, and keyboard focus styling.
-Session tab close and overflow controls use centered 32px targets, matching the
+Session tab close controls use centered 32px targets, matching the
 Chat header and Sidecar toolbar actions. Tab selection fills the available height
 inside the 42px header without overflowing its bottom border.
 

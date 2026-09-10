@@ -74,7 +74,12 @@ struct DataViewRow {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 enum DataView {
     Metrics {
         items: Vec<DataViewMetric>,
@@ -374,7 +379,9 @@ fn validate_document(document: &DataViewDocument) -> Result<(), String> {
 
     let mut row_ids = HashSet::new();
     for row in &document.dataset.rows {
-        validate_identifier("row id", &row.id)?;
+        if row.id.trim().is_empty() {
+            return Err("data_view_invalid_shape: row id must be nonblank".to_string());
+        }
         if !row_ids.insert(row.id.as_str()) {
             return Err(format!(
                 "data_view_invalid_shape: duplicate row id `{}`",
@@ -564,7 +571,7 @@ fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-'));
     if !valid_first || !valid_rest {
         return Err(format!(
-            "data_view_invalid_shape: {label} `{value}` is not a valid identifier"
+            "data_view_invalid_shape: {label} `{value}` must match [A-Za-z_][A-Za-z0-9_.-]*"
         ));
     }
     Ok(())
@@ -662,6 +669,44 @@ mod tests {
         .as_object()
         .unwrap()
         .clone()
+    }
+
+    #[test]
+    fn accepts_natural_row_ids_but_rejects_blank_and_duplicate_ids() {
+        let mut input = Value::Object(valid_view());
+        input["dataset"]["rows"][0]["id"] = json!("Significant-Gravitas/AutoGPT");
+        input["dataset"]["rows"][1]["id"] = json!("2026/中文");
+        assert!(publish_data_view(input.as_object().unwrap(), "t", "c").is_ok());
+        input["dataset"]["rows"][1]["id"] = json!("Significant-Gravitas/AutoGPT");
+        assert!(publish_data_view(input.as_object().unwrap(), "t", "c")
+            .err()
+            .unwrap()
+            .contains("duplicate row id"));
+        input["dataset"]["rows"][1]["id"] = json!("   ");
+        assert!(publish_data_view(input.as_object().unwrap(), "t", "c")
+            .err()
+            .unwrap()
+            .contains("nonblank"));
+    }
+
+    #[test]
+    fn preserves_camel_case_view_fields_for_the_renderer() {
+        let mut input = Value::Object(valid_view());
+        input["view"] =
+            json!({"kind": "table", "defaultSort": {"field": "revenue", "direction": "desc"}});
+        let published = publish_data_view(input.as_object().unwrap(), "t", "c").unwrap();
+        assert_eq!(
+            published.artifact["content"]["view"]["defaultSort"],
+            input["view"]["defaultSort"]
+        );
+        input["dataset"]["columns"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"key":"total", "label":"Total", "type":"boolean"}));
+        input["dataset"]["rows"][0]["values"]["total"] = json!(true);
+        input["view"] = json!({"kind":"waterfall", "category":"period", "value":"revenue", "totalField":"total"});
+        let published = publish_data_view(input.as_object().unwrap(), "t", "c").unwrap();
+        assert_eq!(published.artifact["content"]["view"]["totalField"], "total");
     }
 
     #[test]

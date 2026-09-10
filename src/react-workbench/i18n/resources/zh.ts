@@ -561,7 +561,7 @@ export const zh = {
       workspacePicker: "工作区：{{workspace}}",
       workspaceMenu: "选择工作区",
     },
-    tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
+    tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     annotation: {
       moveEditor: "移动批注窗口（拖拽或使用方向键）",
       scrubHint: "单击输入；上下拖动调整，按住 Shift 加快调整。",
