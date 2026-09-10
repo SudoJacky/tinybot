@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:be2ae4e17b9a555178aabfe9e9ee07567061366e03845e49db00d5264951ef8a -->
+<!-- tinybot-module-fingerprint: sha256:501b253af8626dffe0a3a8fd9c8e0b125162bec252727102e165f63af83be76b -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:

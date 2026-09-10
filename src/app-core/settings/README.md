@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:40affc317b842f994fa0aa02e6c23979df437bd701c275c56b20fe330ac7c3c0 -->
+<!-- tinybot-module-fingerprint: sha256:610a6588aa987bddef83e905614214ecdae332d42b4a6057b7809058aad42786 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -51,7 +51,7 @@ belong to the runtime-supported IANA catalog.
 Provider model settings keep the discovered `models` catalog separate from
 `enabledModels`, which controls every shared model selector. Model rows also
 persist image-input overrides through `modelCapabilities`; the known defaults
-for `glm-5.3-flash` and `deepseek-v4-flash-vision-exp` stay aligned with the
+for `glm-5.3-flash`, `deepseek-flash`, and the legacy Flash aliases stay aligned with the
 Rust provider resolver.
 
 The default light appearance uses a near-white canvas, cooler navigation chrome,

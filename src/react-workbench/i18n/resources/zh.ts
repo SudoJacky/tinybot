@@ -2,6 +2,7 @@ import type { en, TranslationResourceShape } from "./en";
 
 export const zh = {
   common: {
+    notifications: { dismiss: "关闭通知" },
     routes: { chat: "聊天", graphs: "Agent Graph", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", openExternal: "在外部浏览器中打开 {{label}}",
@@ -410,7 +411,7 @@ export const zh = {
       selectModel: "选择模型 {{name}}", noModelMatches: "没有符合搜索条件的模型。", noModelsConfigured: "尚未配置模型。",
       newConversationNote: "更改只影响新会话；已有会话会保留自己的模型。", saveDefaultModel: "保存默认模型", providerLabel: "{{name}} Provider",
       active: "当前使用", fallback: "备用模型", notSelected: "未选择", apiKeyMissing: "未设置 API Key", manageModels: "管理 {{name}} 的模型",
-      manage: "管理", configureProvider: "配置 {{name}}", setUp: "设置", moreActions: "{{name}} 的更多操作", providerActions: "{{name}} Provider 操作",
+      configureProvider: "配置 {{name}}",
       models: "模型", configure: "配置", status: { connected: "已连接", attention: "需要处理", notConfigured: "未配置" },
       configureDialog: {
         close: "关闭 {{name}} 配置", description: "更新此 Provider 使用的连接。", connection: "连接", apiBase: "API Base", apiKey: "API Key",
@@ -653,6 +654,8 @@ export const zh = {
     },
     artifacts: { label: "产物", preview: "预览 {{name}}" },
     dataView: {
+      downloadStarted: "已发起下载：{{fileName}}。请到系统“下载”文件夹或你选择的保存位置查看。",
+      downloadFailed: "无法发起下载：{{error}}",
       actions: "数据视图操作", invalid: "此数据视图未通过安全校验，无法渲染。", views: "数据视图显示方式",
       chart: "图表", data: "数据", chartLabel: "{{title}}。{{insight}}", expand: "展开 {{title}}", expandAction: "展开数据视图",
       download: "将 {{title}} 下载为 CSV", downloadAction: "下载 CSV", sourced: "有来源", userProvided: "用户提供", unsourced: "无来源",

@@ -1,0 +1,54 @@
+.react-app-toast-position {
+  position: fixed;
+  top: 54px;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+:root[data-surface="desktop-pet-chat"] .react-app-toast-position { top: 12px; }
+
+.react-app-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(560px, 100%);
+  padding: 12px 14px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 14%), 0 2px 6px rgb(0 0 0 / 5%);
+  pointer-events: auto;
+  animation: app-toast-enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.react-app-toast > svg { flex-shrink: 0; color: var(--color-primary); }
+.react-app-toast[data-tone="error"] > svg { color: var(--color-error); }
+.react-app-toast p { margin: 0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; min-width: 0; }
+.react-app-toast button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted);
+}
+.react-app-toast button:hover { background: var(--color-surface-soft); }
+.react-app-toast button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.react-app-toast[data-exiting="true"] { animation: app-toast-exit 220ms ease-out both; pointer-events: none; }
+@keyframes app-toast-enter { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes app-toast-exit { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .react-app-toast { animation: none; }
+  .react-app-toast[data-exiting="true"] { animation: none; opacity: 0; }
+}

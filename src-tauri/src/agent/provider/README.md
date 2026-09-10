@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:9d09486427d6989f83354120f92589b3853e19cf77fbeda7e844ae4ebc916bf4 -->
+<!-- tinybot-module-fingerprint: sha256:a6b8b252dfbd034e9d3b52cf15b89aadc86397511b778aaf0de797b64c62fce7 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -19,7 +19,7 @@ Chat Completions or Responses API requests.
   keeps effort out of provider requests. Profile `modelContextWindows` entries
   are normalized into positive per-model context-window overrides. Profile
   `modelCapabilities` entries override built-in input modalities per model;
-  `glm-5.3-flash` and `deepseek-v4-flash-vision-exp` accept images by default.
+  `glm-5.3-flash`, `deepseek-flash`, and the legacy Flash aliases accept images by default.
   Built-in providers declare their supported protocol modes; Z.ai is Chat
   Completions only and uses a static GLM model list.
 - `completion.rs` performs provider requests. Provider selection requires an

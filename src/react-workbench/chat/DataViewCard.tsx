@@ -1,3 +1,4 @@
+import { showAppToast } from "../lib/AppToast";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { BarChart3, Download, Maximize2, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -62,7 +63,15 @@ export function DataViewCard({
               <Maximize2 aria-hidden="true" size={15} />
             </button>
           ) : null}
-          <button aria-label={t("dataView.download", { title: document.title })} title={t("dataView.downloadAction")} type="button" onClick={() => downloadCsv(document)}>
+          <button aria-label={t("dataView.download", { title: document.title })} title={t("dataView.downloadAction")} type="button" onClick={() => {
+            try {
+              const fileName = downloadCsv(document);
+              showAppToast(t("dataView.downloadStarted", { fileName }));
+            } catch (error) {
+              console.error("CSV download could not be started", error);
+              showAppToast(t("dataView.downloadFailed", { error: error instanceof Error ? error.message : String(error) }), "error");
+            }
+          }}>
             <Download aria-hidden="true" size={15} />
           </button>
         </div>
@@ -201,9 +210,14 @@ function downloadCsv(document: DataViewDocument) {
   const url = URL.createObjectURL(blob);
   const anchor = window.document.createElement("a");
   anchor.href = url;
-  anchor.download = `${safeFileName(document.title)}.csv`;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  const fileName = `${safeFileName(document.title)}.csv`;
+  anchor.download = fileName;
+  try {
+    anchor.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  return fileName;
 }
 
 function safeFileName(value: string): string {

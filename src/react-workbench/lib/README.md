@@ -1,5 +1,5 @@
 # Renderer Library
-<!-- tinybot-module-fingerprint: sha256:fd50037e5c51e14ab5e8663cb245fcf591083ffeaf1b8b241c5b79d316769aec -->
+<!-- tinybot-module-fingerprint: sha256:4adf5280e5fb49782a90f0979cfe3981982b641c7b0008f699be143947386174 -->
 
 `lib` contains small, renderer-only presentation helpers shared by frontend
 modules. Formatting helpers are pure; presentation hooks do not own route state.
@@ -15,3 +15,9 @@ current transitions, while unexpected failures remain observable.
 Protocol normalization, native transport, and domain projections belong in
 their owning `app-core` or adapter modules rather than in a general utility
 folder.
+
+`AppToast` provides a window-level transient notification host shared by the main
+shell and pet quick chat. New notices replace old ones; ordinary/error messages
+remain for five/eight seconds, pause while hovered or focused, and fade out over
+220 ms. Portals avoid route clipping, reduced-motion removes movement, and timers
+are cleaned up when messages are replaced.

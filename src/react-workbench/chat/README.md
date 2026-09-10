@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:4523dbdd728e62952123fc981ac2b78a55e9c4f36047770b0b18ac618f094638 -->
+<!-- tinybot-module-fingerprint: sha256:6894ce24dbc3b48e302b4c8a8cca44d13f54bbbdf07a0a7a0990618cdbdc9319 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -458,3 +458,7 @@ details; the raw `sourceText` evidence is never used as its visible body.
 Composer submission waits for Sidecar to finish active browser annotation and
 restore native control before dispatching the Agent Turn. Failure preserves the
 composer draft and prevents dispatch.
+
+CSV export reports the requested filename and Downloads/save-location guidance
+through the shared top-of-window notification. It reports initiation failures and does not claim completion,
+since the WebView anchor download does not expose a completion callback.

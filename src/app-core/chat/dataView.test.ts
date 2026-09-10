@@ -37,6 +37,27 @@ function validView() {
 }
 
 describe("data view contract", () => {
+  test.each(["2024-06", "智能手表 W3", "Significant-Gravitas/AutoGPT", "  row  "])(
+    "preserves the natural row ID %s accepted by native publication",
+    (id) => {
+      const input = validView();
+      input.dataset.rows[0].id = id;
+      expect(parseDataViewDocument(input).dataset.rows[0].id).toBe(id);
+    },
+  );
+
+  test.each(["", " \t\n", null, 202406])("rejects blank or non-string row ID %j", (id) => {
+    const input = validView();
+    Object.assign(input.dataset.rows[0], { id });
+    expect(() => parseDataViewDocument(input)).toThrow("row id must be a nonblank string");
+  });
+
+  test("rejects duplicate natural row IDs", () => {
+    const input = validView();
+    input.dataset.rows.forEach((row) => { row.id = "智能手表 W3"; });
+    expect(() => parseDataViewDocument(input)).toThrow("Duplicate row id");
+  });
+
   test("parses a mixed chart and exports raw rows in declared column order", () => {
     const document = parseDataViewDocument(validView());
 

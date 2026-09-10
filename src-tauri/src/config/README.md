@@ -1,5 +1,5 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:3a5a1e3b8aa64ab94f9b621957ac05c7c1fda9a914b8183a0970cce5279ec468 -->
+<!-- tinybot-module-fingerprint: sha256:0f5462ff22fc533ebbc47c53d522cf57a45e3b13a211b0012b20df0f95e75499 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 

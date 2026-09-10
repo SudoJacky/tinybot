@@ -127,6 +127,7 @@ type JsonRecord = Record<string, unknown>;
 export const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 128_000;
 
 const BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS: Record<string, number> = {
+  "deepseek-flash": 1_000_000,
   "deepseek-v4-flash": 1_000_000,
   "deepseek-v4-flash-vision-exp": 1_000_000,
   "deepseek-v4-pro": 1_000_000,
@@ -135,6 +136,8 @@ const BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS: Record<string, number> = {
 };
 
 const BUILT_IN_IMAGE_INPUT_MODELS = new Set([
+  "deepseek-flash",
+  "deepseek-v4-flash",
   "deepseek-v4-flash-vision-exp",
   "glm-5.3-flash",
 ]);
@@ -145,7 +148,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     label: "DeepSeek",
     builtIn: true,
     defaultBaseUrl: "https://api.deepseek.com",
-    defaultModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
+    defaultModels: ["deepseek-v4-pro", "deepseek-flash"],
     apiKeyRequired: true,
     supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },

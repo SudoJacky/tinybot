@@ -1,3 +1,4 @@
+import { AppToastViewport } from "./lib/AppToast";
 import { useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { installRendererDiagnosticHandlers } from "../app-core/native/rendererDiagnostics";
@@ -22,6 +23,7 @@ function DesktopPetQuickChatApp() {
     <TinybotErrorBoundary>
       <AppLanguageProvider>
         <AppAppearanceProvider>
+        <AppToastViewport />
           <DesktopPetQuickChatWindow services={services} />
         </AppAppearanceProvider>
       </AppLanguageProvider>

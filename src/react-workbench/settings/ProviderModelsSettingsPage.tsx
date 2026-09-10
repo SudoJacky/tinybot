@@ -1,4 +1,4 @@
-import { Check, ChevronRight, EllipsisVertical, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,7 +37,6 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
   const [configureProvider, setConfigureProvider] = useState<ProviderCardModel | null>(null);
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [modelsProvider, setModelsProvider] = useState<ProviderCardModel | null>(null);
-  const [openProviderMenu, setOpenProviderMenu] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     settingsStore.loadProviderSettings?.()
@@ -139,17 +138,13 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         {data.providers.map((provider) => (
           <ProviderPresetRow
             key={provider.id}
-            menuOpen={openProviderMenu === provider.id}
             provider={provider}
             onConfigure={() => {
-              setOpenProviderMenu(null);
               setConfigureProvider(provider);
             }}
             onModels={() => {
-              setOpenProviderMenu(null);
               setModelsProvider(provider);
             }}
-            onToggleMenu={() => setOpenProviderMenu((current) => current === provider.id ? null : provider.id)}
           />
         ))}
         </div>
@@ -523,22 +518,15 @@ function DefaultLlmPanel({
 }
 
 function ProviderPresetRow({
-  menuOpen,
   onConfigure,
   onModels,
-  onToggleMenu,
   provider,
 }: {
-  menuOpen: boolean;
   provider: ProviderCardModel;
   onConfigure: () => void;
   onModels: () => void;
-  onToggleMenu: () => void;
 }) {
   const { t } = useTranslation("settings");
-  const primaryAction = provider.status === "available" || (provider.configured && !provider.apiKeyRequired)
-    ? "models"
-    : "configure";
 
   return (
     <article
@@ -572,38 +560,8 @@ function ProviderPresetRow({
           : t("provider.apiKeyMissing")}</small>
       </div>
       <div className="react-provider-card__actions">
-        {primaryAction === "models" ? (
-          <button data-press-feedback="true" type="button" aria-label={t("provider.manageModels", { name: provider.label })} onClick={onModels}>{t("provider.manage")}</button>
-        ) : (
-          <button data-press-feedback="true" type="button" aria-label={t("provider.configureProvider", { name: provider.label })} onClick={onConfigure}>{t("provider.setUp")}</button>
-        )}
-        <button
-          className="react-provider-card__more"
-          data-press-feedback="true"
-          type="button"
-          aria-expanded={menuOpen}
-          aria-haspopup="menu"
-          aria-label={t("provider.moreActions", { name: provider.label })}
-          onClick={onToggleMenu}
-        >
-          <EllipsisVertical aria-hidden="true" size={17} />
-        </button>
-        {menuOpen ? (
-          <div className="react-popover-surface react-provider-card__menu" role="menu" aria-label={t("provider.providerActions", { name: provider.label })}>
-            {primaryAction !== "models" ? (
-              <button className="react-popover-item" role="menuitem" type="button" onClick={onModels}>
-                <Search aria-hidden="true" size={15} />
-                {t("provider.models")}
-              </button>
-            ) : null}
-            {primaryAction !== "configure" ? (
-              <button className="react-popover-item" role="menuitem" type="button" onClick={onConfigure}>
-                <Settings aria-hidden="true" size={15} />
-                {t("provider.configure")}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        <button data-press-feedback="true" type="button" aria-label={t("provider.manageModels", { name: provider.label })} onClick={onModels}>{t("provider.models")}</button>
+        <button data-press-feedback="true" type="button" aria-label={t("provider.configureProvider", { name: provider.label })} onClick={onConfigure}>{t("provider.configure")}</button>
       </div>
     </article>
   );

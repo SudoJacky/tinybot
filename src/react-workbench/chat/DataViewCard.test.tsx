@@ -1,7 +1,8 @@
+import { AppToastViewport, dismissAppToast } from "../lib/AppToast";
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseDataViewDocument } from "../../app-core/chat/dataView";
 import type { ArtifactRef } from "../../app-core/chat/chatTurnContracts";
 import { DataViewCard } from "./DataViewCard";
@@ -17,18 +18,54 @@ vi.mock("./DataViewChart", () => ({
   },
 }));
 
+beforeEach(() => { render(<AppToastViewport />); });
+
 afterEach(() => {
   cleanup();
+  dismissAppToast();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("DataViewCard", () => {
+  it("shows the CSV filename and download location guidance after clicking download", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:csv-test");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(<DataViewCard artifact={metricsArtifact()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Download Share as CSV" }));
+    expect(click).toHaveBeenCalledOnce();
+    expect(screen.getByRole("status").textContent).toContain("Share.csv");
+    expect(screen.getByRole("status").textContent).toContain("Downloads folder");
+    expect(revoke).toHaveBeenCalledWith("blob:csv-test");
+  });
+
+  it("reports download initiation failures without showing a success notice", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:csv-test");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => { throw new Error("Download unavailable"); });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<DataViewCard artifact={metricsArtifact()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Download Share as CSV" }));
+    expect(screen.getByRole("alert").textContent).toContain("Download unavailable");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(revoke).toHaveBeenCalledWith("blob:csv-test");
+  });
+
   it("loads the chart renderer for a chart view", async () => {
     const { container } = render(<DataViewCard artifact={chartArtifact()} />);
 
     expect((await screen.findByTestId("data-view-chart")).textContent).toBe("Revenue");
     expect(mocks.chartRender).toHaveBeenCalledWith("Revenue");
     expect(container.querySelector(".react-data-view")?.getAttribute("data-chart")).toBe("true");
+  });
+
+  it("renders table rows with natural IDs", () => {
+    const artifact = chartArtifact();
+    artifact.dataView!.view = { kind: "table", fields: ["period", "revenue"] };
+    render(<DataViewCard artifact={artifact} />);
+    expect(screen.getByRole("cell", { name: "FY2025" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("renders metrics without invoking the chart renderer", () => {
@@ -54,7 +91,7 @@ function chartArtifact(): ArtifactRef {
           { key: "period", label: "Period", type: "category" },
           { key: "revenue", label: "Revenue", type: "number" },
         ],
-        rows: [{ id: "fy25", values: { period: "FY2025", revenue: 403155 } }],
+        rows: [{ id: "智能手表 W3", values: { period: "FY2025", revenue: 403155 } }],
       },
       view: { kind: "cartesian", x: "period", series: [{ field: "revenue", mark: "bar" }] },
       provenance: { status: "unsourced", sources: [], caveats: [] },
@@ -73,7 +110,7 @@ function metricsArtifact(): ArtifactRef {
       insight: "Online leads.",
       dataset: {
         columns: [{ key: "share", label: "Share", type: "number", format: "percent", fractionDigits: 1 }],
-        rows: [{ id: "online", values: { share: 38 } }],
+        rows: [{ id: "2024-06", values: { share: 38 } }],
       },
       view: { kind: "metrics", items: [{ field: "share" }] },
       provenance: { status: "unsourced", sources: [], caveats: [] },

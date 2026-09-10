@@ -8,7 +8,12 @@ use super::plugins::{provider_plugin_by_id, registered_provider_plugins, OPENAI_
 
 const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
-const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &["deepseek-v4-flash-vision-exp", "glm-5.3-flash"];
+const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &[
+    "deepseek-flash",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "glm-5.3-flash",
+];
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

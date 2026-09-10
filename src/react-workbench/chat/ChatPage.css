@@ -238,7 +238,7 @@
 .react-empty-chat-start > p.react-empty-chat-start__workspace-error {
   max-width: min(680px, 100%);
   margin: 0;
-  color: var(--color-danger);
+  color: var(--color-error);
   font-size: 14px;
 }
 

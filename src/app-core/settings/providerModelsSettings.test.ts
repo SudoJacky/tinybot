@@ -83,6 +83,8 @@ describe("provider models settings", () => {
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     });
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
+    expect(BUILT_IN_PROVIDER_PRESETS.find((preset) => preset.id === "deepseek")?.defaultModels)
+      .toEqual(["deepseek-v4-pro", "deepseek-flash"]);
   });
 
   test("reads and patches an optional Memory model override", () => {
@@ -352,6 +354,7 @@ describe("provider models settings", () => {
   });
 
   test("resolves known model windows and persists per-model overrides", () => {
+    expect(automaticModelContextWindow("deepseek-flash")).toEqual({ known: true, tokens: 1_000_000 });
     expect(automaticModelContextWindow("deepseek-v4-flash-vision-exp")).toEqual({
       known: true,
       tokens: 1_000_000,
@@ -417,6 +420,8 @@ describe("provider models settings", () => {
   });
 
   test("resolves image defaults and persists model enablement and capability overrides", () => {
+    expect(automaticModelCapabilities("deepseek-flash")).toEqual({ supportsImageInput: true });
+    expect(automaticModelCapabilities("deepseek-v4-pro")).toEqual({ supportsImageInput: false });
     expect(automaticModelCapabilities("glm-5.3-flash")).toEqual({ supportsImageInput: true });
     expect(automaticModelCapabilities("deepseek-v4-flash-vision-exp")).toEqual({ supportsImageInput: true });
     expect(automaticModelCapabilities("glm-5.3")).toEqual({ supportsImageInput: false });
