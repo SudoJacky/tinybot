@@ -105,7 +105,7 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
     assert_eq!(deepseek["capabilities"], json!(["reasoning"]));
     assert_eq!(
         deepseek["curatedModelIds"],
-        json!(["deepseek-v4-pro", "deepseek-flash"])
+        json!(["deepseek-flash", "deepseek-v4-pro"])
     );
     let zai = body["providers"]
         .as_array()

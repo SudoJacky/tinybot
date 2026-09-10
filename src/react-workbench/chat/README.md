@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:743983b7c59ba03f6088fb16e90ebc0c4ba61a1e069621f300069ca08ab33f1f -->
+<!-- tinybot-module-fingerprint: sha256:28039f7e5947d2e0088e12812a166c5d45bb69d385e82ba1eeb742f62bd7442d -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -22,6 +22,10 @@ Chat width from 20px to 40px, including docked Sidecar and empty-chat layouts.
 `SessionTabStrip` presents open conversations directly in the header. Overflowing
 tabs remain reachable through horizontal wheel scrolling and keyboard navigation;
 activating a tab scrolls it into view. Each tab retains its close action.
+`SessionStatus` shares running and failure icons between tabs and sidebar rows;
+tab unread dots remain tab-specific. Sidebar status occupies the delete action's
+slot and replaces the timestamp while active. Row hover, keyboard focus, and
+delete confirmation show the delete button instead. Idle rows retain timestamps.
 `SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
 width defaults to 240 px and ranges from 220 to 420 px, with the maximum reduced
 to reserve 480 px for the chat workspace where possible. Pointer movement updates
@@ -62,6 +66,9 @@ Text-only updates do not rerender the composer or historical Turn components.
 Canonical Turn memoization relies on preserved model references and grouped Hook
 results. The timeline notifies the page after content commits so follow-to-bottom
 and saved scroll anchors continue working independently of page renders.
+Each composer send clears the current saved scroll position and resumes following
+the timeline, revealing the new user input when it mounts. Scrolling up afterward
+pauses following again until the next send or Back to latest action.
 `ChatPage.streaming-performance.test.tsx` measures render counts and checks scroll
 following, reading history, and final-answer delivery. Run it alongside
 `agentTimelineModel.performance.test.ts` for repeatable streaming work counts;
@@ -463,6 +470,10 @@ CSV export reports the requested filename and Downloads/save-location guidance
 through the shared top-of-window notification. It reports initiation failures and does not claim completion,
 since the WebView anchor download does not expose a completion callback.
 
-AgentResponseIndicator replaces streaming dots with a compact React Bits split-flap
-board. Localized playful phrases cycle while responding, with a stable accessible
-label. Offscreen/background indicators pause, and reduced motion stays static.
+AgentResponseIndicator sits at the end of each pending or running turn, after its
+execution items, hook results, and answer. A single split-flap board stays mounted
+through reasoning, tool execution, and message streaming until the turn completes,
+fails, or is interrupted. Awaiting input shows a static localized label; optimistic
+dispatch shows one board until the canonical turn arrives. Localized playful
+phrases cycle with a stable accessible label. Offscreen/background indicators pause,
+and reduced motion stays static.

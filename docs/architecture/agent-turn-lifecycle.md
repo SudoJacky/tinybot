@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d80ee217e1585b9d5d34b213c2921297c36b166a8e24391d3f5f6a3d5042796a -->
+<!-- tinybot-doc-fingerprint: sha256:bd7e6f55303b712889b6607051d89f34b27514bc609bab5f9bc8dc9a632fab11 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -174,8 +174,10 @@ For each provider iteration, the runtime:
 Several calls in one provider response form an ordered batch, not a requirement
 to execute them simultaneously. Registry policy marks concurrency-safe calls;
 the runtime groups those calls into parallel waves and treats every exclusive
-call as an ordering barrier. `update_plan` is such a barrier, so a plan update
-may precede ordinary calls in the same response without rejecting the batch.
+call as an ordering barrier. `update_plan` and `publish_data_view` are such
+barriers: they may share a response with ordinary tools, retaining provider
+order without rejecting the batch. Chart validation failures are returned as
+tool errors while subsequent calls continue through the scheduler.
 
 The bridge loads additive global and effective-working-directory command hooks
 for each Turn, adapting the engine to the same asynchronous `AgentHook`

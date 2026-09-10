@@ -38,6 +38,7 @@ import type {
 } from "../services";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import { ProjectGroupDialog } from "./ProjectGroupDialog";
+import { SessionStatus, sessionStatusLabel } from "./SessionStatus";
 import { projectSessionGroups } from "./projectSessionGroups";
 import {
   INITIAL_SESSION_SIDEBAR_ORDER,
@@ -503,6 +504,7 @@ export function ChatSessionWorkspace({
     const confirming = confirmingDeleteSessionId === session.id;
     const dissolving = dissolvingSessionIds.has(session.id);
     const sessionLabel = displaySessionTitle(session.title, t);
+    const statusLabel = sessionStatusLabel(session, t);
     const reorderItem = { containerId, itemId: session.id, label: sessionLabel };
     const entranceIndex = entranceCurrent && typeof entrance === "object"
       ? entrance.indices.get(session.id)
@@ -519,6 +521,7 @@ export function ChatSessionWorkspace({
         data-dissolving={dissolving ? "true" : undefined}
         data-motion-role="item"
         data-session-id={session.id}
+        data-has-status={Boolean(statusLabel)}
         data-entering={entranceIndex !== undefined ? "true" : undefined}
         draggable={!dissolving}
         key={session.id}
@@ -564,6 +567,11 @@ export function ChatSessionWorkspace({
           <span className="react-session-row__title">{sessionLabel}</span>
           <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
         </button>
+        {statusLabel ? (
+          <span className="react-session-row__status" role="img" aria-label={statusLabel}>
+            <SessionStatus status={session.status} />
+          </span>
+        ) : null}
         <button
           aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
           className="react-session-row__delete"

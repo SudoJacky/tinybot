@@ -832,7 +832,7 @@ fn native_config_defaults_to_schema_v2_deepseek_profile_without_config_file() {
             "agents": {
                 "defaults": {
                     "activeProfile": "deepseek-default",
-                    "model": "deepseek-v4-pro",
+                    "model": "deepseek-flash",
                     "workspace": "~/.tinybot/workspace"
                 }
             },
@@ -843,8 +843,8 @@ fn native_config_defaults_to_schema_v2_deepseek_profile_without_config_file() {
                         "displayName": "DeepSeek",
                         "enabled": true,
                         "apiBase": "https://api.deepseek.com",
-                        "models": ["deepseek-v4-pro", "deepseek-flash"],
-                        "defaultModel": "deepseek-v4-pro",
+                        "models": ["deepseek-flash", "deepseek-v4-pro"],
+                        "defaultModel": "deepseek-flash",
                         "supportsModelDiscovery": true,
                         "capabilities": ["reasoning"]
                     }

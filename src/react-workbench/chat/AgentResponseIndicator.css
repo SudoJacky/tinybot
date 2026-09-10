@@ -9,6 +9,11 @@
   letter-spacing: 0;
 }
 
+.react-agent-response__waiting {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
 .react-agent-response__board .split-flap-text__tile {
   flex-shrink: 0;
   height: 1.6em;

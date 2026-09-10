@@ -84,7 +84,7 @@ describe("provider models settings", () => {
     });
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
     expect(BUILT_IN_PROVIDER_PRESETS.find((preset) => preset.id === "deepseek")?.defaultModels)
-      .toEqual(["deepseek-v4-pro", "deepseek-flash"]);
+      .toEqual(["deepseek-flash", "deepseek-v4-pro"]);
   });
 
   test("reads and patches an optional Memory model override", () => {

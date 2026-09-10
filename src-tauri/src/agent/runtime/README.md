@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:4c39fc5edc176aa9a854262cadc6216c2f01ba3c57d493c0ed29c4d07cc8eeb3 -->
+<!-- tinybot-module-fingerprint: sha256:26f86a69e469455ef05d75f42892ec73c76cad1e487484a1148331afd5140dc5 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -437,6 +437,11 @@ tool names fail before dispatch.
 Valid updates revise one `<turnId>:plan` timeline item and emit
 durable `agent.plan.progress`, so Thread reload reconstructs the last reported
 plan after session changes.
+
+`publish_data_view` runs as an exclusive wave in the shared tool batch scheduler.
+It may share a provider response with other tools; waves retain provider order,
+and chart validation failures return tool errors without skipping later tools.
+Published artifacts use the normal tool observation, hook, and checkpoint path.
 
 Resumable form checkpoints persist the activated tool set. Continuation
 revalidates it against the current registry and capability policy. Stale IDs,

@@ -112,6 +112,9 @@ export function ChatTimeline({
           sessionRunning={sessionRunning}
         />
       ))}
+      {sessionRunning && optimisticMessages.length > 0 && !turns.some((turn) => (
+        turn.status === "pending" || turn.status === "running" || turn.status === "awaiting_user"
+      )) ? <AgentResponseIndicator /> : null}
     </>
   );
 }
@@ -229,6 +232,9 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
         />
       ) : null}
       {!finalAnswer && metricsFooter ? <div className="react-message__actions">{metricsFooter}</div> : null}
+      {turn.status === "pending" || turn.status === "running" || turn.status === "awaiting_user" ? (
+        <AgentResponseIndicator awaitingUser={turn.status === "awaiting_user"} />
+      ) : null}
     </section>
   );
 });
@@ -610,7 +616,6 @@ function CanonicalMessage({
         ))}
         {role === "assistant" ? <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
-        {streaming ? <AgentResponseIndicator /> : null}
       </div>
       {(allowActions && text.trim()) || footer ? (
         <div className="react-message__actions" data-align={role === "user" ? "right" : "left"}>
@@ -1044,7 +1049,6 @@ function MessageBubble({
         )}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
-        {message.status === "streaming" ? <AgentResponseIndicator /> : null}
       </div>
       {showCopyAction || showBranchAction ? (
         <div className="react-message__actions" data-align={actionAlignment}>

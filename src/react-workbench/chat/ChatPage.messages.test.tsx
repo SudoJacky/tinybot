@@ -414,7 +414,9 @@ describe("ChatPage", () => {
     expect(reasoning.textContent).toContain("I am checking the available context.");
     expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
     expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");
-    expect(within(message).getByLabelText("Agent is responding")).toBeTruthy();
+    const turn = message.closest(".react-canonical-turn")!;
+    expect(turn.lastElementChild).toBe(screen.getByLabelText("Agent is responding"));
+    expect(within(message).queryByLabelText("Agent is responding")).toBeNull();
     expect(message.querySelector(".react-message-markdown")?.textContent).toContain("Here is the answer.");
   });
 

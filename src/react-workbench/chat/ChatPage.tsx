@@ -771,6 +771,11 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     await sidecarResources.current?.finishBrowserAnnotation();
+    // A send starts following the new input when the timeline commits it.
+    pendingConversationRestoreRef.current = "";
+    stickToLatestRef.current = true;
+    conversationViewBySessionRef.current.delete(activeSessionId);
+    setShowBackToLatest(false);
     if (quickStart.visible) quickStart.beginTask();
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
     await chatActions.send({

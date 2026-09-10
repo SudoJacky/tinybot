@@ -2426,6 +2426,109 @@ fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
 }
 
 #[test]
+fn publish_data_view_mixed_with_write_stdin_preserves_order_and_artifact() {
+    let arguments = json!({
+        "schemaVersion": "tinybot.data_view.v1",
+        "title": "Project stars",
+        "insight": "Compare project stars.",
+        "dataset": {
+            "columns": [{ "key": "stars", "label": "Stars", "type": "number" }],
+            "rows": [{ "id": "project", "values": { "stars": 100 } }]
+        },
+        "view": { "kind": "table", "fields": ["stars"] },
+        "provenance": { "status": "user_provided", "sources": [] }
+    })
+    .to_string();
+    let services = NativeAgentRuntimeServices::default();
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-mixed-data-view-order",
+            "sessionId": "websocket:chat-mixed-data-view-order",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "wait for the report and publish a chart" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": { "fixture": { "responses": [
+                { "content": "", "toolCalls": [
+                    {
+                        "id": "call-wait", "name": "write_stdin",
+                        "argumentsJson": "{\"processId\":\"process-5\",\"chars\":\"\"}",
+                        "result": { "content": "Report ready" }
+                    },
+                    {
+                        "id": "call-chart", "name": "publish_data_view",
+                        "argumentsJson": arguments
+                    },
+                    {
+                        "id": "call-plan", "name": "update_plan",
+                        "argumentsJson": "{\"plan\":[{\"step\":\"Publish chart\",\"status\":\"completed\"}]}"
+                    }
+                ] },
+                { "content": "Report and chart ready." }
+            ] } }
+        }),
+    ).expect("mixed tools should finish the turn");
+
+    assert_eq!(result["stopReason"], "final_response");
+    let completed = result["completedToolResults"].as_array().unwrap();
+    assert_eq!(
+        completed
+            .iter()
+            .map(|item| item["toolCallId"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["call-wait", "call-chart", "call-plan"]
+    );
+    assert!(
+        completed.iter().all(|item| item["status"] == "ok"),
+        "{completed:?}"
+    );
+    let artifact = &completed[1]["envelope"]["artifacts"][0];
+    assert_eq!(artifact["kind"], "data_view");
+    assert_eq!(artifact["content"]["title"], "Project stars");
+    let events = result["runtimeEvents"].as_array().unwrap();
+    let results = events
+        .iter()
+        .filter(|event| event["eventName"] == "agent.tool.result")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        results
+            .iter()
+            .map(|event| event["payload"]["toolCallId"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["call-wait", "call-chart", "call-plan"]
+    );
+    assert_eq!(results[1]["payload"]["envelope"]["artifacts"][0], *artifact);
+    let lifecycle = events
+        .iter()
+        .filter(|event| {
+            event["eventName"] == "agent.tool.result"
+                || (event["eventName"] == "agent.tool.start"
+                    && event["payload"]["status"] == "running")
+        })
+        .map(|event| {
+            (
+                event["eventName"].as_str().unwrap(),
+                event["payload"]["toolCallId"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lifecycle,
+        vec![
+            ("agent.tool.start", "call-wait"),
+            ("agent.tool.result", "call-wait"),
+            ("agent.tool.start", "call-chart"),
+            ("agent.tool.result", "call-chart"),
+            ("agent.tool.start", "call-plan"),
+            ("agent.tool.result", "call-plan"),
+        ]
+    );
+}
+
+#[test]
 fn mixed_data_view_error_and_other_tool_success_are_both_returned_to_the_model() {
     let services = NativeAgentRuntimeServices::default()
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
@@ -2475,6 +2578,10 @@ fn mixed_data_view_error_and_other_tool_success_are_both_returned_to_the_model()
     assert_eq!(completed.len(), 2);
     assert_eq!(completed[0]["toolCallId"], "call-data-view-mixed");
     assert_eq!(completed[0]["status"], "error");
+    assert!(completed[0]["envelope"]["modelContent"]
+        .as_str()
+        .unwrap()
+        .starts_with("data_view_schema_unsupported:"));
     assert_eq!(completed[1]["toolCallId"], "call-read-mixed");
     assert_eq!(completed[1]["status"], "ok");
 }

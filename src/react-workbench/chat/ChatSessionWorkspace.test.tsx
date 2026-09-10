@@ -20,6 +20,23 @@ afterEach(() => {
 });
 
 describe("ChatSessionWorkspace", () => {
+  test("shares running and failure indicators with tabs and clears them after completion", () => {
+    const actions = createActions();
+    const session = { ...planningSession(), status: "running" as const };
+    const view = renderWorkspace({ actions, sessions: [session] });
+    const row = screen.getByRole("button", { name: session.title }).closest(".react-session-row")!;
+    expect(row.getAttribute("data-has-status")).toBe("true");
+    expect(row.querySelector('.react-session-row__status .react-session-status[data-kind="running"]')).not.toBeNull();
+    view.rerenderSessions([{ ...session, status: "failed" }]);
+    expect(row.querySelector('.react-session-status[data-kind="running"]')).toBeNull();
+    expect(row.querySelector('.react-session-row__status .react-session-status[data-kind="failed"]')).not.toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: `Delete ${session.title}` }));
+    expect(actions.onDeleteSession).toHaveBeenCalledWith(expect.objectContaining({ id: session.id, status: "failed" }));
+    view.rerenderSessions([{ ...session, status: "idle" }]);
+    expect(row.getAttribute("data-has-status")).toBe("false");
+    expect(row.querySelector(".react-session-row__status")).toBeNull();
+  });
+
   test.each([6, 7, 12, 19])("reveals %s workspace sessions in stages of six, twelve, then all", (count) => {
     const sessions = workspaceSessions(count);
     renderWorkspace({ sessions });

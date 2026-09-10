@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:11910b4eeef9e29191c18bfc2ff043666cf903050ae27f39d1dabf0ea5660234 -->
+<!-- tinybot-doc-fingerprint: sha256:a1067392b68c079314a6032b88432f8bdf9b872f38e2ebac72da0036b8ea8350 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -22,6 +22,12 @@ and result projection remain separate concerns joined through narrow seams.
 The independent first-Turn title request reuses the Agent Runtime's Provider
 request and response adapters without entering the Agent Loop. It never receives
 the tool registry and remains a single tool-free Provider call.
+
+`publish_data_view` uses an exclusive wave in the shared batch scheduler, so it
+can appear alongside ordinary tools in one provider response. Publication retains
+provider order and the normal validation, hooks, artifact observations, and
+checkpoint handling. Invalid chart data produces a tool error; later tools in the
+batch still run.
 
 ## Tool flow
 
