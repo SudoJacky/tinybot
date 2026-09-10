@@ -1,5 +1,5 @@
 # Shell Tools
-<!-- tinybot-module-fingerprint: sha256:39843feebcc46fdc46d3d83bfbf62d9b5a0932b8fee4697a85d3154578554116 -->
+<!-- tinybot-module-fingerprint: sha256:f9d7d65ad7263a03d25f5c58485902947467f4660c060d846ac69c4e87b30253 -->
 
 `shell` runs commands for agents and RPC clients in a validated working
 directory. Relative paths resolve from the configured workspace; an existing
@@ -17,6 +17,9 @@ Empty-input `write_stdin` waits for process completion, collecting progress in
 the bounded transcript instead of returning on each log chunk. Its default
 wait is 30 seconds, with a 5-second floor and a 300-second ceiling; completion
 and cancellation wake the wait early. The deadline retains a running process.
+Terminal and output waits recheck their monotonic deadline after every condition
+variable wakeup, including platform timeout reports. Repeated deadline tests
+cover early timer returns without launching subprocesses.
 Non-empty input and `shell.poll` retain their responsive output waits, including
 Sidecar terminal polling. Callers pass the latest cursor for incremental output.
 Runtime metrics record `process.wait.durationMs`, `process.wait.stillRunning`,

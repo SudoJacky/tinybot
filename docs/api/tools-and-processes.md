@@ -14,7 +14,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:533b3a3b89b92153e3b19750fb8fa3e3f150251f6a790920c3f839601dace52f -->
+<!-- tinybot-doc-fingerprint: sha256:94b3f560095d0bb2b628172d50c8ba5f21fdbc1166c018ed79af57611a6c8698 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -71,7 +71,9 @@ For `shell.write_stdin`, empty input collects output until the process finishes
 or the wait deadline expires. Its default wait is 30 seconds; explicit waits
 are clamped to 5-300 seconds, including a request for zero. New progress logs
 do not end the wait. Process exit and cancellation return early, while reaching
-the deadline leaves the process running. Supply the previous result's `cursor`
+the deadline leaves the process running. Waits recheck the monotonic deadline
+after every condition-variable wakeup, including timeout reports from the
+platform timer. Supply the previous result's `cursor`
 to retrieve only subsequent output. Running Agent results suggest this same
 30-second continuation through `nextAction`.
 
