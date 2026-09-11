@@ -1,10 +1,13 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:6c8a648f3b86faac3fb749eaf2fb0cfcf5c531640d7ca7d732efc99eab8d2f6d -->
+<!-- tinybot-module-fingerprint: sha256:a0a8bf2bf9249903a4af72a44c9e5082f2e98d53625c02f8082452504ba1cf66 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
 Workspace and Workspace Registry store adapters used by
 `createDesktopAppServices()`.
+
+The native event bridge forwards `agent:status` retry updates using their live
+trace identity, without generating timeline Items or reloading conversation history.
 
 Adapters may translate transport data into renderer contracts, but they do not
 render React views or become a second authority for chat, settings, or

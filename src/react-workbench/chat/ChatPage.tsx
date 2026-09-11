@@ -1,3 +1,4 @@
+import type { ComposerSkillOption } from "../../components/ui/composerContracts";
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
@@ -24,11 +25,9 @@ import {
   type ComposerFileReference,
   type ComposerSendOptions,
   type ComposerSessionMentionOption,
-  type ComposerSkillOption,
   type ComposerSlashCommand,
   type ComposerToolOption,
   type ModelOption,
-  type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
@@ -345,7 +344,7 @@ export function ChatPage({
     onBackgroundActivity(sessionId) { dispatchSessionTabs({ type: "activity", sessionId }); },
   });
   const {
-    agentUiForms, error: timelineError, hookResults, timelineSummary,
+    agentUiForms, error: timelineError, hookResults, providerRetry, timelineSummary,
     optimisticMessages, compactingSessionId, artifactReviewEpoch,
     lifecycle: commandLifecycle, canCancel: canCancelTurn, cancelUnavailableReason,
   } = chatState;
@@ -767,7 +766,6 @@ export function ChatPage({
   async function handleComposerSend(
     message: string,
     files: ComposerFileReference[],
-    pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
     await sidecarResources.current?.finishBrowserAnnotation();
@@ -784,7 +782,6 @@ export function ChatPage({
       isRunning: activeSession ? sessionResponding : false,
       message,
       options,
-      pastedContent,
       selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
       sessions: sessionApplication.snapshot().sessions.map((session) => ({
@@ -1094,6 +1091,7 @@ export function ChatPage({
             }}
             error={timelineError}
             hookResults={hookResults}
+            providerRetry={providerRetry}
             interactiveFormIds={interactiveFormIds}
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}
@@ -1272,7 +1270,7 @@ export function ChatPage({
           onImportFiles={importDesktopChatFiles}
           attachmentContextKey={activeSessionId}
           onValueChange={handleComposerDraftChange}
-          onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
+          onSendMessage={(message, files, options) => handleComposerSend(message, files, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
           />
         </div>

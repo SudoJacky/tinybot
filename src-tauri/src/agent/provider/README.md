@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:8724286feee694840347abbcfcf9ef2cee8bfefb0db14dc5754ce49618674cec -->
+<!-- tinybot-module-fingerprint: sha256:c870917c1fd1ceb954e049f33c3bedc5857698e8f772ff9d7036011f337c857a -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -39,6 +39,14 @@ their existing selection.
   `provider.tokenUsage.persistence.failed` and emit a diagnostic with the
   protocol, model ID, and storage error without replacing a successful provider
   response.
+- `retry.rs` owns the observable HTTP retry budget, replacing the SDK's hidden
+  default executor. It permits three additional attempts on connection errors,
+  HTTP 5xx, and parseable HTTP 429 rate-limit errors; insufficient quota is
+  permanent. Backoff is 100/200/400 ms unless an integer-seconds Retry-After
+  header is supplied. Requests emit waiting/requesting/cleared observer updates.
+  Overall request timeout and cancellation include the retry wait; an opened
+  response stream is never restarted. Successful assistant content, including
+  error-looking text, is not classified as a transport failure.
 - `streaming.rs` normalizes streamed provider events. Responses reasoning
   accepts both summary deltas and provider-compatible textual reasoning deltas.
   Non-empty tool names and argument deltas also notify the runtime's timing

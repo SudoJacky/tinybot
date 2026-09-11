@@ -1,3 +1,4 @@
+import type { ProviderRetryStatus } from "../../app-core/chat/providerRetryStatus";
 import { memo, useMemo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
@@ -64,6 +65,7 @@ export function ChatTimeline({
   interactiveFormIds,
   latestFailedTurnId,
   optimisticMessages,
+  providerRetry,
   sessionRunning,
   turns,
 }: {
@@ -73,6 +75,7 @@ export function ChatTimeline({
   interactiveFormIds: ReadonlySet<string>;
   latestFailedTurnId: string;
   optimisticMessages: readonly ReactChatMessage[];
+  providerRetry?: ProviderRetryStatus;
   sessionRunning: boolean;
   turns: readonly ChatTurn[];
 }) {
@@ -95,6 +98,7 @@ export function ChatTimeline({
           key={turn.id}
           hookResults={hooksByTurn.get(turn.id) ?? EMPTY_HOOK_RESULTS}
           turn={turn}
+          providerRetry={providerRetry?.turnId === turn.id ? providerRetry : undefined}
           onBranch={actions.onBranch}
           onOpenArtifact={actions.onOpenArtifact}
           onOpenFileLink={actions.onOpenFileLink}
@@ -133,6 +137,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
   onOpenFileLink,
   onOpenSubagent,
   onOpenTool,
+  providerRetry,
   turn,
 }: {
   focusError: boolean;
@@ -144,6 +149,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   onOpenTool?: (toolCall: ToolCallSummary) => void;
   turn: ChatTurn;
+  providerRetry?: ProviderRetryStatus;
 }) {
   const { t } = useTranslation("chat");
   const executionItems = turn.executionItems ?? turn.steps;
@@ -235,11 +241,24 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
       ) : null}
       {!finalAnswer && metricsFooter ? <div className="react-message__actions">{metricsFooter}</div> : null}
       {turn.status === "pending" || turn.status === "running" || turn.status === "awaiting_user" ? (
-        <AgentResponseIndicator awaitingUser={turn.status === "awaiting_user"} />
+        providerRetry && turn.status === "running" ? <ProviderRetryIndicator retry={providerRetry} />
+          : <AgentResponseIndicator awaitingUser={turn.status === "awaiting_user"} />
       ) : null}
     </section>
   );
 });
+
+function ProviderRetryIndicator({ retry }: { retry: ProviderRetryStatus }) {
+  const { t } = useTranslation("chat");
+  return (
+    <div className="react-provider-retry" role="status" aria-live="polite">
+      <Loader2 size={14} aria-hidden="true" />
+      <span>{t(retry.delayMs > 0 ? "providerRetry.waiting" : "providerRetry.requesting", {
+        attempt: retry.attempt, max: retry.maxRetries, seconds: retry.delayMs / 1000,
+      })}<small>{t(`providerRetry.reason.${retry.reason}`)}</small></span>
+    </div>
+  );
+}
 
 function HookExecutionResults({ results }: { results: readonly HookExecutionResult[] }) {
   const { t } = useTranslation("chat");

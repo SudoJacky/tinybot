@@ -130,3 +130,17 @@ selection scope for older recent-only buffers, and displays request/response
 resource timing. Memory output includes window-state history, largest sample
 gap, and collection cost. Use release builds and identical operations for
 comparisons; a sampled increase alone does not establish a leak.
+
+## Markdown composer baseline review
+
+The editable Markdown composer adds Tiptap/ProseMirror editing, Markdown parsing,
+and table editing. A same-source production ablation replacing only the editor
+with an empty measurement fixture reduced JavaScript gzip from 3,260,111 to
+3,107,746 bytes: an attributable increase of 152,365 bytes (about 149 KiB).
+Other changes since the August baseline account for the remaining increase.
+The treemap attributes the new code primarily to the editor view/model/transform,
+Tiptap core, Markdown parser, and table support used by the feature.
+
+This baseline accepts that explicit feature cost after running all analysis gates.
+The five-percent regression budgets stay unchanged, and the shared composer Skill
+contract is a dependency leaf so the import-cycle baseline remains empty.

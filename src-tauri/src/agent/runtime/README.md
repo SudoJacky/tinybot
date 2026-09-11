@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:ef7e9bc23f2ae5d3aee9f88032c324c45f49834b7288e66d401318278eb37723 -->
+<!-- tinybot-module-fingerprint: sha256:620bf44194ff4a63b8e675df2730dda24c44132c1ee96f2b385f7c7b2da1daff -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -399,7 +399,13 @@ runtime state. Cancellation is checked before opening a request, between
 chunks, and around observer callbacks; after cancellation, late deltas and
 provider results are ignored.
 
-Provider failures do not retry automatically. Their terminal reasons distinguish
+Before response streaming starts, provider HTTP requests retry up to three times
+on rate limits (except insufficient quota), server errors, and connection failures.
+The transport emits transient `agent.status` retry progress (attempt, budget, delay,
+reason, and model call identity), plus application diagnostics; retry status is
+never assistant content or conversation history. Cancellation and the overall
+request timeout also cover backoff. Stream interruptions and terminal provider
+failures do not retry automatically. Their terminal reasons distinguish
 request timeout, stream-idle timeout, transport failure, provider failure, and
 cancellation.
 

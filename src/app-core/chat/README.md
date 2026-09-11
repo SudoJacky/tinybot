@@ -1,9 +1,13 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:c600e5cd6e82e69c86aff771275a09a07a6ff1363a349b838409e619579216aa -->
+<!-- tinybot-module-fingerprint: sha256:a8b5ad63f6e3e81fba7a96c548faa7fc548a5150092aaf0b2b582d1ce36dd52c -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
 desktop session coordination.
+
+`providerRetryStatus` validates transient provider status updates and correlates
+them with a Thread, Turn, and model call. It never infers failures from assistant text
+or adds retry notices to the canonical timeline.
 
 Persisted input references use `referenceKind` to distinguish ordinary file
 attachments, managed images, referenced Threads, and browser evidence. Image references preserve their local path,

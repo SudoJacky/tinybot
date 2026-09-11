@@ -3,13 +3,16 @@
 import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopPetQuickChatRequest, DesktopPetQuickChatWindowClient } from "../../app-core/native/desktopNativePetQuickChat";
 import { unavailableThreadEffectiveCapabilities } from "../../app-core/chat/threadCapabilities";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { ChatStore, SessionStore, SettingsStore } from "../services";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { DesktopPetQuickChatWindow } from "./DesktopPetQuickChatWindow";
+
+// These existing interaction suites exercise the plain-text composer.
+beforeEach(() => window.localStorage.setItem("tinybot.ui.composer.rich-text", "false"));
 
 afterEach(() => {
   cleanup();

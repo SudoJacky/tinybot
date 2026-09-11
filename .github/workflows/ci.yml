@@ -84,7 +84,7 @@ jobs:
         run: cargo fmt --check
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test --locked --lib -- --test-threads=1
+        run: cargo test --locked --lib -- --test-threads=4
       - name: Verify build version
         if: github.ref == 'refs/heads/master'
         shell: pwsh

@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:0955af3bc601f608aa04c2d386d5a45261435d9279962ff4ef14e6ddf5a2a2bd -->
+<!-- tinybot-doc-fingerprint: sha256:b29e3b645f4cb922e58418f47237f5fffd511a5e31eedcc8c0a73cf4e5d98130 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -31,6 +31,16 @@ normalized to colon-separated Tauri listener names; for example, `agent.delta` i
 | Terminal | `agent.done`, `agent.error`, `agent.cancelled`, `agent.cleanup_timeout` |
 | Delegates | `agent.delegate.linked`, `agent.delegate.started`, `agent.delegate.running`, `agent.delegate.wait`, `agent.delegate.result`, `agent.delegate.notification`, `agent.delegate.queried`, `agent.delegate.user_message`, `agent.delegate.message_queued`, `agent.delegate.spawned`, `agent.delegate.message`, `agent.delegate.completed`, `agent.delegate.cancelled`, `agent.delegate.closed`, `agent.delegate.failed`, `agent.delegate.interrupted`, `agent.delegate.resumed`, `agent.delegate.spawn_rejected`, `agent.delegate.trace.updated` |
 | Timeline projection | `agent.timeline.patch` |
+
+`agent.status` is ephemeral. During HTTP retries its payload includes
+`modelCallId` and `retry: { attempt, maxRetries, delayMs, reason }`.
+Attempts are one-based additional requests; `delayMs > 0` reports the scheduled
+wait, and zero means the next request is starting. Reasons are `rate_limit`,
+`server_error`, or `connection_error`. A matching `retry: null` clears the
+notice when the HTTP request settles. Tauri sends the event payload directly,
+with `traceContext.threadId` and `traceContext.turnId` for routing. The UI
+keeps the Turn running and removes the notice on completion or cancellation.
+These statuses neither persist as response Items nor become model-visible history.
 
 The desktop shell also emits:
 
@@ -77,7 +87,8 @@ snapshot reload and reapplication of the received patch. If the reload still can
 the error remains visible. Identity/schema mismatches, invalid assistant-phase transitions,
 post-final work, and terminal-state regressions are rejected;
 lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
-not a second Chat state source.
+not a second source of conversation content. Transient retry status is presented
+separately and does not modify canonical Items.
 
 Textual `agent.reasoning_delta` events update one user-visible running Reasoning item without
 advancing `snapshotRevision`. `agent.reasoning.completed` completes the same item and advances the

@@ -4608,3 +4608,15 @@
   }
 
 }
+
+.react-provider-retry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block: 10px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.react-provider-retry > svg { flex: none; margin-top: 3px; }
+.react-provider-retry small { display: block; font-size: 12px; }

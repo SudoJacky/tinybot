@@ -315,6 +315,10 @@ export const zh = {
         label: "语言", description: "选择 Tinybot 界面使用的语言。", optionsLabel: "语言选项", english: "English",
         englishDescription: "Use the English interface.", chinese: "简体中文", chineseDescription: "使用简体中文界面。",
       },
+      composerRichText: {
+        label: "Composer 启用富文本",
+        description: "在输入框内编辑 Markdown 标题、列表和表格等内容。关闭后使用纯文本编辑。",
+      },
       persistence: "更改会立即生效，并仅保存在这台设备上。",
     },
     personalization: {
@@ -508,6 +512,11 @@ export const zh = {
     downloading: "正在下载 {{percent}}%", installing: "正在安装…", install: "下载并安装",
   },
   chat: {
+    providerRetry: {
+      waiting: "请求暂时失败，等待 {{seconds}} 秒后重试（{{attempt}}/{{max}}）",
+      requesting: "正在重试请求（{{attempt}}/{{max}}）",
+      reason: { rate_limit: "服务限流", server_error: "服务暂时不可用", connection_error: "连接失败" },
+    },
     quickStart: {
       label: "欢迎使用 Tinybot", title: "让 Tinybot 帮你完成第一件事",
       description: "连接一个模型，然后从问题、文件或项目开始。",
@@ -779,7 +788,7 @@ export const zh = {
         range: "范围：{{range}}",
       },
       placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", dropFiles: "松开以添加附件", importingFiles: "正在准备附件…", filesFailed: "无法选择文件。", imageUnsupported: "{{model}} 不支持图像输入。请选择支持图像的模型，或移除图片。",
-      label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", words: "{{count}} 个词", pastedText: "粘贴文本", removePasted: "移除粘贴内容", pastedContentLabel: "粘贴内容", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型", imageInput: "视觉",
+      label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型", imageInput: "视觉",
       slash: "斜杠命令", message: "消息", attachFiles: "附加文件", tools: "工具", on: "开", off: "关", selectModel: "选择模型", model: "模型", advanced: "高级",
       effort: "推理强度", chooseModel: "选择模型", modelEffort: "模型和推理强度", backAdvanced: "返回高级选项", models: "模型", reasoningEffort: "推理强度",
       effortOptions: {

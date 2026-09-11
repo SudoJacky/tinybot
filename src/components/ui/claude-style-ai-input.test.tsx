@@ -1,12 +1,12 @@
+import type { ComposerSkillOption } from "./composerContracts";
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   ClaudeStyleAiInput,
-  type ComposerSkillOption,
   type ComposerSlashCommand,
 } from "./claude-style-ai-input";
 
@@ -40,7 +40,10 @@ const skillOptions = [
   },
 ] as const satisfies readonly ComposerSkillOption[];
 
-afterEach(cleanup);
+// These existing interaction suites exercise the plain-text composer.
+beforeEach(() => window.localStorage.setItem("tinybot.ui.composer.rich-text", "false"));
+
+afterEach(() => { cleanup(); window.localStorage.clear(); });
 
 describe("composer multiline keyboard input", () => {
   it.each([
@@ -133,6 +136,34 @@ describe("composer file drop and paste", () => {
     await user.paste("Text stays editable");
     expect((input as HTMLTextAreaElement).value).toBe("Text stays editable");
     expect(onImportFiles).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("pastes long plain text into the selection and sends it as editable draft text with inline=%s", async (inline) => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput onSendMessage={onSendMessage} skillOptions={inline ? skillOptions : []} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    await user.type(input, "Before replace After");
+    if (input instanceof HTMLTextAreaElement) {
+      input.setSelectionRange(7, 14);
+    } else {
+      const range = document.createRange();
+      range.setStart(input.firstChild!, 7);
+      range.setEnd(input.firstChild!, 14);
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+    }
+    const text = "中文段落\n\n| 商品 | 金额 |\n| --- | --- |\n" + "商品_A  123\n".repeat(80) + "<b>literal text</b>";
+    await user.paste(text);
+    const draft = () => input instanceof HTMLTextAreaElement ? input.value : input.textContent;
+    expect(draft()).toBe(`Before ${text} After`);
+    expect(screen.queryByLabelText("Composer attachments")).toBeNull();
+    expect(input.querySelector("b")).toBeNull();
+    await user.keyboard("!");
+    expect(draft()).toBe(`Before ${text}! After`);
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSendMessage).toHaveBeenCalledWith(`Before ${text}! After`, [], { reasoningEffort: "high" });
+    expect(draft()).toBe("");
   });
 
   it("rejects excess files before import, ignores disabled drops, and reports import failures", async () => {
@@ -305,7 +336,6 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onSendMessage).toHaveBeenCalledWith(
       "我希望这样显示 在用户的输入内容中显示",
       [],
-      [],
       expect.any(Object),
     );
   });
@@ -373,7 +403,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Review this incident");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSendMessage).toHaveBeenCalledWith("Review this incident", [], [], {
+    expect(onSendMessage).toHaveBeenCalledWith("Review this incident", [], {
       reasoningEffort: "high",
       selectedTools: [],
     });
@@ -406,7 +436,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
 
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Think carefully");
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(onSendMessage).toHaveBeenCalledWith("Think carefully", [], [], {
+    expect(onSendMessage).toHaveBeenCalledWith("Think carefully", [], {
       model: "gpt-5.6",
       reasoningEffort: "xhigh",
     });
@@ -437,7 +467,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(document.querySelectorAll(".claude-ai-input__send")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "high" });
+    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], { reasoningEffort: "high" });
   });
 
   it("submits and clears externally controlled file attachments", async () => {
@@ -460,7 +490,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
 
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSendMessage).toHaveBeenCalledWith("", files, [], { reasoningEffort: "high" });
+    expect(onSendMessage).toHaveBeenCalledWith("", files, { reasoningEffort: "high" });
     expect(onFilesChange).toHaveBeenCalledWith([]);
   });
 
@@ -494,7 +524,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onRemoveContextReference).toHaveBeenCalledWith("spreadsheet-1");
 
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(onSendMessage).toHaveBeenCalledWith("", [], [], { reasoningEffort: "high" });
+    expect(onSendMessage).toHaveBeenCalledWith("", [], { reasoningEffort: "high" });
     expect(onClearContextReferences).toHaveBeenCalledOnce();
   });
 
@@ -566,7 +596,6 @@ describe("ClaudeStyleAiInput slash commands", () => {
 
     await vi.waitFor(() => expect(onSendMessage).toHaveBeenCalledWith(
       "/compact",
-      [],
       [],
       { reasoningEffort: "high" },
     ));

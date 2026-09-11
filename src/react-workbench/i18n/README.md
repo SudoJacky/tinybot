@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:e2ec942e07c7f9a9363324c6a34f62c86c0de01e2df28b3e35aa1a5536d74834 -->
+<!-- tinybot-module-fingerprint: sha256:1ba3e95c5907c7cf6475b8bd7ded13d0843861d61268cac5184cc95972918af1 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -125,3 +125,6 @@ labels, color alpha, four spacing directions, linkage, and invalid CSS feedback.
 Delimited file views localize the Table/Source switch, row label, parse-error
 message, and collapsed file details. The floating plan capsule keeps localized expand/collapse labels. Successful
 user-input tool calls have a distinct received-input title.
+
+Provider retry status includes waiting/requesting labels, retry counts, delays,
+and transport failure categories in both languages.

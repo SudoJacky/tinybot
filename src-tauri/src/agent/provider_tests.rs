@@ -1334,3 +1334,79 @@ fn async_agent_chat_honors_cancellation_before_provider_request() {
 
     assert_eq!(error.kind(), NativeProviderFailureKind::Cancelled);
 }
+
+#[tokio::test]
+async fn provider_retry_progress_precedes_response_for_both_protocols() {
+    use std::sync::atomic::AtomicUsize;
+    for responses in [false, true] {
+        for streaming in [false, true] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let server_calls = calls.clone();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let api_base = format!("http://{}", listener.local_addr().unwrap());
+            let answer = "[Error: Chat completion request failed]";
+            let app = axum::Router::new().fallback(axum::routing::post(move || {
+                let calls = server_calls.clone();
+                async move {
+                    if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        return (http::StatusCode::SERVICE_UNAVAILABLE,
+                            [("content-type", "application/json")], "temporarily unavailable".to_string());
+                    }
+                    let completion = if responses { super::streaming::responses_body("gpt-test", answer) }
+                        else { super::streaming::chat_completion_body("gpt-test", answer) };
+                    let (content_type, body) = if !streaming {
+                        ("application/json", completion.to_string())
+                    } else if responses {
+                        ("text/event-stream", format!("data: {}\n\n", json!({
+                            "type": "response.completed", "response": completion,
+                        })))
+                    } else {
+                        ("text/event-stream", format!("data: {}\n\ndata: [DONE]\n\n", json!({
+                            "choices": [{"index": 0, "delta": {"content": answer}, "finish_reason": "stop"}]
+                        })))
+                    };
+                    (http::StatusCode::OK, [("content-type", content_type)], body)
+                }
+            }));
+            let server = tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
+            let config = json!({
+                "agents": {"defaults": {"provider": "openai", "model": "gpt-test"}},
+                "providers": {"openai": {"api_base": api_base, "api_key": "test", "request_timeout_ms": 10000}},
+            });
+            let mut events = vec![];
+            let mut observer = |event| events.push(event);
+            let result = if responses {
+                complete_responses_for_agent_with_observer_async(
+                    &config,
+                    &json!({"model": "gpt-test", "input": "hello", "stream": streaming}),
+                    &mut observer,
+                    None,
+                )
+                .await
+            } else {
+                complete_chat_for_agent_with_observer_async(&config,
+                    &json!({"model": "gpt-test", "messages": [{"role": "user", "content": "hello"}], "stream": streaming}),
+                    &mut observer, None).await
+            };
+            server.abort();
+            let completion = result.unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+            assert!(
+                matches!(&events[0], NativeProviderStreamEvent::Retry(Some(s)) if s.attempt == 1 && s.delay_ms == 100)
+            );
+            assert!(
+                matches!(&events[1], NativeProviderStreamEvent::Retry(Some(s)) if s.attempt == 1 && s.delay_ms == 0)
+            );
+            assert_eq!(events[2], NativeProviderStreamEvent::Retry(None));
+            assert!(events[3..]
+                .iter()
+                .all(|event| !matches!(event, NativeProviderStreamEvent::Retry(_))));
+            assert!(
+                completion.to_string().contains(answer),
+                "successful error-looking text stays content"
+            );
+        }
+    }
+}

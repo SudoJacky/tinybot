@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:4d8eda5e8735599df5f7356883e4b70fb30895dfd5b7a4f0a2297ad6714551ff -->
+<!-- tinybot-module-fingerprint: sha256:575092ea5c7cae965b97e3b6f71dd049b767d03202da91c2496ee76c479716cd -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -31,6 +31,10 @@ controls write through the shell-owned desktop-pet callbacks, so the embedded
 fallback and independent native pet window stay synchronized. The pet itself
 retains compact resize and hide shortcuts, but the System menu does not expose a
 second configuration surface.
+
+App Preferences includes a default-on rich-text composer switch alongside
+language. It writes the device-local `composerPreferences` store; existing Chat
+and desktop quick-chat composers switch immediately without clearing their draft.
 
 Settings contracts, metadata, validation, value semantics, and persistence
 patches live in `app-core/settings`. Native reads and writes are exposed through

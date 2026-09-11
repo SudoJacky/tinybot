@@ -7,7 +7,6 @@ import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import type {
   ComposerFileReference,
   ComposerSendOptions,
-  PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatFileMetadata } from "../../components/ui/composerFileMetadata";
 
@@ -47,7 +46,6 @@ export type PrepareChatSubmissionInput = {
   message: string;
   now: () => string;
   options: ComposerSendOptions;
-  pastedContent: readonly PastedContent[];
   queuedInputs: readonly QueuedInput[];
   selectedSkillIds: readonly string[];
   selectedSessionIds: readonly string[];
@@ -63,7 +61,6 @@ export async function prepareChatSubmission(
   if (compactRequested) {
     if (
       input.files.length
-      || input.pastedContent.length
       || input.selectedSkillIds.length
       || input.selectedSessionIds.length
       || input.spreadsheetAnnotations.length
@@ -100,11 +97,7 @@ export async function prepareChatSubmission(
         : input.spreadsheetAnnotations.length
           ? input.t("composer.spreadsheetAnnotation.attachedPrompt")
           : "";
-  const visibleText = formatComposerMessage(
-    input.message || fallbackMessage,
-    input.pastedContent,
-    input.t,
-  );
+  const visibleText = (input.message || fallbackMessage).trim();
   if (!visibleText) return { kind: "empty" };
 
   const queuedResult = submitComposerText({
@@ -252,16 +245,4 @@ function utf8Suffix(value: string, maxBytes: number, encoder: TextEncoder): stri
     bytes += nextBytes;
   }
   return output.reverse().join("");
-}
-
-function formatComposerMessage(
-  message: string,
-  pastedContent: readonly PastedContent[],
-  t: TFunction<"chat">,
-): string {
-  const segments = [message.trim()].filter(Boolean);
-  for (const pasted of pastedContent) {
-    segments.push(`${t("composer.pastedContentLabel")}:\n${pasted.content}`);
-  }
-  return segments.join("\n\n");
 }

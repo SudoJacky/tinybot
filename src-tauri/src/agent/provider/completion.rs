@@ -242,7 +242,7 @@ async fn native_chat_completion_with_observer_async(
     if request.stream {
         complete_openai_chat_stream(profile, request, observer, cancellation).await
     } else {
-        complete_openai_chat(profile, request, cancellation).await
+        complete_openai_chat(profile, request, observer, cancellation).await
     }
 }
 
@@ -276,7 +276,7 @@ async fn native_responses_with_observer_async(
     if request.stream {
         complete_openai_responses_stream(profile, request, observer, cancellation).await
     } else {
-        complete_openai_responses(profile, request, cancellation).await
+        complete_openai_responses(profile, request, observer, cancellation).await
     }
 }
 
@@ -361,15 +361,19 @@ fn parse_responses_request(
 async fn complete_openai_chat(
     profile: NativeProviderProfile,
     mut request: NativeChatRequest,
+    mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeChatError> {
     request.body["stream"] = Value::Bool(false);
     let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
-    let client = openai_client(profile)?;
-    await_provider_request(
+    let (retry_tx, mut retry_rx) = tokio::sync::mpsc::unbounded_channel();
+    let client = super::retry::with_observed_retries(openai_client(profile)?, retry_tx);
+    await_provider_request_with_progress(
         client.chat().create_byot(request.body),
         timeout,
         cancellation,
+        &mut retry_rx,
+        &mut observer,
     )
     .await
 }
@@ -383,13 +387,17 @@ async fn complete_openai_chat_stream(
     request.body["stream"] = Value::Bool(true);
     let request_timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
     let stream_idle_timeout = Duration::from_millis(profile.stream_idle_timeout_ms.max(1));
-    let client = openai_client(profile)?;
-    let mut stream: async_openai::types::stream::StreamResponse<Value> = await_provider_request(
-        client.chat().create_stream_byot(request.body),
-        request_timeout,
-        cancellation.clone(),
-    )
-    .await?;
+    let (retry_tx, mut retry_rx) = tokio::sync::mpsc::unbounded_channel();
+    let client = super::retry::with_observed_retries(openai_client(profile)?, retry_tx);
+    let mut stream: async_openai::types::stream::StreamResponse<Value> =
+        await_provider_request_with_progress(
+            client.chat().create_stream_byot(request.body),
+            request_timeout,
+            cancellation.clone(),
+            &mut retry_rx,
+            &mut observer,
+        )
+        .await?;
     let mut completion = StreamingChatCompletion::default();
     while let Some(chunk) =
         next_provider_stream_chunk(&mut stream, stream_idle_timeout, cancellation.clone()).await?
@@ -428,15 +436,19 @@ async fn complete_openai_chat_stream(
 async fn complete_openai_responses(
     profile: NativeProviderProfile,
     mut request: NativeResponsesRequest,
+    mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeChatError> {
     request.body["stream"] = Value::Bool(false);
     let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
-    let client = openai_client(profile)?;
-    await_provider_request(
+    let (retry_tx, mut retry_rx) = tokio::sync::mpsc::unbounded_channel();
+    let client = super::retry::with_observed_retries(openai_client(profile)?, retry_tx);
+    await_provider_request_with_progress(
         client.responses().create_byot(request.body),
         timeout,
         cancellation,
+        &mut retry_rx,
+        &mut observer,
     )
     .await
 }
@@ -450,13 +462,17 @@ async fn complete_openai_responses_stream(
     request.body["stream"] = Value::Bool(true);
     let request_timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
     let stream_idle_timeout = Duration::from_millis(profile.stream_idle_timeout_ms.max(1));
-    let client = openai_client(profile)?;
-    let mut stream: async_openai::types::stream::StreamResponse<Value> = await_provider_request(
-        client.responses().create_stream_byot(request.body),
-        request_timeout,
-        cancellation.clone(),
-    )
-    .await?;
+    let (retry_tx, mut retry_rx) = tokio::sync::mpsc::unbounded_channel();
+    let client = super::retry::with_observed_retries(openai_client(profile)?, retry_tx);
+    let mut stream: async_openai::types::stream::StreamResponse<Value> =
+        await_provider_request_with_progress(
+            client.responses().create_stream_byot(request.body),
+            request_timeout,
+            cancellation.clone(),
+            &mut retry_rx,
+            &mut observer,
+        )
+        .await?;
     let mut completion = StreamingResponsesCompletion::default();
     while let Some(event) =
         next_provider_stream_chunk(&mut stream, stream_idle_timeout, cancellation.clone()).await?
@@ -490,6 +506,40 @@ async fn complete_openai_responses_stream(
         }
     }
     completion.finish().map_err(provider_stream_reduction_error)
+}
+
+async fn await_provider_request_with_progress<T, F>(
+    request: F,
+    timeout: Duration,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+    retries: &mut tokio::sync::mpsc::UnboundedReceiver<super::ProviderRetryStatus>,
+    observer: &mut Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+) -> Result<T, NativeChatError>
+where
+    F: Future<Output = Result<T, OpenAIError>>,
+{
+    let request = await_provider_request(request, timeout, cancellation);
+    tokio::pin!(request);
+    let mut retrying = false;
+    loop {
+        tokio::select! {
+            biased;
+            Some(status) = retries.recv() => {
+                retrying = true;
+                if let Some(observer) = observer.as_deref_mut() {
+                    observer(NativeProviderStreamEvent::Retry(Some(status)));
+                }
+            }
+            result = &mut request => {
+                if retrying {
+                    if let Some(observer) = observer.as_deref_mut() {
+                        observer(NativeProviderStreamEvent::Retry(None));
+                    }
+                }
+                return result;
+            }
+        }
+    }
 }
 
 async fn await_provider_request<T, F>(

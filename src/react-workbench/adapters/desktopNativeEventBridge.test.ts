@@ -81,6 +81,24 @@ const browserSnapshot = {
   sourceId: "native-browser:browser-1",
 };
 
+it("forwards transient retry updates using the live trace identity", async () => {
+  const harness = createHarness();
+  await harness.bridge.register();
+  const status = { attempt: 1, maxRetries: 3, delayMs: 1000, reason: "rate_limit" };
+  const payload = { phase: "calling_model", traceContext: { threadId: "thread-1", turnId: "turn-1" }, modelCallId: "model-1", retry: status };
+  await harness.handlers.get("agent:status")?.({ payload });
+  expect(harness.notifySession).toHaveBeenLastCalledWith("thread-1", {
+    type: "provider.retry", providerRetry: { sessionId: "thread-1", turnId: "turn-1", modelCallId: "model-1",
+      retry: { ...status, turnId: "turn-1", modelCallId: "model-1" } },
+  });
+  await harness.handlers.get("agent:status")?.({ payload: { ...payload, retry: null } });
+  expect(harness.notifySession).toHaveBeenLastCalledWith("thread-1", expect.objectContaining({
+    providerRetry: expect.objectContaining({ retry: null }),
+  }));
+  expect(harness.applyTimelinePatch).not.toHaveBeenCalled();
+  expect(harness.loadSessions).not.toHaveBeenCalled();
+});
+
 describe("desktop native event bridge", () => {
   beforeEach(() => {
     window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
@@ -114,6 +132,7 @@ describe("desktop native event bridge", () => {
       "agent:hook:decision",
       "thread:title:updated",
       "browser:snapshot",
+      "agent:status",
     ]);
     const timelineHandler = harness.handlers.get("agent:timeline:patch");
     await timelineHandler?.({ payload: { sessionId: "thread-1", turnId: "turn-1" } });

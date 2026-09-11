@@ -1,7 +1,9 @@
 mod catalog;
 mod completion;
 mod plugins;
+mod retry;
 mod streaming;
+pub use retry::ProviderRetryStatus;
 
 // Preserve the existing provider interface while implementation stays in focused modules.
 #[allow(unused_imports)]

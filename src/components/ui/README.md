@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:ba7540264562708242ed764b9c01e8e42df408a1f93b270fd5c8feaa896ca837 -->
+<!-- tinybot-module-fingerprint: sha256:0f4444de91d802d9442b7babbf3697dce5ff792f66930d202a9e4ac2cb3717c7 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -9,8 +9,11 @@ interaction independent from native storage. The composer supports internal
 attachment state for ordinary Chat and controlled attachment state for native
 entry points such as desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
-File drops and clipboard files use the injected `onImportFiles` adapter; plain
-text paste keeps its existing editor behavior. A nested-safe drop cue and import
+File drops and clipboard files use the injected `onImportFiles` adapter. Plain
+text paste always inserts the full clipboard text into the current selection,
+including long text and line breaks, instead of creating a separate attachment.
+All editor variants keep pasted text editable and send it as ordinary draft
+text through `onSendMessage(message, files, options)`. A nested-safe drop cue and import
 status share the panel. Pending imports block sending and cannot attach to a
 different `attachmentContextKey` after navigation.
 File attachments and ordinary workspace file references use the shared
@@ -28,7 +31,7 @@ existing incompatible image blocks sending after a model switch until the user
 removes it or selects an image-capable model.
 Its slash listbox combines route-provided executable commands with searchable
 Skill options, including shared arrow-key, Enter/Tab, and Escape behavior.
-Shift+Enter inserts a newline in both editor variants, including while slash or
+Shift+Enter inserts a newline in plain-text editors, including while slash or
 mention suggestions are open. Enter selects an active suggestion or sends the
 draft with its internal line breaks preserved.
 The inline editor renders a display-only trailing break after a terminal newline
@@ -37,6 +40,20 @@ Any slash immediately behind the caret starts or resets the active query; typing
 continues filtering until the query is dismissed or the caret leaves it.
 Selected Skills render as atomic removable tokens inline with editable user
 text without placing Skill documents in the submitted message.
+
+The device's App preference enables rich text by default. `MarkdownComposerEditor`
+uses Tiptap to edit headings, emphasis, lists/tasks, quotes, code, links, and tables.
+Pasted Markdown is parsed into an open document slice at the selection; ordinary
+text joins the surrounding sentence. Clipboard HTML is not used. Image references
+retain their Markdown without loading remote images. Drafts and submissions remain
+Markdown strings, with serializer normalization after editing. Switching the setting
+preserves the draft and structured attachments in both Chat and desktop quick chat.
+Shared Skill option types live in `composerContracts.ts`; the editor and input
+import that leaf contract directly, so neither depends on the other for types.
+The editor owns selection, IME, undo, and atomic Skill nodes. Menu queries use the
+current text block instead of Markdown source offsets and stay inactive in code
+blocks. Shift+Enter uses structural Enter to continue lists or split paragraphs;
+Enter selects a suggestion or sends. Skills still travel as structured turn options.
 The composer separates full control disabling from temporary send disabling,
 so a route can preserve editable drafts while an asynchronous prerequisite is
 still loading. A route-provided Tools list renders as checked controls and the

@@ -19,7 +19,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:6a379f9369035d4cde752ca92d66a633dea2d255018b95fa1c376a2a30ccf95c -->
+<!-- tinybot-doc-fingerprint: sha256:062585cd2e5e94e77cda779b25af4f38682f5326a8138e33a15bce38d12b131a -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),

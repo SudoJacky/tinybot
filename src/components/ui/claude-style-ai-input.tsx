@@ -1,5 +1,7 @@
 "use client";
 
+import type { ComposerSkillOption } from "./composerContracts";
+
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +11,8 @@ import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import { formatFileMetadata } from "./composerFileMetadata";
 import { ComposerAnnotations } from "./ComposerAnnotations";
 import { FileAttachmentChip } from "./FileAttachmentChip";
+import { MarkdownComposerEditor, type MarkdownComposerCursor, type MarkdownComposerHandle } from "./MarkdownComposerEditor";
+import { useComposerRichText } from "./useComposerRichText";
 import type { ComposerContextReference } from "./composerContextReference";
 export type { ComposerContextReference } from "./composerContextReference";
 import {
@@ -20,7 +24,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Command,
-  Copy,
   FileText,
   MessageCircle,
   Plus,
@@ -40,13 +43,6 @@ export interface ComposerFileReference {
 }
 
 export type ComposerFileSelection = Omit<ComposerFileReference, "id">;
-
-export interface PastedContent {
-  id: string;
-  content: string;
-  timestamp: Date;
-  wordCount: number;
-}
 
 export interface ModelOption {
   id: string;
@@ -79,13 +75,6 @@ export interface ComposerSlashCommand {
   submitOnSelect?: boolean;
 }
 
-export interface ComposerSkillOption {
-  description: string;
-  id: string;
-  label: string;
-  sourceLabel: string;
-}
-
 export interface ComposerSendOptions {
   model?: string;
   provider?: string;
@@ -100,13 +89,13 @@ export interface ComposerSessionMentionOption {
 }
 
 export interface ClaudeStyleAiInputProps {
+  richText?: boolean;
   className?: string;
   contextReferences?: ComposerContextReference[];
   focusRequestId?: number;
   onSendMessage?: (
     message: string,
     files: ComposerFileReference[],
-    pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) => void | Promise<void>;
   disabled?: boolean;
@@ -149,7 +138,6 @@ export interface ClaudeStyleAiInputProps {
 }
 
 const MAX_FILES = 10;
-const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
 const EMPTY_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [];
@@ -218,6 +206,7 @@ export function ClaudeStyleAiInput({
   onValueChange,
   placeholder,
   responding = false,
+  richText,
   sendDisabled = false,
   sendDisabledReason,
   selectedSessionMentionIds = EMPTY_SELECTED_IDS,
@@ -230,6 +219,10 @@ export function ClaudeStyleAiInput({
   value,
 }: ClaudeStyleAiInputProps) {
   const { t } = useTranslation("chat");
+  const preferRichText = useComposerRichText();
+  const richTextEnabled = richText ?? preferRichText;
+  const markdownEditorRef = useRef<MarkdownComposerHandle | null>(null);
+  const [markdownCursor, setMarkdownCursor] = useState<MarkdownComposerCursor>({ text: "", offset: 0 });
   const panelRef = useRef<HTMLDivElement | null>(null);
   const attachmentRowRef = useRef<HTMLDivElement | null>(null);
   const previousAttachmentIds = useRef(new Set<string>());
@@ -243,7 +236,6 @@ export function ClaudeStyleAiInput({
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
   const [uncontrolledFiles, setUncontrolledFiles] = useState<ComposerFileReference[]>([]);
-  const [pastedContent, setPastedContent] = useState<PastedContent[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(defaultModel ?? models[0]?.id ?? "");
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort>(
     defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
@@ -338,7 +330,7 @@ export function ClaudeStyleAiInput({
     () => skillOptions.filter((option) => selectedSkillIdSet.has(option.id)),
     [selectedSkillIdSet, skillOptions],
   );
-  const inlineEditorEnabled = skillOptions.length > 0 || selectedSkills.length > 0;
+  const inlineEditorEnabled = richTextEnabled || skillOptions.length > 0 || selectedSkills.length > 0;
   const visibleInlineSkillPlacements = useMemo(() => {
     const placements = inlineSkillPlacements
       .filter((placement) => selectedSkillIdSet.has(placement.id))
@@ -356,15 +348,15 @@ export function ClaudeStyleAiInput({
   const canSend = !disabled && !sendDisabled && !sending && !selectingFiles && !selectedModelRejectsImages && Boolean(
     currentMessage.trim()
       || files.length
-      || pastedContent.length
       || contextReferences.length
       || selectedSessionMentions.length
       || selectedSkills.length,
   );
-  const composerCaretOffset = inlineEditorEnabled ? inlineCaret.offset : textareaCaretOffset;
+  const composerTriggerText = richTextEnabled ? markdownCursor.text : currentMessage;
+  const composerCaretOffset = richTextEnabled ? markdownCursor.offset : inlineEditorEnabled ? inlineCaret.offset : textareaCaretOffset;
   const slashMatch = useMemo(
-    () => slashTriggerMatch(currentMessage, composerCaretOffset, activeSlashStart),
-    [activeSlashStart, composerCaretOffset, currentMessage],
+    () => slashTriggerMatch(composerTriggerText, composerCaretOffset, activeSlashStart),
+    [activeSlashStart, composerCaretOffset, composerTriggerText],
   );
   const slashQuery = slashMatch?.query.toLocaleLowerCase();
   const filteredSlashOptions = useMemo<ComposerSlashMenuOption[]>(() => {
@@ -389,8 +381,8 @@ export function ClaudeStyleAiInput({
     && filteredSlashOptions.length > 0;
   const activeSlashOptionIndex = Math.min(activeSlashCommandIndex, Math.max(0, filteredSlashOptions.length - 1));
   const mentionMatch = useMemo(
-    () => sessionMentionMatch(currentMessage, composerCaretOffset),
-    [composerCaretOffset, currentMessage],
+    () => sessionMentionMatch(composerTriggerText, composerCaretOffset),
+    [composerCaretOffset, composerTriggerText],
   );
   const filteredSessionMentions = useMemo(() => {
     if (!mentionMatch || selectedSessionMentions.length >= MAX_SESSION_MENTIONS) return [];
@@ -464,11 +456,15 @@ export function ClaudeStyleAiInput({
     pendingInlineCaretRef.current = null;
     editor.focus();
     restoreInlineComposerCaret(editor, pendingCaret);
-  }, [currentMessage, selectedSkills, t, visibleInlineSkillPlacements]);
+  }, [currentMessage, richTextEnabled, selectedSkills, t, visibleInlineSkillPlacements]);
 
   useLayoutEffect(() => {
     if (!focusRequestId || handledFocusRequestRef.current === focusRequestId) return;
     handledFocusRequestRef.current = focusRequestId;
+    if (richTextEnabled) {
+      markdownEditorRef.current?.focusEnd();
+      return;
+    }
     if (inlineEditorEnabled) {
       const editor = inlineEditorRef.current;
       if (!editor) return;
@@ -483,7 +479,7 @@ export function ClaudeStyleAiInput({
     if (!textarea) return;
     textarea.focus();
     textarea.setSelectionRange(currentMessage.length, currentMessage.length);
-  }, [currentMessage, focusRequestId, inlineEditorEnabled, visibleInlineSkillPlacements]);
+  }, [currentMessage, focusRequestId, inlineEditorEnabled, richTextEnabled, visibleInlineSkillPlacements]);
 
   useEffect(() => {
     setActiveSlashCommandIndex(0);
@@ -544,7 +540,7 @@ export function ClaudeStyleAiInput({
     setSending(true);
     setError("");
     try {
-      await onSendMessage?.(currentMessage.trim(), files, pastedContent, {
+      await onSendMessage?.(currentMessage.trim(), files, {
         ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
         ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
         reasoningEffort: selectedReasoningEffort,
@@ -557,7 +553,6 @@ export function ClaudeStyleAiInput({
       updateMessage("");
       setActiveSlashStart(null);
       updateFiles(() => []);
-      setPastedContent([]);
       onClearContextReferences?.();
       onClearSessionMentions?.();
       onClearSkills?.();
@@ -649,6 +644,7 @@ export function ClaudeStyleAiInput({
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter" && event.shiftKey) {
       if (event.currentTarget instanceof HTMLDivElement) {
         event.preventDefault();
@@ -657,7 +653,7 @@ export function ClaudeStyleAiInput({
       }
       return;
     }
-    if (event.currentTarget instanceof HTMLDivElement && removeAdjacentInlineSkill(event as KeyboardEvent<HTMLDivElement>)) {
+    if (!richTextEnabled && event.currentTarget instanceof HTMLDivElement && removeAdjacentInlineSkill(event as KeyboardEvent<HTMLDivElement>)) {
       return;
     }
     if (sessionMentionMenuOpen) {
@@ -713,6 +709,10 @@ export function ClaudeStyleAiInput({
     setActiveSlashStart(null);
     if (option.kind === "skill") {
       if (!slashMatch) return;
+      if (richTextEnabled) {
+        markdownEditorRef.current?.replaceTrigger(slashMatch.start, slashMatch.end, option.skill);
+        return;
+      }
       const nextMessage = `${currentMessage.slice(0, slashMatch.start)}${currentMessage.slice(slashMatch.end)}`;
       const nextPlacements = rebaseInlineSkillPlacements(
         visibleInlineSkillPlacements.filter((placement) => placement.id !== option.skill.id),
@@ -732,6 +732,7 @@ export function ClaudeStyleAiInput({
       return;
     }
     updateMessage(option.command.prompt);
+    if (richTextEnabled) window.requestAnimationFrame(() => markdownEditorRef.current?.focusEnd());
     if (option.command.submitOnSelect) {
       window.requestAnimationFrame(() => panelRef.current?.closest("form")?.requestSubmit());
       return;
@@ -746,9 +747,14 @@ export function ClaudeStyleAiInput({
   }
 
   function selectSessionMention(option: ComposerSessionMentionOption | undefined) {
-    const match = sessionMentionMatch(currentMessage, composerCaretOffset);
+    const match = sessionMentionMatch(composerTriggerText, composerCaretOffset);
     if (!option || !match) return;
     setSessionMentionMenuDismissed(true);
+    if (richTextEnabled) {
+      markdownEditorRef.current?.replaceTrigger(match.start, match.end);
+      onAddSessionMention?.(option.id);
+      return;
+    }
     const nextMessage = `${currentMessage.slice(0, match.start)}${currentMessage.slice(match.end)}`;
     if (inlineEditorEnabled) {
       const nextPlacements = rebaseInlineSkillPlacements(
@@ -776,25 +782,11 @@ export function ClaudeStyleAiInput({
       void handleImportFiles(clipboardFiles);
       return;
     }
-    const text = event.clipboardData.getData("text");
-    if (text.length < PASTE_THRESHOLD) {
-      if (event.currentTarget instanceof HTMLDivElement) {
-        event.preventDefault();
-        insertPlainTextAtSelection(event.currentTarget, text);
-        syncInlineEditorInput();
-      }
-      return;
+    if (event.currentTarget instanceof HTMLDivElement) {
+      event.preventDefault();
+      insertPlainTextAtSelection(event.currentTarget, event.clipboardData.getData("text/plain"));
+      syncInlineEditorInput();
     }
-    event.preventDefault();
-    setPastedContent((current) => [
-      ...current,
-      {
-        id: nextInputId("paste"),
-        content: text,
-        timestamp: new Date(),
-        wordCount: countWords(text),
-      },
-    ]);
   }
 
   async function selectFiles(load: () => Promise<ComposerFileSelection[]>) {
@@ -887,10 +879,6 @@ export function ClaudeStyleAiInput({
     updateFiles((current) => current.filter((file) => file.id !== id));
   }
 
-  function removePastedContent(id: string) {
-    setPastedContent((current) => current.filter((item) => item.id !== id));
-  }
-
   function selectModel(modelId: string) {
     setSelectedModelId(modelId);
     setError("");
@@ -973,7 +961,7 @@ export function ClaudeStyleAiInput({
         onPointerLeave={handlePanelPointerLeave}
         onPointerMove={handlePanelPointerMove}
       >
-        {files.length || pastedContent.length || contextReferences.length || selectedSessionMentions.length ? (
+        {files.length || contextReferences.length || selectedSessionMentions.length ? (
           <div aria-label={t("composer.attachments")}>
             <div ref={attachmentRowRef} className="claude-ai-input__attachments">
               {selectedSessionMentions.map((reference) => (
@@ -1005,16 +993,6 @@ export function ClaudeStyleAiInput({
                   label={reference.label}
                   onRemove={() => onRemoveContextReference?.(reference.id)}
                   removeLabel={t("composer.remove", { name: reference.label })}
-                />
-              ))}
-              {pastedContent.map((item) => (
-                <AttachmentChip
-                  detail={t("composer.words", { count: item.wordCount })}
-                  icon={<Copy aria-hidden="true" size={16} />}
-                  key={item.id}
-                  label={t("composer.pastedText")}
-                  onRemove={() => removePastedContent(item.id)}
-                  removeLabel={t("composer.removePasted")}
                 />
               ))}
               {files.map((item) => (
@@ -1148,7 +1126,32 @@ export function ClaudeStyleAiInput({
             ) : null}
           </div>
         ) : null}
-        {inlineEditorEnabled ? (
+        {richTextEnabled ? (
+          <MarkdownComposerEditor
+            ref={markdownEditorRef}
+            value={currentMessage}
+            disabled={disabled || sending}
+            label={t("composer.message")}
+            placeholder={resolvedPlaceholder}
+            skills={selectedSkills}
+            removeSkillLabel={(skill) => t("composer.remove", { name: skill.label })}
+            activeDescendant={sessionMentionMenuOpen
+              ? `${sessionMentionListboxId}-option-${activeSessionMentionOptionIndex}`
+              : slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
+            controls={sessionMentionMenuOpen ? sessionMentionListboxId : slashMenuOpen ? slashListboxId : undefined}
+            onChange={updateMessage}
+            onCursorChange={(next) => {
+              setMarkdownCursor(next);
+              updateSlashTrigger(next.text, next.offset);
+            }}
+            onSkillsChange={(ids) => {
+              for (const id of selectedSkillIds) if (!ids.includes(id)) onRemoveSkill?.(id);
+              for (const id of ids) if (!selectedSkillIdSet.has(id)) onAddSkill?.(id);
+            }}
+            onImportFiles={(incoming) => { void handleImportFiles(incoming); }}
+            onKeyDown={handleComposerKeyDown}
+          />
+        ) : inlineEditorEnabled ? (
           <div
             aria-activedescendant={sessionMentionMenuOpen
               ? `${sessionMentionListboxId}-option-${activeSessionMentionOptionIndex}`
@@ -1888,8 +1891,4 @@ function AttachmentChip({
       </button>
     </div>
   );
-}
-
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
 }

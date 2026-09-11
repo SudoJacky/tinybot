@@ -37,6 +37,9 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             });
             let mut provider_observer =
                 |event: crate::agent::provider::NativeProviderStreamEvent| match event {
+                    crate::agent::provider::NativeProviderStreamEvent::Retry(status) => {
+                        observer(NativeAgentProviderStreamEvent::Retry(status))
+                    }
                     crate::agent::provider::NativeProviderStreamEvent::ToolCallDelta => {
                         observer(NativeAgentProviderStreamEvent::ToolCallDelta)
                     }
