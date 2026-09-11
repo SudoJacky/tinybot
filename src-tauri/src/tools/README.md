@@ -1,5 +1,5 @@
 # Tools
-<!-- tinybot-module-fingerprint: sha256:60d0feb2ba39ab476dab546f5668ca05fee7581bd4871c3138a282cfb044ecc2 -->
+<!-- tinybot-module-fingerprint: sha256:8384fa58debdfdd6d13dd0aca2e45108602bbe8ff70883fec5cf1afa1f5d197c -->
 
 `tools` contains the backend tool system used by agent turns.
 
@@ -11,7 +11,9 @@ focused submodules.
 non-interactive Shell command through `apply_patch.thenRun`. It requires the
 default-off `experiments.actionFusion` flag and Exec access. Shell preflight
 runs before editing; patch failure skips the command. After a successful patch,
-command failure retains the edit and both stage results. Running commands reuse
+the command's working directory is resolved so it may be created by that patch;
+if it is still invalid, the result retains the patch and a command-start error.
+Command failure retains the edit and both stage results. Running commands reuse
 the retained-process continuation contract instead of reapplying the patch.
 This is one exclusive Agent tool operation, not a filesystem lock or a transaction
 that rolls back edits when verification fails. Request/trace logs and

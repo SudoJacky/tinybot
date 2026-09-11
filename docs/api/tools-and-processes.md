@@ -19,7 +19,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:248225537ac2fbdf24c7565809e8d28ddd6f37976c49991754daa08b7328b10e -->
+<!-- tinybot-doc-fingerprint: sha256:b6f8a9d947e82b951071744986da073094da33b0c6e3eaa99bd1e7d796a92262 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -45,7 +45,10 @@ adds an optional `thenRun` object:
 The command must already be known. It uses a non-interactive pipe, defaults to
 the patch workspace, and waits initially for 0–30000 ms (default 10000). That wait
 does not limit process lifetime. Shell capability, identity, cancellation, and
-working directory are checked before editing. Patch failure skips the command;
+path syntax are checked before editing. The working directory is resolved after
+the patch succeeds, so it may be created by that patch. If it is still missing
+or is not a directory, the command returns start_failed with the requested path
+and resolution stage while retaining the edit. Patch failure skips the command;
 command failure retains the applied patch. This is one exclusive tool operation,
 without cross-process filesystem locking or automatic rollback.
 

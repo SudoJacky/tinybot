@@ -17,7 +17,7 @@ pub(crate) fn then_run_schema() -> Value {
         "required": ["command"],
         "properties": {
             "command": { "type": "string", "minLength": 1 },
-            "workingDir": { "type": "string" },
+            "workingDir": { "type": "string", "description": "Resolved after the patch succeeds, so it may be a directory created by this patch. If it is still missing or is not a directory, the command fails to start and the patch remains applied." },
             "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000, "description": "Initial wait only, not an execution timeout; default 10000 ms." }
         }
     })
@@ -73,7 +73,7 @@ pub(crate) fn execute(
     {
         return Err(invalid_request("thenRun.yieldTimeMs must be at most 30000"));
     }
-    // Validate execution capability, owner, working directory and cancellation before editing.
+    // Validate request and authority before editing; directory existence depends on the applied patch.
     let prepared = shell.prepare_start(ShellStartParams {
         command: params.then_run.command,
         working_dir: params.then_run.working_dir,
@@ -109,8 +109,8 @@ pub(crate) fn execute(
         Err(error) => {
             metrics.increment("actionFusion.commandStartFailed");
             eprintln!(
-                "[tinybot-action-fusion] request={} trace={} stage=command_start_failed error={}",
-                request.id, request.trace_id, error.message
+                "[tinybot-action-fusion] request={} trace={} stage=command_start_failed error={} details={}",
+                request.id, request.trace_id, error.message, error.details
             );
             json!({ "status": "start_failed", "error": error })
         }
