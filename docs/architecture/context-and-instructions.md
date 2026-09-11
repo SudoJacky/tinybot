@@ -14,11 +14,15 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d9c28c9895b9aa0dcb0015543df670dabd0c704363efa08686a8e9fe6d800353 -->
+<!-- tinybot-doc-fingerprint: sha256:3440c89ce5659ea60c2bef7ca2ab92b8fa788bd8a8fc2aa708bb6e7081cf5958 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
 composition and context-window management are separate stages.
+Their timings remain separate in application `agent.preparation` diagnostics:
+`instruction_compose`, `context_projection`, and `request_build`. Input decoding
+captures the shared monotonic origin before instruction loading; only the aggregate
+time-to-request reading is carried by the model timing payload.
 
 The hydrated wire specification becomes `AgentTurnInput` before task ownership.
 This boundary resolves settings aliases and context-window overrides, and parses

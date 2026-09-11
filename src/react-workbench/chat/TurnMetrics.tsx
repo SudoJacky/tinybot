@@ -90,9 +90,11 @@ export function TurnMetrics({ turn }: { turn: ChatTurn }) {
           <div className="react-turn-metrics__title"><Clock3 aria-hidden="true" size={17} />{t("metrics.title")}</div>
           <dl>
             <dt>{t("metrics.duration")}</dt><dd>{formatDuration(duration)}</dd>
+            {turn.metrics?.timeToRequestMs !== undefined && <><dt>{t("metrics.request")}</dt><dd>{t("metrics.milliseconds", { value: turn.metrics.timeToRequestMs })}</dd></>}
             {turn.metrics?.tokensPerSecond !== undefined && <><dt>{t("metrics.speed")}</dt><dd>{t("metrics.tokensPerSecond", { value: Number(turn.metrics.tokensPerSecond.toFixed(turn.metrics.tokensPerSecond < 10 ? 1 : 0)) })}</dd></>}
             {turn.metrics?.timeToFirstTokenMs !== undefined && <><dt>{t("metrics.ttft")}</dt><dd>{formatDuration(turn.metrics.timeToFirstTokenMs)}</dd></>}
           </dl>
+          {turn.metrics?.timeToRequestMs !== undefined && <p>{t("metrics.requestDescription")}</p>}
           {turn.metrics && <p>{t("metrics.description")}</p>}
         </div>, document.body,
       )}

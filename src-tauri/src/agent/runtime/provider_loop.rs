@@ -128,8 +128,15 @@ async fn run_owned_native_agent_turn_async(
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
 ) -> Result<AgentTurnResult, AgentError> {
+    let mut preparation = crate::agent::preparation_log::PreparationLog::new(
+        &input.trace_context,
+        input.received_at,
+        "runtime_ownership",
+        "context_initialize",
+    );
     let mut identity = AgentTurnContext::from_input(input, config_snapshot.clone());
     identity.attach_observability(services);
+    preparation.next("checkpoint_restore");
     let continuation_metadata = identity.continuation.clone();
     let restored_continuation_checkpoint = continuation_metadata.as_ref().and_then(|_| {
         services
@@ -153,6 +160,7 @@ async fn run_owned_native_agent_turn_async(
                 )
             })?;
     }
+    preparation.next("task_schedule");
     let request = StartAgentTurn::new(identity.turn_id.clone(), identity.session_id.clone());
     let owned_services = services.clone();
     let execution_context = identity.clone();
@@ -182,6 +190,7 @@ async fn run_owned_native_agent_turn_async(
             .to_string()
             .into());
     }
+    preparation.complete();
     let turn_started_at = Instant::now();
     identity.metrics().increment("turn.started");
     let mut result = match handle.wait_async().await {
@@ -477,6 +486,12 @@ impl<'a> NativeAgentTurnExecution<'a> {
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
     ) -> Result<PreparedNativeAgentTurnExecution<'a>, AgentError> {
+        let mut preparation = crate::agent::preparation_log::PreparationLog::new(
+            &context.trace_context,
+            context.received_at,
+            "runtime_prepare",
+            "setup",
+        );
         context.attach_observability(dependencies);
         if let Some(instructions) = instructions.as_ref() {
             context.settings.working_directory = Some(instructions.working_directory.clone());
@@ -519,6 +534,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
         if workspace_root.is_some() {
+            preparation.next("tool_catalog");
             let catalog = match dependencies
                 .tools
                 .prepare_tools(&context, &config_snapshot)
@@ -557,6 +573,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     ));
                 }
             };
+            preparation.next("tool_registry");
             let mut tool_registry = WorkerToolRegistryRpc::new_with_config(
                 context.settings.capability_policy()?,
                 config_snapshot,
@@ -568,6 +585,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             context.tool_router =
                 super::tool_router::NativeToolRouter::new(tool_registry.list_tools().tools);
         }
+        preparation.next("tool_router_configure");
         #[cfg(test)]
         if let Some(entries) = dependencies.test_tool_registry_entries.clone() {
             context.tool_router = super::tool_router::NativeToolRouter::new(entries);
@@ -580,6 +598,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .tool_router
             .activate_for_turn(&dependencies.test_activated_tool_ids)?;
 
+        preparation.next("continuation_restore");
         let (mut context, continuation_resume) =
             match prepare_continuation(dependencies.clone(), context).await? {
                 PreparedContinuation::Finished(result) => {
@@ -595,6 +614,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 "Rust agent runtime requires at least one user input or chat message.",
             )));
         }
+        preparation.next("state_initialize");
         let mut state = if continuation_resume.is_some() {
             AgentTurnState::new_for_continuation(&context, dependencies.trace_sink.clone())?
         } else {
@@ -612,6 +632,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         )?;
         state.emit_thread_command_acknowledgement(&context)?;
         let is_continuation = continuation_resume.is_some();
+        preparation.next("continuation_apply");
         let start_iteration = match continuation_resume {
             Some(resume) => {
                 let iteration = resume.apply(&mut context, &mut state).await?;
@@ -628,6 +649,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 0
             }
         };
+        preparation.next("user_prompt_hook");
         if !is_continuation && !context.controls.manual_compaction {
             let prompt = current_user_message(&context.messages)
                 .as_ref()
@@ -655,6 +677,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 ));
             }
         }
+        preparation.next("turn_start_hook");
         let turn_start_invocation = AgentHookInvocation::lifecycle(
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
@@ -667,6 +690,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
 
+        preparation.complete();
         Ok(PreparedNativeAgentTurnExecution::Ready {
             execution: Self {
                 dependencies,
@@ -703,6 +727,12 @@ impl<'a> NativeAgentTurnExecution<'a> {
         &mut self,
         iteration: i64,
     ) -> Result<ExecutionStage<PreparedProviderIteration>, AgentError> {
+        let mut preparation = crate::agent::preparation_log::PreparationLog::new(
+            &self.context.trace_context,
+            self.context.received_at,
+            "provider_request",
+            "checkpoint_and_prompt_history",
+        );
         self.state
             .transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call")?;
         if turn_context_is_cancelled(&self.context) {
@@ -719,6 +749,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         );
         let prompt_messages = self.state.history.for_prompt()?;
         self.context.messages = prompt_messages;
+        preparation.next("context_projection");
         let mut projection = match context_window_projection_async(&self.context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
@@ -741,6 +772,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 )?));
             }
         };
+        preparation.next("context_projection_commit");
         if let Some(action) = projection.action.as_ref() {
             provider_protocol(&self.context)?
                 .reset_replay_after_context_projection(&mut self.context)?;
@@ -852,6 +884,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             )?));
         }
 
+        preparation.next("request_build");
         let mut provider_context =
             context_with_projected_messages(&self.context, projection.messages)?;
         let (provider_request, estimated_context_tokens) =
@@ -869,6 +902,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
             };
         provider_context.set_prepared_provider_request(provider_request);
         let attempt = ProviderAttempt::new(&self.context, iteration, estimated_context_tokens);
+        preparation.model_call(&attempt.id);
+        preparation.next("before_request_hook");
         let before_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::BeforeProviderRequest,
             self.context.trace_context.clone(),
@@ -891,6 +926,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             )?));
         }
         self.context.metrics().increment("provider.attempted");
+        preparation.complete();
         Ok(ExecutionStage::Ready(PreparedProviderIteration {
             provider_context,
             attempt,
@@ -953,6 +989,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let provider_duration = provider_started_at.elapsed();
         let timing = crate::agent::runtime_protocol::AgentModelTiming {
             model_call_id: attempt.id.clone(),
+            time_to_request_ms: Some(
+                provider_started_at
+                    .duration_since(self.context.received_at)
+                    .as_millis() as u64,
+            ),
             time_to_first_token_ms: first_token_at
                 .map(|first| first.duration_since(provider_started_at).as_millis() as u64),
             decode_duration_ms: first_token_at.map(|first| {

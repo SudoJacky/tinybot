@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:28039f7e5947d2e0088e12812a166c5d45bb69d385e82ba1eeb742f62bd7442d -->
+<!-- tinybot-module-fingerprint: sha256:5ead1eb43452bd6d8d0b8297a3af436d108233c2fc84ac6cd42d27d38dee0306 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -128,6 +128,8 @@ at the end of a failed/interrupted Turn without a final answer. It appears only
 after the Turn ends. Clicking opens a viewport-clamped dialog with total time
 and available TPS/TTFT readings; Escape restores trigger focus, and outside
 pointer or Tab dismisses it. Old Turns show duration alone.
+When recorded, the dialog also shows time to the first model call in milliseconds
+and explains its backend-input-to-call boundary separately from TTFT.
 A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit

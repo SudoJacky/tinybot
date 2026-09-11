@@ -952,6 +952,21 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
 #[test]
 fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     struct StreamingProvider;
+    struct PreparationHook;
+
+    impl AgentHook for PreparationHook {
+        fn evaluate<'a>(
+            &'a self,
+            invocation: &'a AgentHookInvocation,
+        ) -> futures_util::future::BoxFuture<'a, Result<AgentHookOutput, String>> {
+            Box::pin(async move {
+                if invocation.stage == AgentHookStage::BeforeProviderRequest {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Ok(AgentHookOutput::Decision(AgentHookDecision::Continue))
+            })
+        }
+    }
 
     impl NativeAgentProvider for StreamingProvider {
         fn complete_streaming_async<'a>(
@@ -995,7 +1010,8 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_hook(Arc::new(PreparationHook));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -1043,11 +1059,15 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
         .unwrap();
     let timing = &usage["payload"]["agentItem"]["modelTiming"];
     assert_eq!(timing["modelCallId"], "turn-streaming-provider:provider:1");
+    assert!(timing["timeToRequestMs"].as_u64().unwrap() >= 20);
     assert!(timing["timeToFirstTokenMs"].as_u64().unwrap() >= 5);
     assert!(timing["decodeDurationMs"].as_u64().unwrap() >= 5);
     // Durable event serialization and history projection retain exactly the live reading.
     let events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope> =
         serde_json::from_value(result["runtimeEvents"].clone()).unwrap();
+    assert!(events
+        .iter()
+        .all(|event| event.event_name != "agent.preparation"));
     let items = crate::agent::runtime_protocol::project_turn_items_from_trace_events(&events);
     let persisted = items
         .iter()
@@ -1056,6 +1076,17 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     assert_eq!(
         serde_json::to_value(&persisted.data).unwrap()["modelTiming"],
         *timing
+    );
+    let mut legacy_timing = timing.clone();
+    legacy_timing
+        .as_object_mut()
+        .unwrap()
+        .remove("timeToRequestMs");
+    assert!(
+        serde_json::from_value::<crate::agent::runtime_protocol::AgentModelTiming>(legacy_timing)
+            .unwrap()
+            .time_to_request_ms
+            .is_none()
     );
 }
 

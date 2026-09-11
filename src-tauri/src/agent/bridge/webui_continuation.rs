@@ -278,8 +278,15 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         .map_err(AgentError::invalid_input)?;
     input.messages = checkpoint.messages.clone();
     let trace = input.trace_context.clone();
+    let mut preparation = crate::agent::preparation_log::PreparationLog::new(
+        &trace,
+        input.received_at,
+        "application_continuation",
+        "instruction_compose",
+    );
     let instructions = InstructionLoader::new(thread_store.data_root().join("plugins"))
         .compose(&workspace_root, &continuation_spec)?;
+    preparation.next("workspace_mcp_config");
     let graph_base_config_snapshot = config_snapshot.clone();
     let mut config_snapshot = config_snapshot;
     crate::workspace_extensions::merge_workspace_mcp_servers(
@@ -287,12 +294,14 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         &instructions.working_directory,
     )?;
     base_services.runtime.save_checkpoint(checkpoint);
+    preparation.next("runtime_services");
     let services = base_services.prepare_turn(
         &workspace_root,
         &instructions.working_directory,
         graph_base_config_snapshot,
         live_trace_sink,
     )?;
+    preparation.complete();
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         input,

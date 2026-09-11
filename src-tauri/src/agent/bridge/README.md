@@ -1,10 +1,15 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:58af0148042f577c95ddbfa1bd905790f7495f3fac0175ec56ed6ed8e671fc92 -->
+<!-- tinybot-module-fingerprint: sha256:bafbf9507fb5c10029bf41517e70a2d3783c27c6301f033e4359911f2aa1d0c4 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
 desktop or Thread-owned turn without moving those concerns into the provider
 loop.
+
+Preparation diagnostics time memory and instruction loading, MCP configuration,
+Turn-start persistence, history hydration, and service assembly. Tool discovery
+separately times MCP, Graph, workspace-thread, and selection steps. Ordinary and
+form-resumed Turns write these summaries to the application log, not the trace sink.
 
 
 `AgentApplicationServices` keeps the core execution services alongside the shared

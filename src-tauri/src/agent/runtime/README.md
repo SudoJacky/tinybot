@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:26f86a69e469455ef05d75f42892ec73c76cad1e487484a1148331afd5140dc5 -->
+<!-- tinybot-module-fingerprint: sha256:53c406f7b94ffaa99b99b120ed28c62514a4e25dfce445269871887d1a6cc0ce -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -60,7 +60,12 @@ Provider timing uses a per-invocation monotonic clock. Text, reasoning, or tool
 output marks the first token; provider completion ends the decode interval.
 Usage and its optional `modelTiming` are persisted before executing tools so
 waiting for input or tool failure cannot discard completed model work. Calls
-without streaming output carry null timings and do not fabricate throughput.
+without streaming output carry null stream timings and do not fabricate throughput.
+Optional `timeToRequestMs` measures from backend input decoding to the provider
+invocation, including preparation; the first call supplies the UI reading.
+Application-only `agent.preparation` summaries break down task ownership, tool
+and state setup, context projection, request building, and hooks. Scope and step
+offsets share the input's monotonic origin; nested scopes must not be summed twice.
 
 ## Responsibilities
 

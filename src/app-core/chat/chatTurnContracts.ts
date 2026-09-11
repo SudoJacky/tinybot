@@ -218,12 +218,14 @@ export type ChatTurn = {
 };
 
 export type TurnMetrics = {
+  timeToRequestMs?: number;
   timeToFirstTokenMs?: number;
   tokensPerSecond?: number;
 };
 
 export type ModelCallTiming = {
   modelCallId: string;
+  timeToRequestMs?: number | null;
   timeToFirstTokenMs: number | null;
   decodeDurationMs: number | null;
 };

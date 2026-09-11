@@ -1,8 +1,13 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:c4dcc32f434e027487f86e9d64b92467433be01ab9d804ff518f2462236d0c52 -->
+<!-- tinybot-module-fingerprint: sha256:3811a6e6fae904bb128541f9299a285b1a6a5499347c0ee4f2cbf08f37ae4a86 -->
 
 `agent` contains the native agent stack. It connects provider configuration,
 the turn runtime, durable runtime events, and the desktop integration bridge.
+
+`preparation_log.rs` batches sequential preparation steps into application-only
+`agent.preparation` entries in `native-backend.log`. Entries include trace/Turn
+IDs, scope, monotonic input-relative offsets, and completed/incomplete outcomes.
+Nested scopes overlap their parents; these diagnostics never enter Rollouts.
 
 Provider-specific transport details stay in `provider/`, while turn execution
 and event projection live in `runtime/` and `runtime_protocol/`.

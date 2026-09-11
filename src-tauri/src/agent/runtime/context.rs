@@ -31,6 +31,7 @@ impl AgentTurnContext {
             .tools,
         );
         Self {
+            received_at: input.received_at,
             turn_id: input.trace_context.turn_id.clone(),
             session_id: input.session_id,
             thread_id: input.trace_context.thread_id.clone(),

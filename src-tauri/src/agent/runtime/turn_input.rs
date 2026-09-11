@@ -9,6 +9,7 @@ use serde_json::Value;
 /// Normalized execution input. JSON aliases and defaults are resolved before a task is owned.
 #[derive(Clone, Debug)]
 pub struct AgentTurnInput {
+    pub(crate) received_at: std::time::Instant,
     pub(crate) session_id: String,
     pub(crate) trace_context: AgentTraceContext,
     pub(crate) settings: AgentTurnSettings,
@@ -39,6 +40,7 @@ struct ContextCompactionRequest {
 
 impl AgentTurnInput {
     pub(crate) fn from_wire(spec: &Value, config: &Value) -> Result<Self, String> {
+        let received_at = std::time::Instant::now();
         if !spec.is_object() {
             return Err("agent turn spec must be an object".to_string());
         }
@@ -170,6 +172,7 @@ impl AgentTurnInput {
             )?,
         };
         Ok(Self {
+            received_at,
             session_id,
             trace_context,
             settings,

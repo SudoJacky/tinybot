@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:0bd8a1694370a8661b48c8a8a187d73a47510518e801ee2fcafe7b88e81399dc -->
+<!-- tinybot-module-fingerprint: sha256:5c55b168763e5810baf98cdd682022a7f951a82bc849bc91c4dfb94875757673 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -37,6 +37,9 @@ checks that provider reasoning has matching live and reloaded canonical items.
 Timing coverage uses an asynchronous streaming provider to verify first-token
 and decode intervals survive serialization, and asserts usage is recorded before
 a tool suspends the Turn for input.
+It also includes a delayed before-provider hook in time-to-request, verifies
+older timing payloads deserialize without that field, and excludes application
+preparation diagnostics from runtime events.
 Interaction coverage keeps resumable user-input checkpoints and their deferred tool-hook
 context on the same Turn, and verifies that form submission acknowledgement
 precedes the resumed provider request.

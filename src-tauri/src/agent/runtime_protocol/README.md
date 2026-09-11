@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:bff1fdaee4c3e6fd14a249664a396ddadc3098a269a4bd9225a4509eb4eb1a53 -->
+<!-- tinybot-module-fingerprint: sha256:21e90f9ba737f41726baf2b62e7a66e1270c4fba9b05de30495de37c037d0818 -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.
@@ -27,6 +27,9 @@ Usage Items optionally carry `modelTiming` with a model-call identity, TTFT,
 and decode duration in milliseconds. Typed live projection and durable replay
 retain the same values. Older v2 Items omit the field; no schema migration is
 needed and absent timing remains unavailable.
+Optional `modelTiming.timeToRequestMs` records backend-input-to-invocation time;
+older timing objects may omit it. Detailed `agent.preparation` diagnostics belong
+to the native application log and are not protocol events or Rollout records.
 
 Form resolution is a durable event. Its values and command correlation are
 persisted before the completed form timeline patch reaches the renderer.

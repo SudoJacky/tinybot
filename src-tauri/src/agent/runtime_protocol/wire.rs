@@ -297,11 +297,14 @@ pub enum AgentTurnItemData {
     },
 }
 
-/// Monotonic timings for one provider invocation, excluding tool execution.
+/// Monotonic timings for one provider invocation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentModelTiming {
     pub model_call_id: String,
+    /// Time from backend input receipt to this invocation, including preparation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_to_request_ms: Option<u64>,
     pub time_to_first_token_ms: Option<u64>,
     pub decode_duration_ms: Option<u64>,
 }

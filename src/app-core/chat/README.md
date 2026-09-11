@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:d1a26f3a1e9d6583758d0dd51746196d8b6b9299a548eb75b5dab7630abe4291 -->
+<!-- tinybot-module-fingerprint: sha256:c600e5cd6e82e69c86aff771275a09a07a6ff1363a349b838409e619579216aa -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -43,6 +43,9 @@ that untouched Provider payload before the composer derives its usage indicator.
 provider output counts and a positive decode duration. Old or non-streaming
 Items supply no invented timings; a later call never replaces missing first-call
 latency. Completed Turn duration uses the existing start and end timestamps.
+Optional first-call `timeToRequestMs` is preserved separately from TTFT, including
+zero. Missing old readings remain unavailable and invalid numeric readings fail
+canonical validation instead of being substituted from a later invocation.
 
 `desktopChatSessionController` requires every submission to name its target
 Thread explicitly. The controller validates that target and never derives a
