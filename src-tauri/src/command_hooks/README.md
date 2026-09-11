@@ -1,5 +1,5 @@
 # Command Hooks
-<!-- tinybot-module-fingerprint: sha256:d7f3d99eff5954699fbebbde9f7302e35bfa82e9426de33082c2338b61110766 -->
+<!-- tinybot-module-fingerprint: sha256:f8c458082e41ef8d288903ab246726d6bb39ba9f46df82871a05ab6b031e6f7e -->
 
 `command_hooks` discovers, validates, reviews, and runs user-defined lifecycle
 commands. Tinybot loads `hooks.json` from the global data directory and the
@@ -17,6 +17,11 @@ The first supported Codex-compatible events are `UserPromptSubmit`,
 `PreToolUse`, `PostToolUse`, and `PostCompact`. Each command receives one JSON
 object on stdin and returns event-specific JSON on stdout. Only synchronous
 `type: "command"` handlers are accepted.
+
+Action Fusion currently requires separate calls when an enabled, trusted PreToolUse
+or PostToolUse handler matches exec_command. The bridge denies a fused patch before
+editing and instructs the Agent to issue ordinary patch and Shell calls, preserving
+each handler's input and execution stage.
 
 Catalog snapshots provision a commented `hooks.example.jsonc` plus PowerShell
 and POSIX shell skeletons under the global data directory. The example file is

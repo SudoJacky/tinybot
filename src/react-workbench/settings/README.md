@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:0199cd044cb5dac235d3b11b4489b7c87fd306fa8c2eba2e3c969230c277da5c -->
+<!-- tinybot-module-fingerprint: sha256:575092ea5c7cae965b97e3b6f71dd049b767d03202da91c2496ee76c479716cd -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -18,6 +18,12 @@ Shell actions may include a versioned module request when they navigate here;
 the route applies that request to its own active-module state so Help can open
 Keyboard shortcuts directly without moving Settings navigation ownership into
 the shell.
+
+Labs is a separate Settings module for experimental features. Its default-off
+Action Fusion toggle persists `experiments.actionFusion` through revision-guarded
+native configuration operations. Load and save failures stay visible; a failed
+save leaves the last confirmed flag intact. Changes apply to new Agent Turns.
+The page explains the Exec prerequisite and patch/command failure behavior.
 
 The Appearance page owns the complete desktop-pet settings surface: visibility,
 three-step size, safe-position recovery, and classic or dimensional style. All

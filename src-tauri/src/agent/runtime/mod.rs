@@ -67,7 +67,6 @@ pub(crate) use self::context::ensure_agent_trace_context;
 pub(crate) use self::events::standalone_runtime_event;
 pub(crate) use self::hooks::AgentHookEvaluation;
 
-#[cfg(test)]
 pub use self::hooks::AgentHookDecision;
 pub use self::hooks::{
     AgentHook, AgentHookInvocation, AgentHookOutput, AgentHookRun, AgentHookStage,

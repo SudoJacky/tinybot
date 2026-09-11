@@ -11,6 +11,54 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[tokio::test]
+async fn action_fusion_cannot_bypass_configured_shell_hooks() {
+    use crate::agent::runtime::{
+        AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookOutput, AgentHookStage,
+    };
+    let root = TestDirectory::new("fusion");
+    let data_root = root.path().join("data");
+    let workspace_root = root.path().join("workspace");
+    fs::create_dir_all(workspace_root.join(".tinybot")).unwrap();
+    fs::write(workspace_root.join(".tinybot/hooks.json"), json!({"hooks":{
+        "PreToolUse":[{"matcher":"^exec_command$","hooks":[{"type":"command","command":"echo should-not-run"}]}]
+    }}).to_string()).unwrap();
+    let initial = CommandHookEngine::load(&data_root, &workspace_root).unwrap();
+    assert!(!initial.requires_separate_shell_calls());
+    let hash = initial.hooks[0].hash.clone();
+    set_hook_trusted(&data_root, &initial.workspace_root, &hash, true).unwrap();
+    let mut engine = CommandHookEngine::load(&data_root, &workspace_root).unwrap();
+    let invocation = AgentHookInvocation::tool(
+        AgentHookStage::BeforeToolUse,
+        crate::agent::runtime_protocol::AgentTraceContext {
+            request_id: "request".into(),
+            trace_id: "trace".into(),
+            turn_id: "turn".into(),
+            thread_id: None,
+            parent_turn_id: None,
+        },
+        "session".into(),
+        "model".into(),
+        "local-worker".into(),
+        "call".into(),
+        "apply_patch".into(),
+        json!({"patch":"patch","thenRun":{"command":"verify"}}),
+        None,
+    );
+    let result = AgentHook::evaluate(&engine, &invocation).await.unwrap();
+    assert!(matches!(
+        result,
+        AgentHookOutput::Decision(AgentHookDecision::Deny { .. })
+    ));
+    engine.hooks[0].event = CommandHookEvent::PostToolUse;
+    assert!(engine.requires_separate_shell_calls());
+    engine.hooks[0].matcher = compile_matcher(Some("^apply_patch$")).unwrap();
+    assert!(!engine.requires_separate_shell_calls());
+    engine.hooks[0].matcher = None;
+    engine.hooks[0].enabled = false;
+    assert!(!engine.requires_separate_shell_calls());
+}
+
 struct TestDirectory(PathBuf);
 
 impl TestDirectory {

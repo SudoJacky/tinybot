@@ -35,6 +35,7 @@ pub struct AgentOutputSchema {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentTurnSettings {
+    pub experiments: crate::config::experiments::ExperimentalSettings,
     pub model: String,
     pub provider: Option<String>,
     pub max_iterations: i64,
@@ -68,6 +69,12 @@ impl AgentTurnSettings {
             .and_then(|agents| agents.get("defaults"))
             .unwrap_or(&Value::Null);
         let mut validation_errors = Vec::new();
+        let experiments =
+            crate::config::experiments::ExperimentalSettings::from_config(config_snapshot)
+                .unwrap_or_else(|error| {
+                    validation_errors.push(error);
+                    Default::default()
+                });
         let temperature = optional_f64_setting(
             spec,
             metadata,
@@ -160,6 +167,7 @@ impl AgentTurnSettings {
         );
 
         Self {
+            experiments,
             model,
             provider,
             max_iterations,

@@ -1,5 +1,42 @@
 use super::*;
 use serde_json::json;
+
+#[test]
+fn action_fusion_settings_persist_with_revision_guard_and_validation() {
+    let fixture = ConfigStoreFixture::new();
+    let path = fixture.write(
+        "config.json",
+        r#"{"schemaVersion":2,"tools":{"exec":{"enable":false}}}"#,
+    );
+    let mut store = ConfigStore::load(path.clone(), default_snapshot()).unwrap();
+    let original_revision = store.revision();
+    let update = |revision, value| ConfigOperationRequest {
+        expected_revision: Some(revision),
+        operations: vec![ConfigOperation::Replace {
+            path: "experiments.actionFusion".to_string(),
+            value,
+        }],
+    };
+    let result = store
+        .apply_operations(update(original_revision.clone(), json!(true)))
+        .unwrap();
+    assert!(result.ok, "{:?}", result.error);
+    let loaded = ConfigStore::load(path.clone(), default_snapshot()).unwrap();
+    assert_eq!(loaded.snapshot()["experiments"]["actionFusion"], true);
+    assert_eq!(loaded.snapshot()["tools"]["exec"]["enable"], false);
+    let contents = fs::read_to_string(&path).unwrap();
+    let conflict = store
+        .apply_operations(update(original_revision, json!(false)))
+        .unwrap();
+    assert!(!conflict.ok);
+    assert_eq!(conflict.error.as_deref(), Some("configuration_changed"));
+    let malformed = store
+        .apply_operations(update(store.revision(), json!("true")))
+        .unwrap();
+    assert!(!malformed.ok);
+    assert!(malformed.error.unwrap().contains("experiments"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), contents);
+}
 use std::{
     fs,
     path::PathBuf,

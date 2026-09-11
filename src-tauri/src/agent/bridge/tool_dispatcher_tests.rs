@@ -7,6 +7,67 @@ use super::{
 use crate::agent::runtime::{NativeAgentToolCall, NativeToolRetry, PreparedToolCall};
 use crate::runtime::mcp::{McpRuntimeError, McpRuntimeErrorKind};
 
+#[test]
+fn action_fusion_projects_command_failure_and_continuation_without_repeating_patch() {
+    use serde_json::{json, Value};
+    let tool_call = PreparedToolCall::prepare(NativeAgentToolCall {
+        id: "fused-call".to_string(),
+        name: "apply_patch".to_string(),
+        arguments_json: json!({"patch":"patch","thenRun":{"command":"verify"}}).to_string(),
+        result: Value::Null,
+    })
+    .unwrap();
+    for (status, running, exit_code, effect) in [
+        ("running", true, Value::Null, "in_progress"),
+        ("exited", false, json!(7), "failed"),
+        ("cancelled", false, Value::Null, "cancelled"),
+    ] {
+        let result = native_tool_result_from_executor_response(&tool_call, json!({"result":{
+            "kind":"action_fusion","patch":{"status":"succeeded"},
+            "thenRun":{"processId":"p1","command":"verify","status":status,"running":running,"exitCode":exit_code,
+                "output":"evidence","stdout":"evidence","stderr":"","chunks":[{"content":"evidence"}],"cursor":3}
+        }})).unwrap();
+        let outcome = &result.envelope["structured"]["outcome"];
+        assert_eq!(outcome["effect"], effect);
+        assert_eq!(outcome["actionExecuted"], true);
+        assert!(outcome["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Do not repeat the patch"));
+        let model: Value =
+            serde_json::from_str(result.envelope["modelContent"].as_str().unwrap()).unwrap();
+        assert_eq!(model["result"]["patch"]["status"], "succeeded");
+        assert_eq!(model["result"]["thenRun"]["output"], "evidence");
+        assert!(model["result"]["thenRun"].get("chunks").is_none());
+        assert!(model["result"]["thenRun"].get("stdout").is_none());
+        if running {
+            assert_eq!(outcome["nextAction"]["tool"], "write_stdin");
+            assert_eq!(outcome["nextAction"]["arguments"]["cursor"], 3);
+        }
+    }
+    for cancelled in [false, true] {
+        let result = native_tool_result_from_executor_response(&tool_call, json!({"result":{
+            "kind":"action_fusion","patch":{"status":"succeeded"},
+            "thenRun":{"status":"start_failed","error":{"message":"start rejected","details":{"cancelled":cancelled}}}
+        }})).unwrap();
+        assert_eq!(
+            result.envelope["structured"]["outcome"]["effect"],
+            if cancelled { "cancelled" } else { "failed" }
+        );
+        assert_eq!(
+            result.envelope["structured"]["outcome"]["actionExecuted"],
+            true
+        );
+    }
+    assert!(native_tool_result_from_executor_response(
+        &tool_call,
+        json!({"result":{
+            "kind":"action_fusion","thenRun":{}
+        }})
+    )
+    .is_err());
+}
+
 #[tokio::test]
 async fn mcp_status_keeps_configuration_failure_distinct_from_tool_success() {
     let runtime = crate::runtime::mcp::McpRuntime::new();

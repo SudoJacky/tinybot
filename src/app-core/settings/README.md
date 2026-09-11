@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:ec8d8bcf0516af7932a3ea7eb988b44d1777f3817df8523b1aa6b234507273a6 -->
+<!-- tinybot-module-fingerprint: sha256:f72f1a67adad029c0834c861e89543feb02a3dfe8a74b731909cc3b53a89e831 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -18,6 +18,10 @@ Settings adapter performs native reads and writes.
 
 Web/browser tools and Exec tools default to enabled when their configuration
 flags are absent; explicit disabled values remain disabled in the settings form.
+
+`experimentalSettings.ts` validates the Labs flag snapshot and builds a narrow
+`experiments.actionFusion` patch. Action Fusion defaults to disabled; malformed
+flag values are errors rather than implicit false values.
 
 Agent context-window defaults must remain aligned with the Rust runtime.
 Provider model settings persist `modelContextWindows` per profile and model;

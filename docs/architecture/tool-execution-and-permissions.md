@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:acdf08158fa0d66213564456b93f1bed52d08d9332aa383547a5a263cb2da1e1 -->
+<!-- tinybot-doc-fingerprint: sha256:e6d57493d5e9f919ab86ebe68ded00b7995068dacc79f4b2d2c2441449cf0423 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -114,6 +114,16 @@ Execution rechecks membership and parent ownership, so an earlier tool definitio
 does not grant access after project membership changes.
 
 ## Exposure and availability
+
+The default-off Action Fusion experiment adds `thenRun` to apply_patch only when
+Exec and both Shell start/continuation tools are available to the Turn. The
+executor validates Shell capability and startup parameters before applying the
+patch, then starts one specified command in the same exclusive operation.
+Command failure keeps the patch, and retained processes reuse write_stdin.
+An active trusted Hook matching exec_command requires separate calls; the bridge
+rejects fusion before editing to preserve the Hook's input and execution stage.
+See [Action Fusion](../api/tools-and-processes.md#experimental-action-fusion)
+for the request and result contract.
 
 - `model` tools are visible to the provider when available.
 - `deferred` tools become visible only after backend policy activates them for

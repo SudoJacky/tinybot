@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:7ceeba22a925fff3817c83d522df71276257235407505f409b1d069aa627345b -->
+<!-- tinybot-module-fingerprint: sha256:cc98a10042714dfcf8dda5d153585a5c0d78414a9ae35cae5ed3d72efa056d38 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -33,3 +33,11 @@ The `exec_command` description teaches the complete long-command workflow:
 start once, distinguish the initial wait from a process timeout, reuse the
 process ID and latest cursor, and prefer longer continuation waits over
 repeated short polls.
+
+`apply_patch` exposes `thenRun` only when Action Fusion and Exec are enabled and
+ShellExecute is granted. The Turn router also removes it when either
+`exec_command` or `write_stdin` is excluded from the selected tools. Patch
+execution stays exclusive with detach-forbidden cancellation cleanup.
+The top-level patch description advertises fusion under those same conditions;
+removing thenRun also restores the original description. Its guidance limits
+fusion to a known verification command that needs no intermediate inspection.

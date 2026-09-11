@@ -81,6 +81,16 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             return self.fallback.dispatch(context, tool_call);
         }
         let mut arguments = tool_call.arguments_value();
+        if matches!(
+            tool_call.name.as_str(),
+            "apply_patch" | "workspace.apply_patch"
+        ) && arguments.get("thenRun").is_some()
+            && (!context.settings.experiments.action_fusion
+                || context.tool_execution_target("exec_command").is_none()
+                || context.tool_execution_target("write_stdin").is_none())
+        {
+            return Err("Action Fusion requires the experiment and exec_command/write_stdin tools enabled for this turn; patch was not applied".to_string());
+        }
         apply_turn_working_directory(
             context.settings.working_directory.as_deref(),
             &tool_call.name,
@@ -969,6 +979,9 @@ fn native_tool_result_from_executor_response(
     executor_result: serde_json::Value,
 ) -> Result<NativeAgentToolResult, String> {
     let raw_result = native_tool_executor_result(executor_result)?;
+    if raw_result.get("kind").and_then(serde_json::Value::as_str) == Some("action_fusion") {
+        return native_action_fusion_result(tool_call, raw_result);
+    }
     if is_persisted_subagent_tool(&tool_call.name) {
         return Ok(NativeAgentToolResult::generic_success(
             tool_call, raw_result,
@@ -1001,6 +1014,78 @@ fn is_shell_agent_tool(tool_name: &str) -> bool {
         tool_name,
         "exec_command" | "write_stdin" | "shell.start" | "shell.execute"
     )
+}
+
+fn native_action_fusion_result(
+    tool_call: &PreparedToolCall,
+    raw_result: serde_json::Value,
+) -> Result<NativeAgentToolResult, String> {
+    let command = raw_result
+        .get("thenRun")
+        .ok_or("Action Fusion result is missing thenRun")?;
+    let mut model_result = raw_result.clone();
+    if let Some(compact) = compact_shell_process_model_result(command) {
+        model_result["thenRun"] = compact;
+    }
+    let outcome = if command.get("status").and_then(serde_json::Value::as_str)
+        == Some("start_failed")
+    {
+        let error = command
+            .get("error")
+            .ok_or("Action Fusion start failure is missing its error")?;
+        let message = error
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("Action Fusion start failure is missing its message")?;
+        let cancelled = error
+            .pointer("/details/cancelled")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true);
+        Some(NativeToolOutcome {
+            effect: if cancelled { "cancelled" } else { "failed" }.to_string(),
+            action_executed: Some(true),
+            reason_code: "action_fusion_command_start_failed".to_string(),
+            reason: format!(
+                "Patch applied; command start failed: {message}. Do not repeat the patch."
+            ),
+            retry: if cancelled {
+                NativeToolRetry::DoNotRetry
+            } else {
+                NativeToolRetry::Replan
+            },
+            next_action: None,
+        })
+    } else {
+        native_shell_tool_outcome("exec_command", command).map(|mut outcome| {
+            outcome.action_executed = Some(true);
+            outcome.reason = format!("Patch applied. {} Do not repeat the patch.", outcome.reason);
+            outcome
+        })
+    };
+    if let Some(outcome) = outcome {
+        return Ok(
+            NativeAgentToolResult::success_with_outcome_and_model_result(
+                tool_call,
+                raw_result,
+                model_result,
+                outcome,
+            ),
+        );
+    }
+    if command.get("status").and_then(serde_json::Value::as_str) != Some("exited")
+        || command.get("exitCode").and_then(serde_json::Value::as_i64) != Some(0)
+    {
+        return Err(
+            "Action Fusion command result has no terminal success or continuation outcome"
+                .to_string(),
+        );
+    }
+    Ok(NativeAgentToolResult::generic_success_with_model_content(
+        tool_call,
+        "Patch applied; follow-up command completed successfully.".to_string(),
+        model_result.to_string(),
+        raw_result,
+    ))
 }
 
 fn native_shell_tool_outcome(

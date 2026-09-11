@@ -80,6 +80,33 @@ impl NativeToolRouter {
             });
         }
 
+        let can_continue_shell = ["exec_command", "write_stdin"].iter().all(|id| {
+            self.entries
+                .iter()
+                .any(|entry| entry.tool_id == *id && entry.available)
+        });
+        if !can_continue_shell {
+            for entry in &mut self.entries {
+                if matches!(
+                    entry.tool_id.as_str(),
+                    "apply_patch" | "workspace.apply_patch"
+                ) {
+                    if let Some(properties) = entry
+                        .input_schema
+                        .get_mut("properties")
+                        .and_then(Value::as_object_mut)
+                    {
+                        properties.remove("thenRun");
+                    }
+                    if let Some(base) = entry
+                        .description
+                        .strip_suffix(crate::tools::action_fusion::TOOL_DESCRIPTION_SUFFIX)
+                    {
+                        entry.description.truncate(base.len());
+                    }
+                }
+            }
+        }
         self.activated_tool_ids = if selected_tools.is_some() {
             self.entries
                 .iter()
@@ -391,6 +418,48 @@ fn registry_entry_to_tool_definition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_fusion_schema_respects_turn_tool_selection() {
+        for (selection, enabled) in [
+            (vec!["apply_patch"], false),
+            (vec!["apply_patch", "exec_command"], false),
+            (vec!["apply_patch", "exec_command", "write_stdin"], true),
+        ] {
+            let registry = crate::tools::registry::WorkerToolRegistryRpc::new_with_config(
+                crate::protocol::capability::default_desktop_capability_policy(),
+                json!({"experiments":{"actionFusion":true}}),
+            );
+            let mut router = NativeToolRouter::new(registry.list_tools().tools);
+            router
+                .configure_for_turn(Some(
+                    &selection
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect::<Vec<_>>(),
+                ))
+                .unwrap();
+            let patch = router
+                .tool_definitions()
+                .unwrap()
+                .into_iter()
+                .find(|tool| tool.name == "apply_patch")
+                .unwrap();
+            assert_eq!(
+                patch.input_schema["properties"].get("thenRun").is_some(),
+                enabled
+            );
+            assert_eq!(patch.description.contains("use thenRun"), enabled);
+            if !enabled {
+                let original = crate::tools::registry::WorkerToolRegistryRpc::new(
+                    crate::protocol::capability::default_desktop_capability_policy(),
+                )
+                .get_tool("apply_patch")
+                .unwrap();
+                assert_eq!(patch.description, original.description);
+            }
+        }
+    }
 
     fn router() -> NativeToolRouter {
         NativeToolRouter::new(

@@ -96,7 +96,11 @@ pub fn normalize_tool_effects(
             );
         }
         "workspace.apply_patch" | "apply_patch" => {
-            effects = workspace_patch_permission_effects();
+            effects = if arguments.get("thenRun").is_some() {
+                shell_permission_effects(false)
+            } else {
+                workspace_patch_permission_effects()
+            };
         }
         "mcp.call_tool" => {
             let server = string_argument(arguments, "server", "server")

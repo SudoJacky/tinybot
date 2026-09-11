@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useEffect, useState, type ReactNode } from "react";
-import { AppWindow, BarChart3, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, ShieldCheck, SunMoon, UserRound, type LucideIcon } from "lucide-react";
+import { AppWindow, BarChart3, Bot, Cable, ChevronRight, Cloud, FlaskConical, Keyboard, Radio, ShieldCheck, SunMoon, UserRound, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./SettingsRoute.css";
 import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
@@ -11,6 +11,7 @@ import { AppearanceSettingsPage } from "./AppearanceSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "./ConfigSettingsPage";
 import { KeyboardShortcutsSettingsPage } from "./KeyboardShortcutsSettingsPage";
 import { HooksSettingsPage } from "./HooksSettingsPage";
+import { LabsSettingsPage } from "./LabsSettingsPage";
 import { PersonalizationSettingsPage } from "./PersonalizationSettingsPage";
 import { ProfileSettingsPage } from "./ProfileSettingsPage";
 import { ProviderModelsSettingsPage } from "./ProviderModelsSettingsPage";
@@ -84,6 +85,8 @@ export default function SettingsRoute({
             <KeyboardShortcutsSettingsPage />
           ) : activeModuleId === "agent-defaults" ? (
             <AgentDefaultsSettingsPage settingsStore={services.settingsStore} />
+          ) : activeModuleId === "labs" ? (
+            <LabsSettingsPage settingsStore={services.settingsStore} />
           ) : activeModuleId === "hooks" && services.hooksStore ? (
             <HooksSettingsPage
               hooksStore={services.hooksStore}
@@ -161,7 +164,7 @@ function SettingsFallback({ settingsStore }: { settingsStore: SettingsStore }) {
   );
 }
 
-export type SettingsModuleId = "profile" | "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | ConfigSettingsGroupId;
+export type SettingsModuleId = "profile" | "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | "labs" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
@@ -183,6 +186,7 @@ function createSettingsModules(t: TFunction<"settings">): SettingsModule[] {
     { id: "hooks", label: t("modules.hooks.label"), description: t("modules.hooks.description"), icon: ShieldCheck },
     { id: "tools-mcp", label: t("modules.tools.label"), description: t("modules.tools.description"), icon: Cable, groupId: "tools-mcp" },
     { id: "channels", label: t("modules.channels.label"), description: t("modules.channels.description"), icon: Radio, groupId: "channels" },
+    { id: "labs", label: t("modules.labs.label"), description: t("modules.labs.description"), icon: FlaskConical },
   ];
 }
 

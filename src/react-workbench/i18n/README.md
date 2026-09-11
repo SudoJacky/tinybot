@@ -1,9 +1,11 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:35c150458d529151873101cdd24fdf7452dafe50f236f9ca74742c18809f8877 -->
+<!-- tinybot-module-fingerprint: sha256:1ba3e95c5907c7cf6475b8bd7ded13d0843861d61268cac5184cc95972918af1 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
 status are localized in both languages.
+Labs localizes its Action Fusion toggle, persistence failures, next-Turn scope,
+and command-Hook restriction in both languages.
 Quick start localizes welcome and model setup, catalog-validation feedback,
 task examples, dismissal, and the Help reentry action in both languages.
 Turn metrics localize the time-to-first-call label, millisecond value, and
