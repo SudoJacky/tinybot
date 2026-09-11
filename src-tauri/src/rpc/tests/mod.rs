@@ -18,6 +18,7 @@ use std::{
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+mod action_fusion;
 mod automation_and_collaboration;
 mod request_boundary;
 mod threads_and_tools;

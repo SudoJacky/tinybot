@@ -221,6 +221,20 @@ impl WorkerToolRegistryRpc {
             .contributed_tools()
             .into_iter()
             .map(|mut tool| {
+                if matches!(
+                    tool.tool_id.as_str(),
+                    "apply_patch" | "workspace.apply_patch"
+                ) && self.config_snapshot.pointer("/experiments/actionFusion")
+                    == Some(&Value::Bool(true))
+                    && self.config_snapshot.pointer("/tools/exec/enable")
+                        != Some(&Value::Bool(false))
+                    && self.policy.allows(&WorkerCapability::ShellExecute)
+                {
+                    tool.input_schema["properties"]["thenRun"] =
+                        crate::tools::action_fusion::then_run_schema();
+                    tool.description
+                        .push_str(crate::tools::action_fusion::TOOL_DESCRIPTION_SUFFIX);
+                }
                 tool.available = tool
                     .required_capabilities
                     .iter()

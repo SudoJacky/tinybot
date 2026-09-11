@@ -106,6 +106,21 @@ impl fmt::Debug for CommandHookEngine {
 }
 
 impl CommandHookEngine {
+    pub(crate) fn requires_separate_shell_calls(&self) -> bool {
+        self.hooks.iter().any(|hook| {
+            hook.enabled
+                && hook.trusted
+                && matches!(
+                    hook.event,
+                    CommandHookEvent::PreToolUse | CommandHookEvent::PostToolUse
+                )
+                && hook
+                    .matcher
+                    .as_ref()
+                    .is_none_or(|matcher| matcher.is_match("exec_command"))
+        })
+    }
+
     pub(crate) fn load(data_root: &Path, workspace_root: &Path) -> Result<Self, String> {
         let workspace_root = absolute_path(workspace_root);
         let catalog = load_resolved_hooks(data_root, &workspace_root)?;

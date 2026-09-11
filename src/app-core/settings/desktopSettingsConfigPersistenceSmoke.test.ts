@@ -5,8 +5,23 @@ import {
   buildDesktopSettingsFormState,
 } from "./desktopSettingsProviders";
 import { buildDesktopSettingsPaneModel } from "./desktopSettingsPaneModel";
+import { actionFusionSettingsPatch } from "./experimentalSettings";
 
 describe("desktop settings config persistence smoke", () => {
+  test("saves only the experimental flag through revision-guarded native operations", async () => {
+    const currentConfig = { configMetadata: { revision: "before" }, tools: { exec: { enable: false } } };
+    const invoke = vi.fn().mockResolvedValue({
+      ok: true, config: { ...currentConfig, experiments: { actionFusion: true } }, revision: "after",
+      updatedFields: ["experiments.actionFusion"], sideEffects: { applied: [], restartRequired: [], warnings: [] },
+    });
+    const result = await saveDesktopSettingsConfig(currentConfig, actionFusionSettingsPatch(true), {
+      applyNativeConfigPatch: (config, patch) => applyNativeConfigPatch(config, patch, { invoke }),
+    });
+    expect(invoke).toHaveBeenCalledWith("apply_config_operations", { request: {
+      expectedRevision: "before", operations: [{ op: "replace", path: "experiments.actionFusion", value: true }],
+    } });
+    expect(result.persistedRevision).toBe("after");
+  });
   test("loads origin metadata, saves canonical operations, and displays pending runtime effects", async () => {
     const currentConfig = {
       revision: "hash:old",

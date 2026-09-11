@@ -1,4 +1,5 @@
 pub(crate) mod application;
+pub(crate) mod experiments;
 pub(crate) mod registry;
 pub(crate) mod runtime;
 pub(crate) mod secrets;

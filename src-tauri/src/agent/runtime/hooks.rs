@@ -228,8 +228,6 @@ pub trait AgentHook: Send + Sync + 'static {
 }
 
 pub enum AgentHookOutput {
-    // In-process hook implementations currently live in the test fixtures.
-    #[cfg_attr(not(test), allow(dead_code))]
     Decision(AgentHookDecision),
     Runs(Vec<AgentHookRun>),
 }

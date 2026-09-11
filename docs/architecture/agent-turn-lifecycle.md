@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2d1ef96e1c232a48ce56636720146517fb7f92b1f19d8aec9f892c0d41838db4 -->
+<!-- tinybot-doc-fingerprint: sha256:281fed884a1c00a552e7b285349745ed05ef1b1ae04fcef72e8ed590aad74a02 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -201,6 +201,11 @@ is ordered after the associated tool result before another provider request.
 Typed in-process hook failures fail the Turn, while command-runner failures are
 recorded in `agent.hook.decision` and fail open unless the event returns a
 supported explicit blocking decision.
+
+Action Fusion keeps one patch-plus-command operation inside the existing tool
+wave. If trusted Shell Hooks require individual command events, the bridge
+denies that fused call before editing and asks for separate calls. The global
+experiment flag is captured at Turn preparation and stays fixed during execution.
 
 Provider protocols adapt at one seam. Chat Completions and Responses encode
 different wire formats but share the same provider/tool loop, permission

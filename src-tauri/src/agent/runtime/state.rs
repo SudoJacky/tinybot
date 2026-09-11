@@ -426,6 +426,7 @@ impl AgentTurnState {
             .or_else(|| string_field(&context.metadata, "clientEventId"))
             .or_else(|| string_field(&context.metadata, "client_event_id"));
         let mut payload = serde_json::json!({
+            "experiments": context.settings.experiments,
             "clientEventId": client_event_id,
             "userMessageId": message_id,
             "userMessage": {

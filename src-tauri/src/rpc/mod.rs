@@ -455,7 +455,9 @@ fn tool_executor_arguments_with_context(
                     Value::String(session_id.to_string()),
                 );
             }
-            if !object.contains_key("parentTurnId") {
+            if !object.contains_key("parentTurnId")
+                || (target_method == "workspace.apply_patch" && object.contains_key("thenRun"))
+            {
                 if let Some(turn_id) = params
                     .turn_id
                     .as_deref()

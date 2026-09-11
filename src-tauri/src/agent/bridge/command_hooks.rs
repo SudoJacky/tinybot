@@ -1,5 +1,6 @@
 use crate::agent::runtime::{
-    AgentHook, AgentHookInvocation, AgentHookOutput, AgentHookRun, AgentHookStage,
+    AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookOutput, AgentHookRun,
+    AgentHookStage,
 };
 use crate::command_hooks::{CommandHookEngine, CommandHookEvent, CommandHookRequest};
 use futures_util::future::BoxFuture;
@@ -13,6 +14,21 @@ impl AgentHook for CommandHookEngine {
         invocation: &'a AgentHookInvocation,
     ) -> BoxFuture<'a, Result<AgentHookOutput, String>> {
         Box::pin(async move {
+            if invocation.stage == AgentHookStage::BeforeToolUse
+                && matches!(
+                    invocation.tool_name.as_deref(),
+                    Some("apply_patch" | "workspace.apply_patch")
+                )
+                && invocation
+                    .normalized_input
+                    .as_ref()
+                    .is_some_and(|input| input.get("thenRun").is_some())
+                && self.requires_separate_shell_calls()
+            {
+                return Ok(AgentHookOutput::Decision(AgentHookDecision::Deny {
+                    reason: "Action Fusion cannot preserve the configured exec_command hooks. No patch was applied. Use separate apply_patch and exec_command calls so their hooks run at the correct stages.".to_string(),
+                }));
+            }
             let Some(request) = command_request(invocation) else {
                 // No command ran at this stage, so there is no decision to record.
                 return Ok(AgentHookOutput::Runs(Vec::new()));

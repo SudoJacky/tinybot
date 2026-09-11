@@ -39,6 +39,8 @@ pub struct WorkerShellRuntime {
     processes: ShellProcessManager,
 }
 
+pub(crate) struct PreparedShellStart(ShellStartParams);
+
 impl Default for WorkerShellRuntime {
     fn default() -> Self {
         Self {
@@ -96,17 +98,53 @@ impl WorkerShellRpc {
         &self,
         params: ShellStartParams,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.start_prepared(self.prepare_start(params)?)
+    }
+
+    pub(crate) fn prepare_start(
+        &self,
+        mut params: ShellStartParams,
+    ) -> Result<PreparedShellStart, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
-        let owner_id = required_process_owner(params.owner_id, "ownerId")?;
-        let tool_call_id = required_process_owner(params.tool_call_id, "toolCallId")?;
-        let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
-        let working_dir = self.resolve_working_dir(requested_working_dir)?;
+        if params.command.trim().is_empty() {
+            return Err(invalid_shell_request("command must not be empty"));
+        }
+        params.owner_id = Some(required_process_owner(params.owner_id.take(), "ownerId")?);
+        params.tool_call_id = Some(required_process_owner(
+            params.tool_call_id.take(),
+            "toolCallId",
+        )?);
+        validate_working_dir_argument(params.working_dir.as_deref().unwrap_or("."))?;
         if is_cancelled(&params.cancellation) {
             return Err(shell_error(
                 "shell process start was cancelled",
                 serde_json::json!({ "cancelled": true }),
             ));
         }
+        Ok(PreparedShellStart(params))
+    }
+
+    pub(crate) fn start_prepared(
+        &self,
+        prepared: PreparedShellStart,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        let params = prepared.0;
+        if is_cancelled(&params.cancellation) {
+            return Err(shell_error(
+                "shell process start was cancelled",
+                serde_json::json!({ "cancelled": true }),
+            ));
+        }
+        // Resolve against the filesystem at execution time: a preceding patch may create this directory.
+        let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
+        let working_dir =
+            self.resolve_working_dir(requested_working_dir)
+                .map_err(|mut error| {
+                    error.details["stage"] = serde_json::json!("working_directory_resolution");
+                    error.details["workingDir"] = serde_json::json!(requested_working_dir);
+                    error.details["workspaceRoot"] = serde_json::json!(self.workspace_root);
+                    error
+                })?;
         self.processes.start(ValidatedShellStart {
             command: params.command,
             working_dir,
@@ -115,8 +153,8 @@ impl WorkerShellRpc {
             yield_time_ms: params.yield_time_ms.unwrap_or(10_000),
             rows: params.rows.unwrap_or(24).max(1),
             cols: params.cols.unwrap_or(80).max(1),
-            owner_id: Some(owner_id),
-            tool_call_id: Some(tool_call_id),
+            owner_id: params.owner_id,
+            tool_call_id: params.tool_call_id,
             cancellation: params.cancellation,
         })
     }
@@ -294,9 +332,7 @@ impl WorkerShellRpc {
     }
 
     fn resolve_working_dir(&self, requested: &str) -> Result<PathBuf, WorkerProtocolError> {
-        if requested.contains('\0') {
-            return Err(invalid_shell_request("working_dir contains a null byte"));
-        }
+        validate_working_dir_argument(requested)?;
         let requested_path = Path::new(requested);
         let candidate = if requested_path.is_absolute() {
             requested_path.to_path_buf()
@@ -667,6 +703,13 @@ fn truncate_head_tail(content: &str, max_chars: usize) -> String {
         "{head}\n\n... ({} chars truncated) ...\n\n{tail}",
         chars.len() - max_chars
     )
+}
+
+fn validate_working_dir_argument(requested: &str) -> Result<(), WorkerProtocolError> {
+    if requested.contains('\0') {
+        return Err(invalid_shell_request("working_dir contains a null byte"));
+    }
+    Ok(())
 }
 
 fn invalid_shell_request(message: impl Into<String>) -> WorkerProtocolError {

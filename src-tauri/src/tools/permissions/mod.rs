@@ -113,7 +113,15 @@ impl WorkerPermissionProfileRpc {
         request: PermissionEvaluateToolRequest,
     ) -> Result<PermissionToolEvaluation, WorkerProtocolError> {
         let effects = normalize_tool_effects(tool, &request.arguments)?;
-        let missing_capabilities = self.missing_capabilities(tool);
+        let mut missing_capabilities = self.missing_capabilities(tool);
+        if matches!(
+            tool.method.as_str(),
+            "apply_patch" | "workspace.apply_patch"
+        ) && request.arguments.get("thenRun").is_some()
+            && !self.policy.allows(&WorkerCapability::ShellExecute)
+        {
+            missing_capabilities.push(WorkerCapability::ShellExecute);
+        }
         Ok(PermissionToolEvaluation {
             tool: tool_summary(tool),
             decision: decision_for_tool(&missing_capabilities),

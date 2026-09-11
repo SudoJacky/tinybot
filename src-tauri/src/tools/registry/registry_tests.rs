@@ -2,6 +2,58 @@ use super::*;
 use crate::protocol::capability::default_desktop_capability_policy;
 
 #[test]
+fn action_fusion_schema_requires_experiment_and_shell_access() {
+    for (config, policy, enabled) in [
+        (json!({}), default_desktop_capability_policy(), false),
+        (
+            json!({"experiments":{"actionFusion":false}}),
+            default_desktop_capability_policy(),
+            false,
+        ),
+        (
+            json!({"experiments":{"actionFusion":true}}),
+            default_desktop_capability_policy(),
+            true,
+        ),
+        (
+            json!({"experiments":{"actionFusion":true},"tools":{"exec":{"enable":false}}}),
+            default_desktop_capability_policy(),
+            false,
+        ),
+        (
+            json!({"experiments":{"actionFusion":true}}),
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
+            false,
+        ),
+    ] {
+        let registry = WorkerToolRegistryRpc::new_with_config(policy, config);
+        for id in ["apply_patch", "workspace.apply_patch"] {
+            let patch = registry.get_tool(id).unwrap();
+            assert_eq!(
+                patch.input_schema["properties"].get("thenRun").is_some(),
+                enabled
+            );
+            assert!(!patch.supports_parallel_tool_calls);
+            let base_description = WorkerToolRegistryRpc::new(default_desktop_capability_policy())
+                .get_tool(id)
+                .unwrap()
+                .description;
+            if enabled {
+                assert!(patch.description.starts_with(&base_description));
+                assert!(patch.description.contains("use thenRun"));
+                assert!(patch.description.contains("no intermediate inspection"));
+            } else {
+                assert_eq!(patch.description, base_description);
+            }
+            assert_eq!(
+                patch.runtime_policy.cancellation_mode,
+                ToolCancellationMode::DetachForbidden
+            );
+        }
+    }
+}
+
+#[test]
 fn update_plan_is_an_always_available_runtime_control_tool() {
     let tool = WorkerToolRegistryRpc::new(CapabilityPolicy::default())
         .get_tool(UPDATE_PLAN_METHOD)
