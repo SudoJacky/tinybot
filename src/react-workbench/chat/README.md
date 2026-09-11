@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:5ead1eb43452bd6d8d0b8297a3af436d108233c2fc84ac6cd42d27d38dee0306 -->
+<!-- tinybot-module-fingerprint: sha256:141772688a512ccfaea2552596deeaa8a76648a74cbdc691a516541ab4e9e3b9 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -225,9 +225,12 @@ is hidden.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Composer submission turns native managed
-images into references with `referenceKind: "image"`. User attachments render as a
-separate stack above the text bubble: managed images use the scoped Tauri asset
-protocol for bounded previews, while ordinary files use compact metadata cards.
+images into references with `referenceKind: "image"`. Managed image previews remain
+above the text bubble using the scoped Tauri asset protocol. Uploaded files and
+workspace file references share compact, wrapping chips inside user bubbles in
+both optimistic and persisted Turns. Paths and metadata appear in tooltips;
+workspace chips open the existing file-preview action. Browser annotation
+references retain their context presentation and submitted evidence is unchanged.
 Published `tinybot.data_view.v1` artifacts keep their model-authored data and
 view contract separate from presentation. Chat selects a matching Lieflat
 Porcelain SVG template for supported line, area, bar, stacked, paired, and

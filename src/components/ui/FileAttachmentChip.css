@@ -1,0 +1,54 @@
+.file-attachment-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: min(300px, 100%);
+  height: 34px;
+  padding: 0 5px 0 10px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font-size: 13px;
+  /* Leave room for CJK glyphs and descenders inside the ellipsis clipping box. */
+  line-height: 1.5;
+}
+.file-attachment-chip .file-attachment-chip__content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 5px 0 0;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.file-attachment-chip button { cursor: pointer; }
+.file-attachment-chip__icon, .file-attachment-chip__type, .file-attachment-chip__chevron { flex: none; }
+.file-attachment-chip__icon { color: var(--color-muted); }
+.file-attachment-chip[data-category="spreadsheet"] .file-attachment-chip__icon { color: var(--color-success, #39805a); }
+.file-attachment-chip[data-category="pdf"] .file-attachment-chip__icon { color: var(--color-primary); }
+.file-attachment-chip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-attachment-chip__type { color: var(--color-muted); font-size: 10px; }
+.file-attachment-chip__chevron { color: var(--color-muted); }
+.file-attachment-chip .file-attachment-chip__remove {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-muted);
+}
+.file-attachment-chip__remove:hover { background: var(--color-panel); color: var(--color-ink); }
+.file-attachment-chip:has(button:hover) { border-color: var(--color-hairline-strong, var(--color-muted)); }
+.file-attachment-chip :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.react-message__body .file-attachment-chip { background: var(--color-panel); }

@@ -14,6 +14,27 @@ afterEach(() => {
 });
 
 describe("ChatTimeline", () => {
+  test("shows workspace and uploaded files as chips inside persisted user bubbles", () => {
+    const turn = completedTurn();
+    const onOpenFileLink = vi.fn();
+    turn.userMessage.references = [
+      { kind: "reference", referenceKind: "file", title: "sales.xlsx", detail: "Whole artifact", sourcePath: "reports/sales.xlsx", sourceText: "Artifact: sales.xlsx\nViewed content" },
+      { kind: "reference", referenceKind: "file", title: "notes.pdf", detail: "PDF - 2 KB", rawPath: "C:/uploads/notes.pdf" },
+    ];
+    render(<ChatTimeline actions={{ onOpenFileLink }} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={[turn]} />);
+    const message = screen.getByTestId("message-user-1");
+    const attachments = within(message).getByRole("region", { name: "Attachments" });
+    expect(message.querySelector(".react-message__body")?.contains(attachments)).toBe(true);
+    expect(within(attachments).getByText("sales.xlsx")).toBeTruthy();
+    expect(within(attachments).getByText("notes.pdf")).toBeTruthy();
+    expect(within(message).queryByText("Context")).toBeNull();
+    expect(message.textContent).not.toContain("Whole artifact");
+    const file = within(attachments).getByRole("button", { name: /sales.xlsx/ });
+    expect(file.title).toContain("reports/sales.xlsx");
+    fireEvent.click(file);
+    expect(onOpenFileLink).toHaveBeenCalledWith({ href: "reports/sales.xlsx" });
+  });
+
   test("keeps one indicator at the turn tail through dispatch, tools, and answer streaming", () => {
     const base = completedTurn();
     const timeline = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (

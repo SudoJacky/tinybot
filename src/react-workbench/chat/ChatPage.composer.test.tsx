@@ -792,10 +792,10 @@ describe("ChatPage", () => {
     const body = message.querySelector(".react-message__body");
     expect(message.textContent).toContain("文件中的内容是什么");
     expect(attachments.textContent).toContain("AI_Agent_第一性原理_文档.md");
-    expect(attachments.textContent).toContain("MARKDOWN - 1.67 KB");
-    expect(message.firstElementChild).toBe(attachments);
-    expect(attachments.nextElementSibling).toBe(body);
-    expect(body?.textContent).not.toContain("AI_Agent_第一性原理_文档.md");
+    expect(attachments.textContent).not.toContain("MARKDOWN - 1.67 KB");
+    expect(attachments.querySelector("[title]")?.getAttribute("title")).toContain("MARKDOWN - 1.67 KB");
+    expect(body?.contains(attachments)).toBe(true);
+    expect(body?.textContent).toContain("AI_Agent_第一性原理_文档.md");
     expect(message.textContent).not.toContain("D:\\code\\tinybot\\test");
     expect(message.textContent).not.toContain("Files mentioned by the user");
   });

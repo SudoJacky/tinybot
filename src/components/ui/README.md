@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:c0e575d6aee6b52b689d4ff20808a440ea0814961d6d7f40c79548b5f4787a7f -->
+<!-- tinybot-module-fingerprint: sha256:ba7540264562708242ed764b9c01e8e42df408a1f93b270fd5c8feaa896ca837 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -13,6 +13,12 @@ File drops and clipboard files use the injected `onImportFiles` adapter; plain
 text paste keeps its existing editor behavior. A nested-safe drop cue and import
 status share the panel. Pending imports block sending and cannot attach to a
 different `attachmentContextKey` after navigation.
+File attachments and ordinary workspace file references use the shared
+`FileAttachmentChip`: a single-line pill with a type icon, truncated filename,
+fixed extension label, full-name/path/metadata tooltip, and remove action.
+The row lives inside the composer panel and scrolls horizontally without widening
+the input. Newly added files scroll into view; ordinary draft edits do not move
+the row. Expanded annotation controls keep their existing editing behavior below it.
 Route-owned context references can opt into an expanded annotation card with a
 header, body value, and note while preserving the same remove and successful-send
 clearing callbacks as compact references.
