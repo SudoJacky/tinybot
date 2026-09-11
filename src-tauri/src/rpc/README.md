@@ -3,7 +3,7 @@
 Turn-persistence dispatch adapts wire parameters to the typed workspace store
 service. Internal Agent persistence calls that service directly, sharing its
 lifecycle lock, canonical writes, projection synchronization, and recovery.
-<!-- tinybot-module-fingerprint: sha256:016eb43b8337b8ef2d687ebbab6de61e874713e4489fa34abd143eed3d9c705b -->
+<!-- tinybot-module-fingerprint: sha256:1d32f8b6bfe083e62d674f954120dd8f1c9fc60eb32265cc22d2db1dd9e6a52a -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -22,6 +22,10 @@ in the sibling `protocol/` module.
 The router should coordinate services, not become the implementation of every
 service. `workspace/`, `tools/`, and `threads/` own their domain
 behavior.
+
+Workspace patch dispatch routes an optional `thenRun` to the Action Fusion
+service. The generic tool executor injects the authoritative Turn/tool-call
+identity so retained follow-up commands share ordinary Shell ownership.
 
 Desktop boundaries that already resolved an authoritative workspace may build
 a router with that explicit root. The Thread Artifact preview command uses

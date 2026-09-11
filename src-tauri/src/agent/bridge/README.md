@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:bafbf9507fb5c10029bf41517e70a2d3783c27c6301f033e4359911f2aa1d0c4 -->
+<!-- tinybot-module-fingerprint: sha256:82a16e7e37b46db14a9f68682935b57bb30ecf3c66ccf8681966b2773fde56ae -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -112,6 +112,11 @@ All retained Shell results, including running, failed, and truncated outcomes,
 share one compact model projection: one output string plus process status,
 cursor, exit code, and failure/truncation evidence. Raw stream chunks remain in
 the envelope for diagnostics and UI; they are not duplicated in model content.
+
+Action Fusion results preserve the patch result and project the command through
+that same Shell outcome contract. Command failures and cancellation explicitly
+retain the applied edit; running commands suggest write_stdin with a cursor.
+The bridge rechecks the Turn's experiment snapshot and selected Shell tools.
 
 Changing this order requires care. In particular, a turn must be recoverable
 after its start is visible, and trace flushing must not be reported as success

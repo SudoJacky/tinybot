@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:3440c89ce5659ea60c2bef7ca2ab92b8fa788bd8a8fc2aa708bb6e7081cf5958 -->
+<!-- tinybot-doc-fingerprint: sha256:6bd4802a5c171b86ae4241df118db2a7123b4a4cfc7fc25e63e8193fb1c1f27a -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -29,6 +29,10 @@ This boundary resolves settings aliases and context-window overrides, and parses
 continuations into `AgentContinuationInput`. The execution context holds typed
 controls and a projection flag; compaction no longer modifies a copy of the
 input JSON alongside the active message history.
+
+`experiments.actionFusion` is a default-off application setting captured in
+AgentTurnSettings and reported with TurnStarted. It changes eligible tool
+schemas for subsequent Turns; it does not rewrite existing tool observations.
 
 The optional first-Turn title request is a separate tool-free request, not part
 of this composed Agent context. Its fixed system prompt treats the bounded user

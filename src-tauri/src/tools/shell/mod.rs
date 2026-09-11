@@ -39,6 +39,8 @@ pub struct WorkerShellRuntime {
     processes: ShellProcessManager,
 }
 
+pub(crate) struct PreparedShellStart(ValidatedShellStart);
+
 impl Default for WorkerShellRuntime {
     fn default() -> Self {
         Self {
@@ -96,7 +98,17 @@ impl WorkerShellRpc {
         &self,
         params: ShellStartParams,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.start_prepared(self.prepare_start(params)?)
+    }
+
+    pub(crate) fn prepare_start(
+        &self,
+        params: ShellStartParams,
+    ) -> Result<PreparedShellStart, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
+        if params.command.trim().is_empty() {
+            return Err(invalid_shell_request("command must not be empty"));
+        }
         let owner_id = required_process_owner(params.owner_id, "ownerId")?;
         let tool_call_id = required_process_owner(params.tool_call_id, "toolCallId")?;
         let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
@@ -107,7 +119,7 @@ impl WorkerShellRpc {
                 serde_json::json!({ "cancelled": true }),
             ));
         }
-        self.processes.start(ValidatedShellStart {
+        Ok(PreparedShellStart(ValidatedShellStart {
             command: params.command,
             working_dir,
             working_dir_display: normalize_working_dir_display(requested_working_dir),
@@ -118,7 +130,20 @@ impl WorkerShellRpc {
             owner_id: Some(owner_id),
             tool_call_id: Some(tool_call_id),
             cancellation: params.cancellation,
-        })
+        }))
+    }
+
+    pub(crate) fn start_prepared(
+        &self,
+        prepared: PreparedShellStart,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        if is_cancelled(&prepared.0.cancellation) {
+            return Err(shell_error(
+                "shell process start was cancelled",
+                serde_json::json!({ "cancelled": true }),
+            ));
+        }
+        self.processes.start(prepared.0)
     }
 
     pub fn poll(

@@ -1,5 +1,5 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:ebad34e15d40105a06b67804795a428b2a30d4d39de3494f9bdd172c3c762537 -->
+<!-- tinybot-module-fingerprint: sha256:c24c3a8e4db2853e5c2d316de3a0e9fb62f5f8829760925e93be6407f0794180 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 
@@ -8,6 +8,10 @@ secret handling, and the underlying configuration store.
 
 New native configuration snapshots explicitly enable Web/browser and Exec tools.
 Existing configuration values are preserved when loading user settings.
+
+`experiments.rs` defines default-off experimental flags. `experiments.actionFusion`
+is a boolean validated on configuration load and mutation; invalid or unknown
+experimental fields fail validation. The Agent snapshots these values per Turn.
 
 The Rust store is the schema migration boundary. Schema v1 files are backed up
 once as `config.json.v1.bak` and migrated atomically to schema v2. Provider Auto

@@ -1,3 +1,4 @@
+pub(crate) mod action_fusion;
 pub(crate) mod executor;
 pub(crate) mod permissions;
 pub(crate) mod registry;

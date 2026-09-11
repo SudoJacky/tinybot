@@ -126,6 +126,7 @@
 .react-agent-defaults-settings,
 .react-personalization-settings,
 .react-hooks-settings,
+.react-labs-settings,
 .react-config-settings {
   display: grid;
   gap: 26px;

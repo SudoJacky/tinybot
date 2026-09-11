@@ -38,6 +38,15 @@ impl WorkerRpcRouter {
                 .map_err(serialization_error)
             }
             "workspace.apply_patch" => {
+                if request.params.get("thenRun").is_some() {
+                    return crate::tools::action_fusion::execute(
+                        &self.workspace,
+                        &self.shell,
+                        self.config.snapshot(),
+                        request,
+                        parse_params(request)?,
+                    );
+                }
                 let params: ApplyPatchParams = parse_params(request)?;
                 serde_json::to_value(self.workspace.apply_patch(&params.patch)?)
                     .map_err(serialization_error)

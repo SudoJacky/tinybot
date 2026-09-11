@@ -439,6 +439,7 @@ impl ConfigStore {
 }
 
 fn migrate_config_schema(snapshot: &mut Value) -> Result<bool, String> {
+    super::experiments::ExperimentalSettings::from_config(snapshot)?;
     let schema_version = match snapshot.get("schemaVersion") {
         None => 1,
         Some(Value::Number(version)) => version

@@ -1,11 +1,16 @@
 # Shell Tools
-<!-- tinybot-module-fingerprint: sha256:f9d7d65ad7263a03d25f5c58485902947467f4660c060d846ac69c4e87b30253 -->
+<!-- tinybot-module-fingerprint: sha256:d90bd4d019dc6ffd6bfe86b992187ea986fe4dd70a5bdf82de55f6be81b113bb -->
 
 `shell` runs commands for agents and RPC clients in a validated working
 directory. Relative paths resolve from the configured workspace; an existing
 absolute directory outside it is also accepted when the active capability
 policy permits execution. The module manages process input, output, resize,
 polling, cancellation, and cleanup.
+
+Shell startup separates preflight from process creation so Action Fusion can
+validate the command, owner, capability, and working directory before applying
+its patch. Startup rechecks cancellation after that patch and uses the same
+owned process manager, output bounds, and continuation behavior as exec_command.
 
 Agent-facing Shell results use the shared tool-outcome projection for states
 that require a different next step. A retained process includes a structured

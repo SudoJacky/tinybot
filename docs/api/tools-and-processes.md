@@ -8,13 +8,18 @@ src-tauri/src/rpc/background_dispatch.rs
 src-tauri/src/rpc/subagent_dispatch.rs
 src-tauri/src/rpc/tool_dispatch.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
+src-tauri/src/rpc/tests/action_fusion.rs
+src-tauri/src/rpc/workspace_dispatch.rs
+src-tauri/src/tools/action_fusion.rs
+src-tauri/src/config/experiments.rs
+src-tauri/src/agent/bridge/command_hooks.rs
 src-tauri/src/tools/shell/mod.rs
 src-tauri/src/tools/shell/process_manager.rs
 src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:94b3f560095d0bb2b628172d50c8ba5f21fdbc1166c018ed79af57611a6c8698 -->
+<!-- tinybot-doc-fingerprint: sha256:248225537ac2fbdf24c7565809e8d28ddd6f37976c49991754daa08b7328b10e -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -22,6 +27,40 @@ which defines the shared invocation conventions and source-backed freshness
 policy for this reference set.
 
 ## Owned Shell Processes
+
+### Experimental Action Fusion
+
+Settings → Labs persists the default-off `experiments.actionFusion` boolean.
+Each Agent Turn captures the flag; changes apply to subsequent Turns. When Exec
+is enabled and both `exec_command` and `write_stdin` are selected, `apply_patch`
+adds an optional `thenRun` object:
+
+```json
+{
+  "patch": "*** Begin Patch\n*** Add File: example.txt\n+hello\n*** End Patch",
+  "thenRun": { "command": "npm run typecheck", "workingDir": ".", "yieldTimeMs": 10000 }
+}
+```
+
+The command must already be known. It uses a non-interactive pipe, defaults to
+the patch workspace, and waits initially for 0–30000 ms (default 10000). That wait
+does not limit process lifetime. Shell capability, identity, cancellation, and
+working directory are checked before editing. Patch failure skips the command;
+command failure retains the applied patch. This is one exclusive tool operation,
+without cross-process filesystem locking or automatic rollback.
+
+The result has `kind: "action_fusion"`, `patch: {status: "succeeded", result: ...}`,
+and `thenRun` containing an ordinary Shell process snapshot or a `start_failed`
+error. The Agent projection keeps patch evidence and one compact command output.
+Running results supply a write_stdin continuation; failed command outcomes say
+the patch is already applied and must not be repeated. Logs and `actionFusion.*`
+metrics identify the stages; savings require measurements over real tasks.
+
+If an active trusted command Hook matches exec_command, the Agent bridge rejects
+fusion before editing and requests separate patch/Shell calls so Hook semantics
+remain intact. Ordinary apply_patch Hooks observe the complete fused arguments.
+
+### Process lifecycle
 
 The Rust worker owns live shell processes behind `WorkerShellRpc`. `shell.execute` remains the
 one-shot compatibility method, but it now starts and waits through the same process manager used by
