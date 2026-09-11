@@ -365,6 +365,7 @@ export function DesktopPetQuickChatWindow({
               actions={{}}
               error={sessionRuntime.state.error}
               hookResults={sessionRuntime.state.hookResults}
+              providerRetry={sessionRuntime.state.providerRetry}
               interactiveFormIds={EMPTY_INTERACTIVE_FORM_IDS}
               latestFailedTurnId={latestFailedTurnId}
               optimisticMessages={optimisticMessages}

@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeProviderStreamEvent {
+    Retry(Option<super::ProviderRetryStatus>),
     ToolCallDelta,
     MessagePhase(String),
     ContentDelta(String),

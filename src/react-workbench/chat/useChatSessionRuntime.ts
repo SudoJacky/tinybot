@@ -1,3 +1,4 @@
+import type { ProviderRetryStatus } from "../../app-core/chat/providerRetryStatus";
 import { subscribeChatEvents } from "./chatEventSource";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -14,6 +15,7 @@ export type ChatSessionRuntimeState = {
   agentUiForms: AgentUiForm[];
   error: string;
   hookResults: HookExecutionResult[];
+  providerRetry?: ProviderRetryStatus;
   sessionId: string;
   status: ChatSessionRuntimeStatus;
 };
@@ -167,6 +169,21 @@ export function useChatSessionRuntime({
     const unsubscribe = subscribeChatEvents(chatStore, sessionId, (event) => {
       const effects = projectChatEventEffects(event);
       if (event.browserSnapshot) return;
+      if (event.providerRetry) {
+        const update = event.providerRetry;
+        if (update.sessionId !== sessionId) return;
+        setState((current) => {
+          if (current.sessionId !== sessionId) return current;
+          if (!update.retry && (current.providerRetry?.turnId !== update.turnId
+            || current.providerRetry.modelCallId !== update.modelCallId)) return current;
+          return { ...current, providerRetry: update.retry ?? undefined };
+        });
+        return;
+      }
+      if (effects.terminalAgentEvent || event.type === "interrupted") {
+        setState((current) => current.sessionId === sessionId && current.providerRetry
+          ? { ...current, providerRetry: undefined } : current);
+      }
       if (event.hookResults) {
         setState((current) => (
           current.sessionId === sessionId

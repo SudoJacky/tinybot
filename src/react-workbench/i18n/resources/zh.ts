@@ -494,6 +494,11 @@ export const zh = {
     downloading: "正在下载 {{percent}}%", installing: "正在安装…", install: "下载并安装",
   },
   chat: {
+    providerRetry: {
+      waiting: "请求暂时失败，等待 {{seconds}} 秒后重试（{{attempt}}/{{max}}）",
+      requesting: "正在重试请求（{{attempt}}/{{max}}）",
+      reason: { rate_limit: "服务限流", server_error: "服务暂时不可用", connection_error: "连接失败" },
+    },
     quickStart: {
       label: "欢迎使用 Tinybot", title: "让 Tinybot 帮你完成第一件事",
       description: "连接一个模型，然后从问题、文件或项目开始。",

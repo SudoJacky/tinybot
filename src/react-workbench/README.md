@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:501b253af8626dffe0a3a8fd9c8e0b125162bec252727102e165f63af83be76b -->
+<!-- tinybot-module-fingerprint: sha256:77b14207c9a7cc74f9e5b497d022ff9860d127af3efae0ae611f6c25105ce2b7 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -123,3 +123,6 @@ MutationObserver listeners during garbage collection, producing intermittent
 native-surface occlusion failures even while the observer remained connected.
 `test/happyDomMutationObserver.test.ts` exercises real garbage collection in an
 isolated Node process and checks both continued delivery and disconnection.
+
+The Chat service event contract includes transient provider retry updates,
+separate from canonical timeline patches and terminal errors.

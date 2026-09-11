@@ -344,7 +344,7 @@ export function ChatPage({
     onBackgroundActivity(sessionId) { dispatchSessionTabs({ type: "activity", sessionId }); },
   });
   const {
-    agentUiForms, error: timelineError, hookResults, timelineSummary,
+    agentUiForms, error: timelineError, hookResults, providerRetry, timelineSummary,
     optimisticMessages, compactingSessionId, artifactReviewEpoch,
     lifecycle: commandLifecycle, canCancel: canCancelTurn, cancelUnavailableReason,
   } = chatState;
@@ -1091,6 +1091,7 @@ export function ChatPage({
             }}
             error={timelineError}
             hookResults={hookResults}
+            providerRetry={providerRetry}
             interactiveFormIds={interactiveFormIds}
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}

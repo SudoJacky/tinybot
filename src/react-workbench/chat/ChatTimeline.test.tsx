@@ -14,6 +14,28 @@ afterEach(() => {
 });
 
 describe("ChatTimeline", () => {
+  test("shows real retry progress while running and hides it on completion or failure", () => {
+    const base = completedTurn();
+    const retry = { turnId: base.id, modelCallId: "model-1", attempt: 1, maxRetries: 3, delayMs: 200, reason: "server_error" as const };
+    const view = (turn: ChatTurn, progress = retry) => <ChatTimeline actions={{}} hookResults={[]}
+      interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning
+      providerRetry={progress} turns={[turn]} />;
+    const running = { ...base, status: "running" as const };
+    const { rerender } = render(view(running));
+    expect(screen.getByRole("status").textContent).toContain("Retrying in 0.2 s (1/3)");
+    expect(screen.getByRole("status").textContent).toContain("Service temporarily unavailable");
+    expect(screen.queryByRole("img", { name: "Agent is responding" })).toBeNull();
+    expect(screen.getByRole("status").closest("section")?.dataset.status).toBe("running");
+    rerender(view(running, { ...retry, delayMs: 0 }));
+    expect(screen.getByRole("status").textContent).toContain("Retrying request (1/3)");
+    rerender(view(running, { ...retry, turnId: "another-turn" }));
+    expect(screen.queryByRole("status")).toBeNull();
+    for (const status of ["completed", "failed", "interrupted"] as const) {
+      rerender(view({ ...base, status }));
+      expect(screen.queryByRole("status")).toBeNull();
+    }
+  });
+
   test("shows workspace and uploaded files as chips inside persisted user bubbles", () => {
     const turn = completedTurn();
     const onOpenFileLink = vi.fn();

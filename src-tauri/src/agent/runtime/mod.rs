@@ -215,6 +215,7 @@ pub struct NativeAgentProviderResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeAgentProviderStreamEvent {
+    Retry(Option<crate::agent::provider::ProviderRetryStatus>),
     ToolCallDelta,
     MessagePhase(crate::agent::runtime_protocol::AgentAssistantMessagePhase),
     ContentDelta(String),

@@ -18,6 +18,33 @@ afterEach(() => {
 });
 
 describe("useChatSessionRuntime", () => {
+  test("keeps retry status transient, clears matching requests and resets on session switch", async () => {
+    let listener: ((event: ChatEvent) => void) | undefined;
+    const store = runtimeStore({
+      load: vi.fn(async (id) => timeline(id)),
+      subscribe: vi.fn((_id, next) => { listener = next; return vi.fn(); }),
+    });
+    const { result, rerender } = renderHook(({ sessionId }) => useChatSessionRuntime({ chatStore: store, sessionId }),
+      { initialProps: { sessionId: "session-1" } });
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+    const retry = { turnId: "turn-1", modelCallId: "model-1", attempt: 1, maxRetries: 3, delayMs: 100, reason: "server_error" as const };
+    const update = { sessionId: "session-1", turnId: retry.turnId, modelCallId: retry.modelCallId, retry };
+    act(() => listener?.({ type: "provider.retry", providerRetry: update }));
+    expect(result.current.state.providerRetry).toEqual(retry);
+    expect(result.current.state.error).toBe("");
+    act(() => listener?.({ type: "provider.retry", providerRetry: { ...update, modelCallId: "old-model", retry: null } }));
+    expect(result.current.state.providerRetry).toEqual(retry);
+    act(() => listener?.({ type: "provider.retry", providerRetry: { ...update, retry: null } }));
+    expect(result.current.state.providerRetry).toBeUndefined();
+    act(() => listener?.({ type: "provider.retry", providerRetry: update }));
+    act(() => listener?.({ type: "agent.event", eventType: "agent.turn.failed" }));
+    expect(result.current.state.providerRetry).toBeUndefined();
+    act(() => listener?.({ type: "provider.retry", providerRetry: update }));
+    rerender({ sessionId: "session-2" });
+    await waitFor(() => expect(result.current.state.sessionId).toBe("session-2"));
+    expect(result.current.state.providerRetry).toBeUndefined();
+  });
+
   test("loads timeline and forms through one ready state and cleans up the subscription", async () => {
     const unsubscribe = vi.fn();
     const form = { form_id: "form-1" } as AgentUiForm;

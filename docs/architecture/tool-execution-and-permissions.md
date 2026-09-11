@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a427146dbe3384f8f1943e562f1d5460e45b299b5bc9d3d17d49b66604c028e4 -->
+<!-- tinybot-doc-fingerprint: sha256:acdf08158fa0d66213564456b93f1bed52d08d9332aa383547a5a263cb2da1e1 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,

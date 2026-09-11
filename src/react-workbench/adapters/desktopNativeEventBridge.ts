@@ -1,3 +1,4 @@
+import { projectProviderRetryEvent } from "../../app-core/chat/providerRetryStatus";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import {
   AGENT_UI_EVENT_TYPES,
@@ -33,6 +34,7 @@ const NATIVE_EVENT_NAMES = [
   toDesktopNativeTauriEventName("agent.hook.decision"),
   toDesktopNativeTauriEventName("thread.title.updated"),
   "browser:snapshot",
+  toDesktopNativeTauriEventName("agent.status"),
 ] as const;
 const MAX_LOGGED_ERROR_LENGTH = 500;
 
@@ -208,6 +210,16 @@ export function createDesktopNativeEventBridge({
     }
   }
 
+  function handleProviderStatus(event: NativeEvent): void {
+    try {
+      const providerRetry = projectProviderRetryEvent(event.payload);
+      if (providerRetry) notifySession(providerRetry.sessionId, { type: "provider.retry", providerRetry });
+    } catch (error) {
+      reportNativeEventBridgeError("providerStatus", error);
+      notifyAll({ type: "provider.status.error", error: errorMessage(error) });
+    }
+  }
+
   function handleHookDecision(event: NativeEvent): void {
     try {
       const projection = projectHookExecutionEvent(event.payload);
@@ -272,6 +284,7 @@ export function createDesktopNativeEventBridge({
           listen(NATIVE_EVENT_NAMES[2], handleHookDecision),
           listen(NATIVE_EVENT_NAMES[3], handleThreadTitleUpdated),
           listen(NATIVE_EVENT_NAMES[4], handleBrowserSnapshot),
+          listen(NATIVE_EVENT_NAMES[5], handleProviderStatus),
         ]);
         logDesktopNativeDebug("nativeEventBridge.register.complete", {
           durationMs: roundedDuration(readMonotonicNow() - startedAt),

@@ -1039,6 +1039,11 @@ export const en = {
     install: "Download and install",
   },
   chat: {
+    providerRetry: {
+      waiting: "Request failed temporarily. Retrying in {{seconds}} s ({{attempt}}/{{max}})",
+      requesting: "Retrying request ({{attempt}}/{{max}})",
+      reason: { rate_limit: "Rate limited", server_error: "Service temporarily unavailable", connection_error: "Connection failed" },
+    },
     quickStart: {
       label: "Welcome to Tinybot", title: "Let's get your first task done",
       description: "Connect a model, then start with a question, a file, or a project.",

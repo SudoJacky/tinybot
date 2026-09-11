@@ -296,6 +296,31 @@ impl ProviderStreamState {
             return;
         }
         match event {
+            NativeAgentProviderStreamEvent::Retry(retry) => {
+                if let Err(error) =
+                    state.emit(crate::agent::runtime_protocol::PendingAgentEvent::new(
+                        AgentEventKind::Status,
+                        serde_json::json!({
+                            "phase": state.phase.as_str(), "label": "Model request retry",
+                            "iteration": iteration, "modelCallId": provider_attempt_id,
+                            "retry": retry, "isBlocking": false,
+                        }),
+                    ))
+                {
+                    self.trace_error = Some(error);
+                }
+                if let Err(error) = crate::desktop::logging::append_default_native_backend_log_event(
+                    "agent",
+                    crate::desktop::logging::NativeLogEvent::new(
+                        crate::desktop::logging::NativeLogLevel::Info,
+                        "agent.provider.retry",
+                        serde_json::json!({ "threadId": context.thread_id, "turnId": context.turn_id,
+                            "modelCallId": provider_attempt_id, "retry": retry }),
+                    ),
+                ) {
+                    eprintln!("provider retry diagnostic write failed: {error}");
+                }
+            }
             NativeAgentProviderStreamEvent::ToolCallDelta => {}
             NativeAgentProviderStreamEvent::MessagePhase(phase) => {
                 self.message_phase = phase;
@@ -949,7 +974,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     NativeAgentProviderStreamEvent::ContentDelta(delta)
                     | NativeAgentProviderStreamEvent::ReasoningDelta(delta) => !delta.is_empty(),
                     NativeAgentProviderStreamEvent::ToolCallDelta => true,
-                    NativeAgentProviderStreamEvent::MessagePhase(_) => false,
+                    NativeAgentProviderStreamEvent::MessagePhase(_)
+                    | NativeAgentProviderStreamEvent::Retry(_) => false,
                 };
                 if has_output && first_token_at.is_none() && provider_context.stream {
                     first_token_at = Some(Instant::now());

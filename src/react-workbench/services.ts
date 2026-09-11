@@ -1,3 +1,4 @@
+import type { ProviderRetryUpdate } from "../app-core/chat/providerRetryStatus";
 import type { ReactChatMessage } from "./chat/messageActions";
 import type { AgentGraphStore } from "../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRuntime } from "../app-core/agent-graph/agentGraphRuntime";
@@ -108,6 +109,7 @@ export type ChatEvent = {
   eventType?: string;
   error?: string;
   hookResults?: HookExecutionResult[];
+  providerRetry?: ProviderRetryUpdate;
   message?: ReactChatMessage;
   timeline?: ChatTimelineSnapshot;
 };

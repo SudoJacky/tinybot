@@ -12,6 +12,6 @@ export const LiveChatTimeline = memo(function LiveChatTimeline({ source, formCou
   onContentChanged(): void | (() => void);
 }) {
   const timeline = useSyncExternalStore(source.subscribe, source.getSnapshot);
-  useEffect(() => onContentChanged(), [onContentChanged, timeline, props.optimisticMessages, formCount]);
+  useEffect(() => onContentChanged(), [onContentChanged, timeline, props.optimisticMessages, props.providerRetry, formCount]);
   return <ChatTimeline {...props} turns={timeline?.turns ?? EMPTY_TURNS} />;
 });

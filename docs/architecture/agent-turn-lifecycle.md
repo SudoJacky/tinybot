@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2d1ef96e1c232a48ce56636720146517fb7f92b1f19d8aec9f892c0d41838db4 -->
+<!-- tinybot-doc-fingerprint: sha256:bf31786b4c097e1ce114f7c41340b231cee581fa3090dbe43a8a2024871519dd -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -205,6 +205,14 @@ supported explicit blocking decision.
 Provider protocols adapt at one seam. Chat Completions and Responses encode
 different wire formats but share the same provider/tool loop, permission
 checks, cancellation, trace, and result construction.
+
+HTTP retries before a response stream opens stay inside the same model call.
+The transport owns one budget of three additional attempts, covering connection
+errors, server errors, and eligible rate limits. Backoff and Retry-After waits
+remain cancellable and count toward the request timeout. Ephemeral status events
+show retry progress without adding assistant content or marking the Turn failed;
+only the final failure follows the terminal error path. Retry metadata never
+counts as a first token.
 
 ## Continuation and cancellation
 

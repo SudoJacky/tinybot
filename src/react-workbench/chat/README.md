@@ -1,8 +1,12 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:6ce77e0e1b91b6364f1cb292b40ead905edba0622ff35fab52c286ea5aeb0969 -->
+<!-- tinybot-module-fingerprint: sha256:44cf0f95189d4a192f21a582af1b1e6961398a5a9b64fe041135942b3c8915a5 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
+`useChatSessionRuntime` owns transient provider retry status. The turn tail
+shows the retry count, delay, and reason while execution stays running; matching
+request completion, terminal events, and session changes clear the status.
+The status is separate from canonical messages and is shared with quick chat.
 `ChatPage.tsx` is the route-level composition module. Its composer receives
 the native file importer for drag-and-drop and clipboard attachments, plus
 the active session identity to invalidate imports after navigation.
