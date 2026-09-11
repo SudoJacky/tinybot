@@ -9,12 +9,16 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:2aef2e5e0cbc0fbb8b56a5be82377d41414f87308b2b6109af8731f0d6f0d783 -->
+<!-- tinybot-doc-fingerprint: sha256:4394a83dae8ea11f3b77cac7e7c8a9c8250477b5865aa483ffcaacfffaf9fa49 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
 durable authority from which Thread, Turn, Item, context, checkpoint, and
 timeline projections are reconstructed.
+
+Usage Items can retain the aggregate `modelTiming.timeToRequestMs` reading.
+Detailed `agent.preparation` step timings belong exclusively to the native
+application log and do not create Rollout entries or canonical Thread Items.
 
 ## Domain hierarchy
 

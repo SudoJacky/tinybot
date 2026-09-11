@@ -173,6 +173,7 @@ impl crate::protocol::WorkerRequestCancellation for NativeAgentCancellationConte
 
 #[derive(Clone, Debug)]
 pub struct AgentTurnContext {
+    pub(crate) received_at: std::time::Instant,
     pub turn_id: String,
     pub session_id: String,
     pub thread_id: Option<String>,

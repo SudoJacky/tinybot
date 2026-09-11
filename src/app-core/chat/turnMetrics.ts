@@ -5,6 +5,9 @@ export function deriveTurnMetrics(items: readonly BackendAgentTurnItem[]): TurnM
   const usages = items.filter((item) => item.data.type === "usage").sort((a, b) => a.sequence - b.sequence);
   const first = usages[0]?.data;
   const metrics: TurnMetrics = {};
+  if (first?.type === "usage" && first.modelTiming?.timeToRequestMs != null) {
+    metrics.timeToRequestMs = first.modelTiming.timeToRequestMs;
+  }
   if (first?.type === "usage" && first.modelTiming?.timeToFirstTokenMs != null) {
     metrics.timeToFirstTokenMs = first.modelTiming.timeToFirstTokenMs;
   }

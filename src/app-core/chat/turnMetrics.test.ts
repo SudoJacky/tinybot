@@ -3,14 +3,14 @@ import { normalizeAgentTurnRuntimeStatePayload } from "./chatTimelinePayload";
 import { projectBackendTimeline } from "./chatProjection";
 import { turnDurationMs } from "./turnMetrics";
 
-function restoredTurn(samples: Array<{ tokens?: number; first?: number | null; decode?: number | null; legacy?: boolean }>) {
+function restoredTurn(samples: Array<{ tokens?: number; request?: number | null; first?: number | null; decode?: number | null; legacy?: boolean }>) {
   const items = samples.map((sample, index) => ({
     schemaVersion: "tinybot.turn_item.v2", sessionId: "session", turnId: "turn",
     itemId: `usage-${index}`, kind: "usage", status: "completed", sequence: index + 1, revision: 1,
     createdAt: String(1000 + index * 50_000),
     data: {
       type: "usage", outputTokens: sample.tokens ?? null, providerPayload: {},
-      ...(!sample.legacy ? { modelTiming: { modelCallId: `call-${index}`, timeToFirstTokenMs: sample.first ?? null, decodeDurationMs: sample.decode ?? null } } : {}),
+      ...(!sample.legacy ? { modelTiming: { modelCallId: `call-${index}`, timeToRequestMs: sample.request, timeToFirstTokenMs: sample.first ?? null, decodeDurationMs: sample.decode ?? null } } : {}),
     },
   }));
   const payload = JSON.parse(JSON.stringify({
@@ -21,6 +21,14 @@ function restoredTurn(samples: Array<{ tokens?: number; first?: number | null; d
 }
 
 describe("durable turn metrics", () => {
+  test("restores preparation time from the first call, independently of TTFT and later tools", () => {
+    expect(restoredTurn([{ request: 125, first: 600 }, { request: 5000, first: 200 }]).metrics)
+      .toEqual({ timeToRequestMs: 125, timeToFirstTokenMs: 600 });
+    expect(restoredTurn([{ request: 0 }]).metrics).toEqual({ timeToRequestMs: 0 });
+    expect(restoredTurn([{ request: null }, { request: 5000 }]).metrics).toBeUndefined();
+    expect(restoredTurn([{}, { request: 5000 }]).metrics).toBeUndefined();
+  });
+
   test("restores weighted throughput and first-call latency without counting gaps between calls", () => {
     const turn = restoredTurn([{ tokens: 40, first: 1200, decode: 3000 }, { tokens: 60, first: 200, decode: 2000 }]);
     expect(turn.metrics).toEqual({ timeToFirstTokenMs: 1200, tokensPerSecond: 20 });
@@ -43,6 +51,9 @@ describe("durable turn metrics", () => {
   });
 
   test("rejects corrupt persisted timing instead of showing a fabricated number", () => {
+    for (const request of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => restoredTurn([{ request }])).toThrow(/model timing/);
+    }
     expect(() => restoredTurn([{ tokens: 10, first: -5, decode: 100 }])).toThrow(/model timing/);
     expect(() => restoredTurn([{ tokens: -10, first: 5, decode: 100 }])).toThrow(/outputTokens/);
   });

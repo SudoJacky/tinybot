@@ -148,6 +148,9 @@ function normalizeCanonicalTurnItem(
   if (kind === "usage" && data.modelTiming !== undefined) {
     const timing = payloadRecord(data.modelTiming);
     requiredCanonicalString(timing, "modelCallId");
+    if (timing.timeToRequestMs != null && (typeof timing.timeToRequestMs !== "number" || !Number.isSafeInteger(timing.timeToRequestMs) || timing.timeToRequestMs < 0)) {
+      throw new Error("Canonical model timing timeToRequestMs must be a non-negative integer or null");
+    }
     for (const key of ["timeToFirstTokenMs", "decodeDurationMs"] as const) {
       if (timing[key] !== null && (typeof timing[key] !== "number" || !Number.isSafeInteger(timing[key]) || timing[key] < 0)) {
         throw new Error(`Canonical model timing ${key} must be a non-negative integer or null`);

@@ -620,6 +620,8 @@ export const zh = {
     },
     metrics: {
       title: "本轮用时和速度", elapsed: "用时 {{duration}}", duration: "本轮总用时",
+      request: "发起调用用时", milliseconds: "{{value}}毫秒",
+      requestDescription: "从后端接收本轮输入到发起首次模型调用，包含指令加载、历史恢复、工具准备和提示词组装。TTFT 从该调用开始计时。",
       speed: "输出速度（TPS）", ttft: "首 token 用时（TTFT）",
       seconds: "{{value}}秒", minutesSeconds: "{{minutes}}分{{seconds}}秒", tokensPerSecond: "{{value}} tok/s",
       description: "首 token 包含思考和工具调用输出。速度按已记录的模型生成时间计算，不含工具执行和调用之间的等待。",

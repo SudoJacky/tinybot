@@ -44,6 +44,7 @@ import { ToolActivityItem } from "./ToolActivityItem";
 import { TimelineActivity } from "./TimelineActivity";
 import { DataViewCard } from "./DataViewCard";
 import { TurnMetrics } from "./TurnMetrics";
+import { FileAttachmentChip } from "../../components/ui/FileAttachmentChip";
 import { turnDurationMs } from "../../app-core/chat/turnMetrics";
 
 export type ChatTimelineActions = {
@@ -166,6 +167,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
       {hasUserMessage ? (
         <CanonicalMessage
           messageId={turn.userMessage.id}
+          onOpenFileLink={onOpenFileLink}
           references={turn.userMessage.references}
           role="user"
           text={turn.userMessage.text}
@@ -607,14 +609,17 @@ function CanonicalMessage({
   const inlineReferences = role === "user"
     ? referenceSummaries.filter((reference) => !isAttachmentReference(reference))
     : referenceSummaries;
+  const imageReferences = attachmentReferences.filter((reference) => reference.attachmentKind === "image");
+  const fileReferences = attachmentReferences.filter((reference) => reference.attachmentKind !== "image");
   return (
     <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`} data-scroll-anchor={`message:${messageId}`}>
-      {attachmentReferences.length ? <MessageAttachments references={attachmentReferences} /> : null}
+      {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
         {reasoning.map((step) => (
           <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
         ))}
         {role === "assistant" ? <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
+        {fileReferences.length ? <MessageAttachments references={fileReferences} onOpenFileLink={onOpenFileLink} /> : null}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
       </div>
       {(allowActions && text.trim()) || footer ? (
@@ -966,16 +971,17 @@ function canonicalFormValue(value: unknown): string {
 }
 
 function canonicalReferenceSummary(reference: AgentInputReference, index: number): ContextReferenceSummary {
-  const attachmentKind = agentInputAttachmentKind(reference) ?? "file";
+  const attachmentKind = agentInputAttachmentKind(reference);
   return {
     attachmentKind,
+    attachmentPath: reference.rawPath,
+    mimeType: reference.mimeType,
     ...(attachmentKind === "image" && reference.rawPath
       ? { attachmentPreviewPath: reference.rawPath }
       : {}),
     id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
     kind: reference.kind,
-    presentation: agentInputAttachmentKind(reference)
-      && Boolean(reference.rawPath) && !reference.sourcePath
+    presentation: attachmentKind && reference.userAnnotation === undefined
       ? "attachment"
       : "context",
     title: reference.title,
@@ -1027,6 +1033,8 @@ function MessageBubble({
   const inlineReferences = message.role === "user"
     ? (message.contextReferences ?? []).filter((reference) => !isAttachmentReference(reference))
     : message.contextReferences ?? [];
+  const imageReferences = attachmentReferences.filter((reference) => reference.attachmentKind === "image");
+  const fileReferences = attachmentReferences.filter((reference) => reference.attachmentKind !== "image");
   const showCopyAction = canCopyMessage(message, { sessionRunning });
   const showBranchAction = canBranchFromMessage(message, { sessionRunning });
   return (
@@ -1037,7 +1045,7 @@ function MessageBubble({
       data-testid={`message-${message.id}`}
       data-scroll-anchor={`message:${message.id}`}
     >
-      {attachmentReferences.length ? <MessageAttachments references={attachmentReferences} /> : null}
+      {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
         {message.reasoningText ? (
           <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
@@ -1047,6 +1055,7 @@ function MessageBubble({
         ) : (
           <PlainMessageText text={message.text} />
         )}
+        {fileReferences.length ? <MessageAttachments references={fileReferences} onOpenFileLink={onOpenFileLink} /> : null}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
       </div>
@@ -1137,18 +1146,18 @@ function isAttachmentReference(reference: ContextReferenceSummary): boolean {
   return reference.presentation === "attachment";
 }
 
-function MessageAttachments({ references }: { references: ContextReferenceSummary[] }) {
+function MessageAttachments({ references, onOpenFileLink }: { references: ContextReferenceSummary[]; onOpenFileLink?: (link: AssistantFileLink) => void }) {
   const { t } = useTranslation("chat");
   return (
     <section aria-label={t("context.attachments")} className="react-message-attachments">
       {references.map((reference) => (
-        <MessageAttachment key={reference.id} reference={reference} />
+        <MessageAttachment key={reference.id} reference={reference} onOpenFileLink={onOpenFileLink} />
       ))}
     </section>
   );
 }
 
-function MessageAttachment({ reference }: { reference: ContextReferenceSummary }) {
+function MessageAttachment({ reference, onOpenFileLink }: { reference: ContextReferenceSummary; onOpenFileLink?: (link: AssistantFileLink) => void }) {
   const [previewFailed, setPreviewFailed] = useState(false);
   const previewSource = reference.attachmentKind === "image" && !previewFailed
     ? managedImagePreviewSource(reference.attachmentPreviewPath)
@@ -1167,17 +1176,9 @@ function MessageAttachment({ reference }: { reference: ContextReferenceSummary }
     );
   }
   return (
-    <div className="react-message-attachment" data-kind="file">
-      <span className="react-message-attachment__icon">
-        {reference.attachmentKind === "image"
-          ? <ImageIcon aria-hidden="true" size={18} />
-          : <FileText aria-hidden="true" size={18} />}
-      </span>
-      <span className="react-message-attachment__summary">
-        <strong>{reference.title}</strong>
-        {reference.detail ? <small>{reference.detail}</small> : null}
-      </span>
-    </div>
+    <FileAttachmentChip name={reference.title} path={reference.sourcePath ?? reference.attachmentPath}
+      detail={reference.detail} mimeType={reference.mimeType}
+      onOpen={reference.sourcePath && onOpenFileLink ? () => onOpenFileLink({ href: reference.sourcePath! }) : undefined} />
   );
 }
 

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:28039f7e5947d2e0088e12812a166c5d45bb69d385e82ba1eeb742f62bd7442d -->
+<!-- tinybot-module-fingerprint: sha256:141772688a512ccfaea2552596deeaa8a76648a74cbdc691a516541ab4e9e3b9 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -128,6 +128,8 @@ at the end of a failed/interrupted Turn without a final answer. It appears only
 after the Turn ends. Clicking opens a viewport-clamped dialog with total time
 and available TPS/TTFT readings; Escape restores trigger focus, and outside
 pointer or Tab dismisses it. Old Turns show duration alone.
+When recorded, the dialog also shows time to the first model call in milliseconds
+and explains its backend-input-to-call boundary separately from TTFT.
 A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
@@ -223,9 +225,12 @@ is hidden.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Composer submission turns native managed
-images into references with `referenceKind: "image"`. User attachments render as a
-separate stack above the text bubble: managed images use the scoped Tauri asset
-protocol for bounded previews, while ordinary files use compact metadata cards.
+images into references with `referenceKind: "image"`. Managed image previews remain
+above the text bubble using the scoped Tauri asset protocol. Uploaded files and
+workspace file references share compact, wrapping chips inside user bubbles in
+both optimistic and persisted Turns. Paths and metadata appear in tooltips;
+workspace chips open the existing file-preview action. Browser annotation
+references retain their context presentation and submitted evidence is unchanged.
 Published `tinybot.data_view.v1` artifacts keep their model-authored data and
 view contract separate from presentation. Chat selects a matching Lieflat
 Porcelain SVG template for supported line, area, bar, stacked, paired, and

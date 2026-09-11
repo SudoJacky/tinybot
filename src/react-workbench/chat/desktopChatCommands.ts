@@ -266,7 +266,7 @@ function createOptimisticUserMessage(clientEventId: string, text: string, refere
     ...(references.length ? {
       contextReferences: references.map((reference, index) => {
         const attachmentKind = agentInputAttachmentKind(reference);
-        const attachment = Boolean(attachmentKind) && Boolean(reference.rawPath) && !reference.sourcePath;
+        const attachment = Boolean(attachmentKind) && reference.userAnnotation === undefined;
         return {
           ...(attachment ? {
             attachmentKind,
@@ -275,6 +275,8 @@ function createOptimisticUserMessage(clientEventId: string, text: string, refere
               : {}),
           } : {}),
           detail: reference.detail,
+          attachmentPath: reference.rawPath,
+          mimeType: reference.mimeType,
           id: reference.evidenceId || `reference-${index}`,
           kind: reference.kind,
           presentation: attachment ? "attachment" as const : "context" as const,

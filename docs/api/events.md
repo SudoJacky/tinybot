@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:6a32ced58c9ee9279c705c38ace56c9cf9de660982e1395ebfbce6755a637875 -->
+<!-- tinybot-doc-fingerprint: sha256:0955af3bc601f608aa04c2d386d5a45261435d9279962ff4ef14e6ddf5a2a2bd -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -108,6 +108,10 @@ clock for one provider invocation; absent stream timing is represented by null.
 The same typed Item reaches live patches and durable Rollout replay. This is an
 additive field in `tinybot.turn_item.v2`; it requires no SQLite or Rollout migration.
 Older Items omit it and cannot supply historical TTFT or TPS.
+`modelTiming.timeToRequestMs` is also optional: it measures backend input receipt
+to that provider invocation, including preparation. Only the first call supplies
+the Turn's preparation metric. Detailed stage timings use `agent.preparation` in
+the native application log; they are not conversation events and are not replayed.
 
 - `context_window_tokens` / `contextWindowTokens`: effective per-model context window from the
   turn, provider profile, known-model catalog, legacy unknown-model fallback, or backend default.

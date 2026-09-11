@@ -12,7 +12,7 @@ function turn(id: string, patch: Partial<ChatTurn> = {}): ChatTurn {
     steps: [], executionItems: [], userMessageId: `user-${id}`,
     userMessage: { id: `user-${id}`, role: "user", text: "Question", timestamp: "1000" },
     finalAnswer: { id: `answer-${id}`, role: "assistant", text: "Answer", timestamp: "20000" },
-    metrics: { timeToFirstTokenMs: 600, tokensPerSecond: 108 }, ...patch,
+    metrics: { timeToRequestMs: 125, timeToFirstTokenMs: 600, tokensPerSecond: 108 }, ...patch,
   };
 }
 
@@ -32,6 +32,8 @@ describe("turn timing footer", () => {
     expect(document.activeElement).toBe(dialog);
     expect(within(dialog).getByText("108 tok/s")).toBeTruthy();
     expect(within(dialog).getByText("0.6s")).toBeTruthy();
+    expect(within(dialog).getByText("Time to first model call")).toBeTruthy();
+    expect(within(dialog).getByText("125ms")).toBeTruthy();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
@@ -47,6 +49,7 @@ describe("turn timing footer", () => {
     expect(within(dialog).getByText("Total turn time")).toBeTruthy();
     expect(within(dialog).queryByText("Output speed (TPS)")).toBeNull();
     expect(within(dialog).queryByText("Time to first token (TTFT)")).toBeNull();
+    expect(within(dialog).queryByText("Time to first model call")).toBeNull();
   });
 
   test("does not display a completed metric while a turn is running or waiting for input", () => {

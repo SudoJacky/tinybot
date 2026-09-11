@@ -8,11 +8,11 @@ import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/c
 import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import { formatFileMetadata } from "./composerFileMetadata";
 import { ComposerAnnotations } from "./ComposerAnnotations";
+import { FileAttachmentChip } from "./FileAttachmentChip";
 import type { ComposerContextReference } from "./composerContextReference";
 export type { ComposerContextReference } from "./composerContextReference";
 import {
   AlertCircle,
-  Archive,
   ArrowUp,
   Box,
   Check,
@@ -22,14 +22,11 @@ import {
   Command,
   Copy,
   FileText,
-  ImageIcon,
   MessageCircle,
-  Music,
   Plus,
   SlidersHorizontal,
   Square,
   TerminalSquare,
-  Video,
   X,
 } from "lucide-react";
 
@@ -234,6 +231,8 @@ export function ClaudeStyleAiInput({
 }: ClaudeStyleAiInputProps) {
   const { t } = useTranslation("chat");
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const attachmentRowRef = useRef<HTMLDivElement | null>(null);
+  const previousAttachmentIds = useRef(new Set<string>());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const inlineEditorRef = useRef<HTMLDivElement | null>(null);
   const inlineEditorComposingRef = useRef(false);
@@ -274,6 +273,21 @@ export function ClaudeStyleAiInput({
   const sessionMentionListboxId = useId();
   const currentMessage = value ?? message;
   const files = controlledFiles ?? uncontrolledFiles;
+  useLayoutEffect(() => {
+    const ids = [...contextReferences.map((reference) => reference.id), ...files.map((file) => file.id)];
+    const added = ids.filter((id) => !previousAttachmentIds.current.has(id));
+    previousAttachmentIds.current = new Set(ids);
+    if (!added.length) return;
+    const row = attachmentRowRef.current;
+    const target = row && Array.from(row.querySelectorAll<HTMLElement>("[data-attachment-id]"))
+      .find((element) => element.dataset.attachmentId === added[added.length - 1]);
+    if (row && target) {
+      const bounds = row.getBoundingClientRect();
+      const chip = target.getBoundingClientRect();
+      if (chip.right > bounds.right) row.scrollLeft += chip.right - bounds.right;
+      else if (chip.left < bounds.left) row.scrollLeft += chip.left - bounds.left;
+    }
+  }, [contextReferences, files]);
   const filesRef = useRef(files);
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId)
@@ -953,61 +967,75 @@ export function ClaudeStyleAiInput({
           <span>{disabledReason || sendDisabledReason}</span>
         </div>
       ) : null}
-      {files.length || pastedContent.length || contextReferences.length || selectedSessionMentions.length ? (
-        <div className="claude-ai-input__attachments" aria-label={t("composer.attachments")}>
-          {selectedSessionMentions.map((reference) => (
-            <AttachmentChip
-              detail={reference.detail}
-              icon={<MessageCircle aria-hidden="true" size={16} />}
-              key={reference.id}
-              label={reference.label}
-              onRemove={() => onRemoveSessionMention?.(reference.id)}
-              removeLabel={t("composer.remove", { name: reference.label })}
-            />
-          ))}
-          <ComposerAnnotations references={contextReferences.filter((reference) => reference.presentation === "compact-annotation")} onRemove={(id) => onRemoveContextReference?.(id)} />
-          {contextReferences.filter((reference) => reference.presentation !== "compact-annotation").map((reference) => (
-            <AttachmentChip
-              imageUrl={reference.imageUrl}
-              annotation={reference.annotation}
-              body={reference.body}
-              detail={reference.detail}
-              icon={reference.kind === "terminal" ? <TerminalSquare aria-hidden="true" size={16} /> : <FileText aria-hidden="true" size={16} />}
-              key={reference.id}
-              label={reference.label}
-              onRemove={() => onRemoveContextReference?.(reference.id)}
-              removeLabel={t("composer.remove", { name: reference.label })}
-            />
-          ))}
-          {pastedContent.map((item) => (
-            <AttachmentChip
-              detail={t("composer.words", { count: item.wordCount })}
-              icon={<Copy aria-hidden="true" size={16} />}
-              key={item.id}
-              label={t("composer.pastedText")}
-              onRemove={() => removePastedContent(item.id)}
-              removeLabel={t("composer.removePasted")}
-            />
-          ))}
-          {files.map((item) => (
-            <AttachmentChip
-              detail={formatFileMetadata(item.mimeType, item.sizeBytes)}
-              icon={getFileIcon(item.mimeType)}
-              key={item.id}
-              label={item.name}
-              onRemove={() => removeFile(item.id)}
-              removeLabel={t("composer.remove", { name: item.name })}
-            />
-          ))}
-        </div>
-      ) : null}
-
       <div
         ref={panelRef}
         className="claude-ai-input__panel"
         onPointerLeave={handlePanelPointerLeave}
         onPointerMove={handlePanelPointerMove}
       >
+        {files.length || pastedContent.length || contextReferences.length || selectedSessionMentions.length ? (
+          <div aria-label={t("composer.attachments")}>
+            <div ref={attachmentRowRef} className="claude-ai-input__attachments">
+              {selectedSessionMentions.map((reference) => (
+                <AttachmentChip
+                  detail={reference.detail}
+                  icon={<MessageCircle aria-hidden="true" size={16} />}
+                  key={reference.id}
+                  label={reference.label}
+                  onRemove={() => onRemoveSessionMention?.(reference.id)}
+                  removeLabel={t("composer.remove", { name: reference.label })}
+                />
+              ))}
+              <ComposerAnnotations references={contextReferences.filter((reference) => reference.presentation === "compact-annotation")} onRemove={(id) => onRemoveContextReference?.(id)} />
+              {contextReferences.filter((reference) => reference.presentation !== "compact-annotation" && !reference.annotation).map((reference) => reference.kind === "file" ? (
+                <FileAttachmentChip
+                  key={reference.id} id={reference.id} name={reference.label} path={reference.body}
+                  detail={reference.detail} mimeType={reference.mimeType}
+                  onRemove={() => onRemoveContextReference?.(reference.id)}
+                  removeLabel={t("composer.remove", { name: reference.label })}
+                />
+              ) : (
+                <AttachmentChip
+                  imageUrl={reference.imageUrl}
+                  annotation={reference.annotation}
+                  body={reference.body}
+                  detail={reference.detail}
+                  icon={reference.kind === "terminal" ? <TerminalSquare aria-hidden="true" size={16} /> : <FileText aria-hidden="true" size={16} />}
+                  key={reference.id}
+                  label={reference.label}
+                  onRemove={() => onRemoveContextReference?.(reference.id)}
+                  removeLabel={t("composer.remove", { name: reference.label })}
+                />
+              ))}
+              {pastedContent.map((item) => (
+                <AttachmentChip
+                  detail={t("composer.words", { count: item.wordCount })}
+                  icon={<Copy aria-hidden="true" size={16} />}
+                  key={item.id}
+                  label={t("composer.pastedText")}
+                  onRemove={() => removePastedContent(item.id)}
+                  removeLabel={t("composer.removePasted")}
+                />
+              ))}
+              {files.map((item) => (
+                <FileAttachmentChip
+                  id={item.id}
+                  detail={formatFileMetadata(item.mimeType, item.sizeBytes)}
+                  mimeType={item.mimeType}
+                  path={item.path}
+                  key={item.id}
+                  name={item.name}
+                  onRemove={() => removeFile(item.id)}
+                  removeLabel={t("composer.remove", { name: item.name })}
+                />
+              ))}
+            </div>
+            {contextReferences.filter((reference) => reference.presentation !== "compact-annotation" && reference.annotation).map((reference) => (
+              <AttachmentChip key={reference.id} {...reference} icon={<FileText aria-hidden="true" size={16} />}
+                onRemove={() => onRemoveContextReference?.(reference.id)} removeLabel={t("composer.remove", { name: reference.label })} />
+            ))}
+          </div>
+        ) : null}
         {draggingFiles || selectingFiles ? (
           <div className="claude-ai-input__file-status" role="status">
             <FileText aria-hidden="true" size={18} />
@@ -1861,22 +1889,6 @@ function AttachmentChip({
     </div>
   );
 }
-
-const getFileIcon = (type: string) => {
-  if (type.startsWith("image/")) {
-    return <ImageIcon aria-hidden="true" size={16} />;
-  }
-  if (type.startsWith("video/")) {
-    return <Video aria-hidden="true" size={16} />;
-  }
-  if (type.startsWith("audio/")) {
-    return <Music aria-hidden="true" size={16} />;
-  }
-  if (type.includes("zip") || type.includes("rar") || type.includes("tar")) {
-    return <Archive aria-hidden="true" size={16} />;
-  }
-  return <FileText aria-hidden="true" size={16} />;
-};
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;

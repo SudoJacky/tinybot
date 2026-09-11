@@ -41,15 +41,24 @@ pub(super) async fn run_agent_with_services(
 ) -> Result<AgentTurnResult, AgentError> {
     let thread_store = base_services.thread_store.clone();
     let trace_context = request.input.trace_context.clone();
+    let mut preparation = crate::agent::preparation_log::PreparationLog::new(
+        &trace_context,
+        request.input.received_at,
+        "application",
+        "terminal_check",
+    );
     if let Some(mut rejection) =
         reject_native_agent_terminal_turn_reentry(&request.input, &thread_store)?
     {
         rejection.trace_context = Some(trace_context);
         return Ok(rejection);
     }
+    preparation.next("memory_snapshot");
     hydrate_native_agent_memory_snapshot_for_runtime(&mut request, &thread_store)?;
+    preparation.next("instruction_compose");
     let instructions = InstructionLoader::new(thread_store.data_root().join("plugins"))
         .compose_input(&workspace_root, &request.instructions)?;
+    preparation.next("workspace_mcp_config");
     let graph_base_config_snapshot = config_snapshot.clone();
     crate::workspace_extensions::merge_workspace_mcp_servers(
         &mut config_snapshot,
@@ -57,10 +66,13 @@ pub(super) async fn run_agent_with_services(
     )?;
     #[cfg(not(test))]
     let memory_scope_root = instructions.working_directory.clone();
+    preparation.next("turn_start_persistence");
     persist_native_agent_turn_start(&request, &instructions, &thread_store)?;
+    preparation.next("history_hydration");
     hydrate_native_agent_history_for_runtime(&mut request.input, &thread_store)?;
     #[cfg(not(test))]
     let memory_runtime = base_services.memory_runtime.clone();
+    preparation.next("runtime_services");
     let services = base_services
         .prepare_turn(
             &workspace_root,
@@ -76,6 +88,7 @@ pub(super) async fn run_agent_with_services(
                 error.into(),
             )
         })?;
+    preparation.complete();
     let session_id = request.input.session_id.clone();
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,

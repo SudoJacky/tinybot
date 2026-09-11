@@ -16,12 +16,17 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:fba6bdd9a402d0607d5f1bf1f187ff636a0e0ad345058b889238f52b296df744 -->
+<!-- tinybot-doc-fingerprint: sha256:0f2d42d6e4f1ff2d896ee13ba4e3741f02e2f5b5f7cbbfa2fc61f929d1e676ab -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
 and the Rust backend owns native capabilities, Agent execution, durable
 conversation state, and process lifecycle.
+
+Turn metrics expose backend time to the first model call separately from TTFT.
+The native bridge and runtime also write scoped `agent.preparation` diagnostics
+to the application log for identifying preparation delays without adding
+diagnostic events to conversation history.
 
 The Chat application owns client submission preparation, optimistic messages,
 queue and command coordination. Native Chat command orchestration is injected

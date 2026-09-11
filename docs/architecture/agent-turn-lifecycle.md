@@ -22,11 +22,18 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:bd7e6f55303b712889b6607051d89f34b27514bc609bab5f9bc8dc9a632fab11 -->
+<!-- tinybot-doc-fingerprint: sha256:2d1ef96e1c232a48ce56636720146517fb7f92b1f19d8aec9f892c0d41838db4 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
 outcome that follow. Resolving a form continues the same Turn identity.
+
+Input decoding captures a monotonic receipt time for `modelTiming.timeToRequestMs`.
+Application-only `agent.preparation` summaries cover bridge setup, task ownership,
+tool discovery, runtime preparation, context projection, request construction, and
+hooks. Each summary carries Turn/trace IDs, scope, input-relative offsets, and
+completed/incomplete step outcomes. Nested scopes overlap; the summaries are
+written to `native-backend.log` rather than the conversation trace sink.
 
 ## Ownership
 

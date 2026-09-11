@@ -1169,6 +1169,8 @@ export const en = {
     },
     metrics: {
       title: "Turn time and speed", elapsed: "Took {{duration}}", duration: "Total turn time",
+      request: "Time to first model call", milliseconds: "{{value}}ms",
+      requestDescription: "From backend receipt of this turn's input to the first model call, including instructions, history, tools, and prompt preparation. TTFT starts at that call.",
       speed: "Output speed (TPS)", ttft: "Time to first token (TTFT)",
       seconds: "{{value}}s", minutesSeconds: "{{minutes}}m {{seconds}}s", tokensPerSecond: "{{value}} tok/s",
       description: "First token includes reasoning and tool calls. Speed uses recorded model generation time and excludes tool execution and waits between calls.",

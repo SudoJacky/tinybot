@@ -13,6 +13,12 @@ pub(super) async fn prepare_tools(
     thread_store: &WorkspaceThreadStore,
     mcp_runtime: &McpRuntime,
 ) -> Result<NativeAgentToolPreparation, AgentError> {
+    let mut preparation = crate::agent::preparation_log::PreparationLog::new(
+        &context.trace_context,
+        context.received_at,
+        "tools",
+        "mcp_registry",
+    );
     let capability_policy = context.settings.capability_policy()?;
     let mcp_workspace_root = context
         .settings
@@ -48,6 +54,7 @@ pub(super) async fn prepare_tools(
         } else {
             None
         };
+    preparation.next("graph_tool_discovery");
     let mut contributors: Vec<Arc<dyn ToolContributor>> = Vec::new();
     let graph_node_turn = ["graphRunId", "graph_run_id"]
         .iter()
@@ -67,9 +74,11 @@ pub(super) async fn prepare_tools(
         }
     }
 
+    preparation.next("workspace_thread_tools");
     if let Some(contributor) = super::workspace_threads::tool_contributor(thread_store, context)? {
         contributors.push(Arc::new(contributor));
     }
+    preparation.next("tool_selection");
     let mut selected_tools = context.settings.selected_tools.clone();
     for server in mcp_snapshot
         .as_deref()
@@ -98,6 +107,7 @@ pub(super) async fn prepare_tools(
         });
     }
 
+    preparation.complete();
     Ok(NativeAgentToolPreparation::Ready(NativeAgentToolCatalog {
         contributors,
         selected_tools,
