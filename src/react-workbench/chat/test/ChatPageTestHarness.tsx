@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { cleanup } from "@testing-library/react";
-import { afterEach, expect, vi } from "vitest";
+import { beforeEach, afterEach, expect, vi } from "vitest";
 import { useState } from "react";
 import { ChatPage, type ChatPageProps } from "../ChatPage";
 import type { ChatStore, SessionStore, SessionSummary, WorkspaceRegistryEntry, WorkspaceRegistryStore } from "../../services";
@@ -106,6 +106,9 @@ vi.mock("../../../app-core/native/desktopNativeWorkspacePicker", () => ({
 vi.mock("../../sidecar/SidecarTerminal", () => ({
   SidecarTerminal: ({ tab }: { tab: { title: string } }) => <div>{tab.title} terminal surface</div>,
 }));
+
+// These existing interaction suites exercise the plain-text composer.
+beforeEach(() => window.localStorage.setItem("tinybot.ui.composer.rich-text", "false"));
 
 afterEach(() => {
   cleanup();

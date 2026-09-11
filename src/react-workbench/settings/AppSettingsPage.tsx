@@ -2,9 +2,12 @@ import { useTranslation } from "react-i18next";
 import type { AppLanguage } from "../../app-core/settings/appLanguage";
 import { useAppLanguage } from "./AppLanguageContext";
 import { SettingsChoiceList } from "./SettingsChoiceList";
+import { saveComposerRichText } from "../../app-core/settings/composerPreferences";
+import { useComposerRichText } from "../../components/ui/useComposerRichText";
 
 export function AppSettingsPage() {
   const { language, setLanguage } = useAppLanguage();
+  const composerRichText = useComposerRichText();
   const { t } = useTranslation("settings");
   return (
     <section className="react-app-settings" aria-labelledby="app-settings-title">
@@ -36,6 +39,18 @@ export function AppSettingsPage() {
           value={language}
           onChange={(value) => setLanguage(value as AppLanguage)}
         />
+        <label className="react-appearance-row react-appearance-row--toggle">
+          <span>
+            <strong>{t("app.composerRichText.label")}</strong>
+            <small>{t("app.composerRichText.description")}</small>
+          </span>
+          <input
+            aria-label={t("app.composerRichText.label")}
+            checked={composerRichText}
+            type="checkbox"
+            onChange={(event) => saveComposerRichText(event.currentTarget.checked)}
+          />
+        </label>
       </div>
       <small className="react-app-settings__persistence">{t("app.persistence")}</small>
     </section>

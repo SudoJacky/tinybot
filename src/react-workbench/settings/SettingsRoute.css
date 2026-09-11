@@ -664,6 +664,11 @@
   font-size: 11px;
 }
 
+.react-app-settings__list > .react-appearance-row--toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px 0;
+}
+
 .react-appearance-settings {
   display: grid;
   gap: 26px;

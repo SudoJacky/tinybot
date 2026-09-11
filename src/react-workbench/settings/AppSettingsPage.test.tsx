@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { APP_LANGUAGE_STORAGE_KEY } from "../../app-core/settings/appLanguage";
 import { AppLanguageProvider } from "./AppLanguageContext";
 import { AppSettingsPage } from "./AppSettingsPage";
+import { COMPOSER_RICH_TEXT_STORAGE_KEY } from "../../app-core/settings/composerPreferences";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -15,6 +16,16 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("AppSettingsPage", () => {
+  test("defaults rich text on and persists an explicit off preference", async () => {
+    const user = userEvent.setup();
+    const view = render(<AppLanguageProvider><AppSettingsPage /></AppLanguageProvider>);
+    expect((screen.getByRole("checkbox", { name: "Enable rich text in composer" }) as HTMLInputElement).checked).toBe(true);
+    await user.click(screen.getByRole("checkbox", { name: "Enable rich text in composer" }));
+    expect(window.localStorage.getItem(COMPOSER_RICH_TEXT_STORAGE_KEY)).toBe("false");
+    view.unmount();
+    render(<AppLanguageProvider><AppSettingsPage /></AppLanguageProvider>);
+    expect((screen.getByRole("checkbox", { name: "Enable rich text in composer" }) as HTMLInputElement).checked).toBe(false);
+  });
   test("changes the interface language immediately and persists it on this device", async () => {
     const user = userEvent.setup();
     render(

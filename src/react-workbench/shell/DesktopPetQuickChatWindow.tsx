@@ -30,7 +30,6 @@ import {
   type ComposerFileReference,
   type ComposerSendOptions,
   type ModelOption,
-  type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { importDesktopChatFiles, pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import type { ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
@@ -241,7 +240,6 @@ export function DesktopPetQuickChatWindow({
   async function handleSend(
     message: string,
     files: ComposerFileReference[],
-    pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
     const prepared = await prepareChatSubmission({
@@ -252,7 +250,6 @@ export function DesktopPetQuickChatWindow({
       message,
       now: () => new Date().toISOString(),
       options,
-      pastedContent,
       queuedInputs: [],
       selectedSkillIds: [],
       selectedSessionIds: [],

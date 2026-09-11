@@ -1208,21 +1208,15 @@ describe("ChatPage", () => {
 
     const input = await screen.findByRole("textbox", { name: /message/i });
     const pastedText = Array.from({ length: 42 }, (_, index) => `word${index}`).join(" ");
-    fireEvent.paste(input, {
-      clipboardData: {
-        getData: (type: string) => type === "text" ? pastedText : "",
-      },
-    });
-
-    expect(screen.getByText("Pasted text")).toBeTruthy();
-    expect(screen.getByText("42 words")).toBeTruthy();
-
     await user.type(input, "Summarize this");
+    await user.paste(`\n\n${pastedText}`);
+    expect((input as HTMLTextAreaElement).value).toBe(`Summarize this\n\n${pastedText}`);
+    expect(screen.queryByLabelText("Composer attachments")).toBeNull();
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
       reasoningEffort: "high",
-      text: `Summarize this\n\nPasted content:\n${pastedText}`,
+      text: `Summarize this\n\n${pastedText}`,
     });
     expect(screen.queryByText("Pasted text")).toBeNull();
   });

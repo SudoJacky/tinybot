@@ -7,19 +7,18 @@ import {
 } from "./chatSubmission";
 
 describe("prepareChatSubmission", () => {
-  test("builds one canonical input from files, paste, and bounded session transcripts", async () => {
+  test("builds one canonical input from draft text, files, and bounded session transcripts", async () => {
     const longTranscript = "前".repeat(30_000);
     const prepared = await prepareChatSubmission(input({
       files: [{ id: "file-1", mimeType: "text/plain", name: "notes.txt", path: "D:\\notes.txt", sizeBytes: 12 }],
       loadSessionTranscript: vi.fn(async () => longTranscript),
-      message: "Review these references",
+      message: "Review these references\n\npasted detail",
       options: {
         model: "gpt-5",
         provider: "openai",
         reasoningEffort: "high",
         selectedTools: [],
       },
-      pastedContent: [{ content: "pasted detail", id: "paste-1", timestamp: new Date(0), wordCount: 2 }],
       selectedSkillIds: ["apple-design"],
       selectedSessionIds: ["session-2"],
     }));
@@ -32,7 +31,7 @@ describe("prepareChatSubmission", () => {
       reasoningEffort: "high",
       selectedSkills: ["apple-design"],
       selectedTools: [],
-      text: "Review these references\n\nPasted content:\npasted detail",
+      text: "Review these references\n\npasted detail",
     });
     expect(prepared.turnInput.references).toEqual([
       expect.objectContaining({ rawPath: "D:\\notes.txt", referenceKind: "file" }),
@@ -192,7 +191,6 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
     message: "",
     now: () => "2026-08-15T10:00:00.000Z",
     options: {},
-    pastedContent: [],
     queuedInputs: [],
     selectedSkillIds: [],
     selectedSessionIds: [],
@@ -205,7 +203,6 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
 
 const t = ((key: string) => ({
   "composer.attachedFilesPrompt": "Review attached files",
-  "composer.pastedContentLabel": "Pasted content",
   "composer.skill.attachedPrompt": "Use the selected Skills",
   "composer.sessionMention.attachedPrompt": "Review attached sessions",
   "composer.sessionMention.emptyTranscript": "Empty transcript",

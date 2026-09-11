@@ -558,6 +558,10 @@ export const en = {
         chinese: "简体中文",
         chineseDescription: "使用简体中文界面。",
       },
+      composerRichText: {
+        label: "Enable rich text in composer",
+        description: "Edit Markdown as formatted headings, lists, and tables. Turn off to edit plain text.",
+      },
       persistence: "Changes apply immediately and are stored only on this device.",
     },
     personalization: {
@@ -1310,7 +1314,7 @@ export const en = {
         range: "Range: {{range}}",
       },
       placeholder: "Message Tinybot", sendFailed: "Message could not be sent.", stopFailed: "Generation could not be stopped.", fileLimit: "Only {{count}} files can be attached.", dropFiles: "Drop to attach files", importingFiles: "Preparing attachments…", filesFailed: "Files could not be selected.", imageUnsupported: "{{model}} does not support image input. Choose an image-capable model or remove the image.",
-      label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", words: "{{count}} words", pastedText: "Pasted text", removePasted: "Remove pasted content", pastedContentLabel: "Pasted content", attachedFilesPrompt: "Review the attached files.", configuredModel: "Configured model", imageInput: "Vision",
+      label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", attachedFilesPrompt: "Review the attached files.", configuredModel: "Configured model", imageInput: "Vision",
       slash: "Slash commands", message: "Message", attachFiles: "Attach files", tools: "Tools", on: "On", off: "Off", selectModel: "Select model", model: "Model", advanced: "Advanced",
       effort: "Effort", chooseModel: "Choose model", modelEffort: "Model and reasoning effort", backAdvanced: "Back to advanced options", models: "Models", reasoningEffort: "Reasoning effort",
       effortOptions: {

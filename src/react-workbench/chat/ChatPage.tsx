@@ -28,7 +28,6 @@ import {
   type ComposerSlashCommand,
   type ComposerToolOption,
   type ModelOption,
-  type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
@@ -767,7 +766,6 @@ export function ChatPage({
   async function handleComposerSend(
     message: string,
     files: ComposerFileReference[],
-    pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
     await sidecarResources.current?.finishBrowserAnnotation();
@@ -784,7 +782,6 @@ export function ChatPage({
       isRunning: activeSession ? sessionResponding : false,
       message,
       options,
-      pastedContent,
       selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
       sessions: sessionApplication.snapshot().sessions.map((session) => ({
@@ -1272,7 +1269,7 @@ export function ChatPage({
           onImportFiles={importDesktopChatFiles}
           attachmentContextKey={activeSessionId}
           onValueChange={handleComposerDraftChange}
-          onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
+          onSendMessage={(message, files, options) => handleComposerSend(message, files, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
           />
         </div>

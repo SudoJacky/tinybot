@@ -1,8 +1,12 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:dcf6a171d7cc6c8dd166b30f68f31b758037a96d80e158957a6f429ec76f154f -->
+<!-- tinybot-module-fingerprint: sha256:ec8d8bcf0516af7932a3ea7eb988b44d1777f3817df8523b1aa6b234507273a6 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
+
+`composerPreferences` persists the device-local rich-text composer preference,
+enabled when unset. Same-window change events and storage events keep settings,
+chat, and quick-chat subscribers current without adding a native config field.
 
 Built-in cloud provider presets carry their official API-key console URL into
 the provider card model; keyless local and custom providers omit this link.
