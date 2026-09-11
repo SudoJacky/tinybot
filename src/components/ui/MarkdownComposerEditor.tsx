@@ -8,7 +8,7 @@ import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
-import type { ComposerSkillOption } from "./claude-style-ai-input";
+import type { ComposerSkillOption } from "./composerContracts";
 import "./MarkdownComposerEditor.css";
 
 export interface MarkdownComposerCursor {

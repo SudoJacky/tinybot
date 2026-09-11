@@ -1,5 +1,7 @@
 "use client";
 
+import type { ComposerSkillOption } from "./composerContracts";
+
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -71,13 +73,6 @@ export interface ComposerSlashCommand {
   label: string;
   prompt: string;
   submitOnSelect?: boolean;
-}
-
-export interface ComposerSkillOption {
-  description: string;
-  id: string;
-  label: string;
-  sourceLabel: string;
 }
 
 export interface ComposerSendOptions {

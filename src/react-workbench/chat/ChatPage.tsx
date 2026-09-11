@@ -1,3 +1,4 @@
+import type { ComposerSkillOption } from "../../components/ui/composerContracts";
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
@@ -24,7 +25,6 @@ import {
   type ComposerFileReference,
   type ComposerSendOptions,
   type ComposerSessionMentionOption,
-  type ComposerSkillOption,
   type ComposerSlashCommand,
   type ComposerToolOption,
   type ModelOption,

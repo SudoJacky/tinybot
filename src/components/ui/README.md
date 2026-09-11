@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:f26eb41a7153876cf4219d42bd3b65910700d51dc5113dfbaaa565e98d2b51b3 -->
+<!-- tinybot-module-fingerprint: sha256:0f4444de91d802d9442b7babbf3697dce5ff792f66930d202a9e4ac2cb3717c7 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -48,6 +48,8 @@ text joins the surrounding sentence. Clipboard HTML is not used. Image reference
 retain their Markdown without loading remote images. Drafts and submissions remain
 Markdown strings, with serializer normalization after editing. Switching the setting
 preserves the draft and structured attachments in both Chat and desktop quick chat.
+Shared Skill option types live in `composerContracts.ts`; the editor and input
+import that leaf contract directly, so neither depends on the other for types.
 The editor owns selection, IME, undo, and atomic Skill nodes. Menu queries use the
 current text block instead of Markdown source offsets and stay inactive in code
 blocks. Shift+Enter uses structural Enter to continue lists or split paragraphs;

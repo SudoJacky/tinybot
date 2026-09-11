@@ -1,3 +1,4 @@
+import type { ComposerSkillOption } from "./composerContracts";
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -6,7 +7,6 @@ import { useState } from "react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   ClaudeStyleAiInput,
-  type ComposerSkillOption,
   type ComposerSlashCommand,
 } from "./claude-style-ai-input";
 
