@@ -1,5 +1,7 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:80a6cd877c4fcfbd4fbb0317f29d93888ffa045a655b1be70eb22b69c736faf6 -->
+<!-- tinybot-module-fingerprint: sha256:60da5d203dabb6faf105b1cea0ba0f76e5ac6f3664613252b269d2eca47a05d6 -->
+
+Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal

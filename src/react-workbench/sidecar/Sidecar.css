@@ -84,8 +84,8 @@
 .react-sidecar-tab {
   position: relative;
   display: flex;
-  flex: 0 1 150px;
-  min-width: 94px;
+  flex: 0 0 150px;
+  min-width: 150px;
   max-width: 176px;
   align-items: center;
   border-right: 1px solid color-mix(in srgb, var(--color-hairline) 78%, transparent);

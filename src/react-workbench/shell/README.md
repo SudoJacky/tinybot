@@ -1,5 +1,7 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:e342054111cc44a8ffa0276434cdf75bdb2d4aa87025cdd7f84685e3e40ccc96 -->
+<!-- tinybot-module-fingerprint: sha256:eed0ed9795dd997fb6b8e3d4fcdca730500e1d938cb06097f117af4e661cfc42 -->
+
+The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
 Desktop-pet quick chat shares composer drop and clipboard import with main Chat;
 it also shares live provider retry status with main Chat.
