@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:4d6632d070dab77b0ce650e425dc6e4246a99a196025ec770bb8280d5d70e6d6 -->
+<!-- tinybot-module-fingerprint: sha256:a9d030deb88b10935b8103d27037ca4da13996a11030a6b48e3ad8ba799b03be -->
 
 `memory` provides Tinybot's local long-term memory. Automatic maintenance uses
 two model-backed phases:
@@ -17,6 +17,10 @@ and runtime lifecycle orchestration. Each workspace/data-directory pair has one
 worker that serializes extraction and heartbeat work. `MemoryModel` supplies
 the asynchronous extraction and selection operations; `NativeMemoryModel`
 adapts the configured provider. There is no process-global worker registry.
+
+Queue notifications are checked against SQLite before extraction. A heartbeat
+may complete a Turn before its queued notification is received; such stale
+notifications skip model work and increment `memory.phase1.stale_notification.skipped`.
 
 `MemoryStore::new` receives the application data directory explicitly. Background
 workers, desktop management commands, and new Thread snapshots use the same

@@ -12,6 +12,58 @@ async function flush() { await act(async () => { await Promise.resolve(); }); }
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Local artifact observation", () => {
+  it("refreshes changed image bytes and releases URLs on replacement and close", async () => {
+    vi.useFakeTimers();
+    const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValueOnce("blob:first").mockReturnValueOnce("blob:second");
+    const revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const readThreadFile = vi.fn().mockResolvedValueOnce(chunk("v1")).mockResolvedValueOnce(chunk("v1", "unchanged")).mockResolvedValueOnce(chunk("v2"));
+    const readThreadFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    const { result, unmount } = renderHook(() => useArtifactFile({ ...base,
+      artifact: { ...artifact, fetchPath: "images/图表.PNG", title: "图表.PNG" },
+      workspaceStore: { readThreadFile, readThreadFileBytes },
+    }));
+    await flush();
+    expect(result.current.detail).toMatchObject({ mimeType: "image/png", imageDataUrl: "blob:first" });
+    const blob = createUrl.mock.calls[0][0] as Blob;
+    expect(blob.type).toBe("image/png");
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([137, 80, 78, 71]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(ARTIFACT_REFRESH_INTERVAL_MS); });
+    expect(createUrl).toHaveBeenCalledTimes(1);
+    expect(revokeUrl).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(ARTIFACT_REFRESH_INTERVAL_MS); });
+    expect(readThreadFileBytes).toHaveBeenLastCalledWith({ path: "images/图表.PNG", threadId: "s1", expectedRevision: "v2" });
+    expect(result.current.detail?.imageDataUrl).toBe("blob:second");
+    expect(revokeUrl).toHaveBeenCalledWith("blob:first");
+    unmount();
+    expect(revokeUrl).toHaveBeenLastCalledWith("blob:second");
+  });
+
+  it("does not allocate an image URL for a binary read completed after close", async () => {
+    const createUrl = vi.spyOn(URL, "createObjectURL");
+    let finish!: (bytes: Uint8Array) => void;
+    const readThreadFile = vi.fn().mockResolvedValue(chunk("v1"));
+    const readThreadFileBytes = vi.fn(() => new Promise<Uint8Array>((resolve) => { finish = resolve; }));
+    const { unmount } = renderHook(() => useArtifactFile({ ...base,
+      artifact: { ...artifact, mimeType: "image/jpeg" }, workspaceStore: { readThreadFile, readThreadFileBytes },
+    }));
+    await flush();
+    unmount();
+    await act(async () => { finish(new Uint8Array([255, 216, 255])); });
+    expect(createUrl).not.toHaveBeenCalled();
+  });
+
+  it("surfaces image byte read errors instead of displaying an empty preview", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const readThreadFile = vi.fn().mockResolvedValue(chunk("v1"));
+    const readThreadFileBytes = vi.fn().mockRejectedValue(new Error("Image revision changed"));
+    const { result } = renderHook(() => useArtifactFile({ ...base,
+      artifact: { ...artifact, fetchPath: "photo.jpg" }, workspaceStore: { readThreadFile, readThreadFileBytes },
+    }));
+    await flush();
+    expect(result.current).toMatchObject({ loading: false, error: "Image revision changed" });
+    expect(result.current.detail).toBeUndefined();
+  });
+
   it("polls conditionally without reloading unchanged Office bytes, then reloads the new revision", async () => {
     vi.useFakeTimers();
     const readThreadFile = vi.fn().mockResolvedValueOnce(chunk("v1")).mockResolvedValueOnce(chunk("v1", "unchanged")).mockResolvedValueOnce(chunk("v2"));

@@ -212,6 +212,38 @@ fn shutdown_drops_in_flight_model_work_and_restart_recovers_durable_queue() {
 }
 
 #[test]
+fn queued_notification_does_not_repeat_extraction_completed_by_heartbeat() {
+    tauri::async_runtime::block_on(async {
+        let fixture = Fixture::new();
+        let model = Arc::new(Model::new(true, 2));
+        let runtime = WorkspaceMemoryRuntime {
+            store: fixture.store.clone(),
+            thread_store: fixture.threads.clone(),
+            thread_store_path: fixture.scope.clone(),
+            latest_config: Arc::new(Mutex::new(json!({"revision": 2}))),
+            model: model.clone(),
+            cancellation: CancellationToken::new(),
+        };
+        fixture
+            .store
+            .enqueue_turn(&fixture.scope, "thread", "turn", &fixture.scope)
+            .unwrap();
+        let notification = fixture
+            .store
+            .pending_turns(&fixture.scope, 1)
+            .unwrap()
+            .remove(0);
+        // Heartbeats may win select! before the queued notification is received.
+        runtime.run_heartbeat().await.unwrap();
+        assert_eq!(fixture.pending(), 1);
+        runtime.run_heartbeat().await.unwrap();
+        assert_eq!(fixture.pending(), 0);
+        runtime.process_pending_turn(&notification).await.unwrap();
+        assert_eq!(model.calls.load(Ordering::SeqCst), 2);
+    });
+}
+
+#[test]
 fn model_failure_remains_pending_until_heartbeat_retry_succeeds() {
     tauri::async_runtime::block_on(async {
         let fixture = Fixture::new();

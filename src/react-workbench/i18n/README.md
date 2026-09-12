@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:820666180f1c0196a76dab80ba03c920bb0d379ecf7be69acae66c39bba55f0c -->
+<!-- tinybot-module-fingerprint: sha256:5cf6f7a691fd95a9ecb63530b8a1461879597e35b37d8bc2ccb2e3d9087a7f13 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -133,3 +133,5 @@ user-input tool calls have a distinct received-input title.
 
 Provider retry status includes waiting/requesting labels, retry counts, delays,
 and transport failure categories in both languages.
+
+Image decode failures use localized chat.details.imagePreviewFailed messages; filenames remain user data.

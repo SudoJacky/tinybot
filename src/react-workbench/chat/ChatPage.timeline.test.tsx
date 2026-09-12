@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -1338,7 +1338,8 @@ describe("ChatPage", () => {
     expect(readThreadFile).toHaveBeenCalledWith({ path: "src/main.ts", threadId: "s1" });
     const sidecar = await screen.findByLabelText("Sidecar");
     expect(within(sidecar).getByRole("tab", { name: "main.ts" })).toBeTruthy();
-    expect(await within(sidecar).findByText("import { mount } from './react-workbench/main';")).toBeTruthy();
+    await waitFor(() => expect(sidecar.querySelector("pre code")?.textContent).toBe("import { mount } from './react-workbench/main';"));
+    await waitFor(() => expect(sidecar.querySelector('pre span[style*="--sdm-c"]')).not.toBeNull());
   });
 
   it("renders Markdown workspace artifacts as documents instead of raw text previews", async () => {
@@ -1388,6 +1389,29 @@ describe("ChatPage", () => {
     expect(document.querySelector("pre")).toBeNull();
     expect(within(sidecar).queryByText("workspace-file:docs/operator-guide.md")).toBeNull();
     expect(within(sidecar).queryByText("text/markdown")).toBeNull();
+  });
+
+  it.each(["jpg", "png"])("opens a local %s link as an image preview and reports decode failures", async (extension) => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "image-link", role: "assistant", createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: `View [the image](images/photo.${extension}).`, status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async () => ({ contentType: "binary" as const, path: `images/photo.${extension}`, revision: "image-v1", sizeBytes: 3 }));
+    const readThreadFileBytes = vi.fn(async () => new Uint8Array([1, 2, 3]));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue(`blob:photo-${extension}`);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore}
+      workspaceStore={{ readThreadFile, readThreadFileBytes }} />);
+    await user.click(await screen.findByRole("link", { name: "the image" }));
+    const sidecar = within(await screen.findByLabelText("Sidecar"));
+    const image = await sidecar.findByRole("img", { name: `photo.${extension}` });
+    expect(image.getAttribute("src")).toBe(`blob:photo-${extension}`);
+    expect(readThreadFileBytes).toHaveBeenCalledWith({ path: `images/photo.${extension}`, threadId: "s1", expectedRevision: "image-v1" });
+    expect(sidecar.queryByText("Binary files cannot be previewed here yet.")).toBeNull();
+    fireEvent.error(image);
+    expect(sidecar.getByRole("alert").textContent).toContain(`Could not preview photo.${extension}`);
   });
 
   it("loads modern Office files through the revision-bound binary preview API", async () => {

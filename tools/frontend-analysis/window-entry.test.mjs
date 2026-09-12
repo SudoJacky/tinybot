@@ -47,6 +47,7 @@ test("production bootstrap loads each window with its own CSS before importing i
       const styles = [];
       const loads = [];
       const imports = [];
+      const documentEvents = new EventTarget();
       const script = ts.transpileModule(entryChunk.code, {
         compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
       }).outputText;
@@ -55,6 +56,7 @@ test("production bootstrap loads each window with its own CSS before importing i
         URLSearchParams,
         window: { location: { search: `?surface=${surface}` } },
         document: {
+          addEventListener: documentEvents.addEventListener.bind(documentEvents),
           createElement: () => ({
             relList: { supports: () => true },
             addEventListener(event, callback) { if (event === "load") loads.push(callback); },
@@ -65,6 +67,9 @@ test("production bootstrap loads each window with its own CSS before importing i
         },
         require(id) { imports.push(id); return {}; },
       });
+      const contextMenu = new Event("contextmenu", { cancelable: true });
+      documentEvents.dispatchEvent(contextMenu);
+      assert.equal(contextMenu.defaultPrevented, true, "production windows must suppress the browser context menu");
       await new Promise(setImmediate);
       assert.deepEqual(imports, [], "entry must wait for its stylesheets");
       assert.equal(styles.length, 1);

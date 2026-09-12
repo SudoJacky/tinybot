@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ArtifactRef, LoadedArtifactDetail } from "../../app-core/chat/chatTurnContracts";
 import { resolveOfficeArtifactKind, type OfficeArtifactSource } from "../../app-core/chat/officeArtifact";
+import { resolveImageArtifactMimeType } from "../../app-core/chat/imageArtifact";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
 import type { WorkspaceStore } from "../services";
 
@@ -36,6 +37,7 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
     let revision: string | undefined;
     let timer: ReturnType<typeof setTimeout>;
     let lastError: string | undefined;
+    let imageUrl: string | undefined;
     setState({ loading: true });
     async function refresh() {
       if (disposed || inFlight || document.visibilityState === "hidden") return;
@@ -52,11 +54,20 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
           return;
         }
         const officeKind = resolveOfficeArtifactKind({ mimeType, path, title });
+        const imageMimeType = resolveImageArtifactMimeType({ mimeType, path, title });
         let next: ArtifactFileState;
-        if (officeKind && file.contentType === "binary") {
+        if ((officeKind || imageMimeType) && file.contentType === "binary") {
           if (!readBytes) throw new Error(unavailableMessage);
           const bytes = await readBytes({ path: path!, threadId: threadId!, expectedRevision: file.revision });
-          next = { loading: false, office: { bytes, kind: officeKind, title }, revision: file.revision };
+          if (disposed) return;
+          if (imageMimeType) {
+            const url = URL.createObjectURL(new Blob([bytes], { type: imageMimeType }));
+            if (imageUrl) URL.revokeObjectURL(imageUrl);
+            imageUrl = url;
+            next = { loading: false, detail: { id, title, mimeType: imageMimeType, imageDataUrl: url }, revision: file.revision };
+          } else {
+            next = { loading: false, office: { bytes, kind: officeKind!, title }, revision: file.revision };
+          }
         } else {
           if (file.contentType !== "text") throw new Error(binaryMessage);
           next = { loading: false, detail: { id, title, mimeType, textContent: file.content ?? "" }, revision: file.revision, truncated: Boolean(file.nextCursor) };
@@ -87,6 +98,7 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
     return () => {
       disposed = true;
       clearTimeout(timer);
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", wake);
     };

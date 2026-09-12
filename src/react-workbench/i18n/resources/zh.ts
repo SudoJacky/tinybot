@@ -746,6 +746,7 @@ export const zh = {
       type: "类型", loadingArtifact: "正在加载产物…", noPreview: "没有可预览的内容。", subagentTrace: "子 Agent Trace",
       fileOutsideWorkspace: "该文件位于当前工作区之外。", filePreviewUnavailable: "当前运行环境无法预览工作区文件。",
       binaryFilePreviewUnsupported: "暂不支持在此处预览二进制文件。", filePreviewTruncated: "预览已截断，请直接打开文件查看剩余内容。",
+      imagePreviewFailed: "无法预览 {{name}}，图片可能已损坏或使用了不支持的格式。",
       officePreviewLoading: "正在渲染 {{format}} 预览…", officePreviewFailed: "{{format}} 预览失败：{{message}}",
       officeSheets: "工作表", officeSpreadsheetTruncated: "仅显示前 {{rows}} 行、{{columns}} 列。",
       officePresentationNavigation: "PowerPoint 幻灯片", officePresentationSlide: "前往第 {{slide}} 页幻灯片",

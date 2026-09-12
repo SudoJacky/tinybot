@@ -87,6 +87,21 @@ impl MemoryStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(memory_db_error)
     }
 
+    pub(crate) fn is_turn_pending(&self, pending: &PendingMemoryTurn) -> Result<bool, String> {
+        self.open()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pending_memory_turns \
+                 WHERE thread_store_path = ?1 AND thread_id = ?2 AND turn_id = ?3)",
+                params![
+                    pending.thread_store_path,
+                    pending.thread_id,
+                    pending.turn_id
+                ],
+                |row| row.get(0),
+            )
+            .map_err(memory_db_error)
+    }
+
     pub(crate) fn complete_extraction(
         &self,
         pending: &PendingMemoryTurn,

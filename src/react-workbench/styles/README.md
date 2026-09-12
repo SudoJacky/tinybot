@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:d6897bfd633c09e732a28bc28a3052b4f31dfec02b83f901b610fe882f241424 -->
+<!-- tinybot-module-fingerprint: sha256:3e7622d9c67b3569b9feafc2c57b4926668a004ca216dcbca011ad0964e5aa31 -->
 
 The sidebar title aligns with workspace folder icons. Its workspace menu anchors to the title row and fits the available width. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
 
@@ -26,9 +26,10 @@ Workspace and project disclosures transition list height over 220 ms and opacity
 over 160 ms. Native details content visibility stays rendered until closing ends;
 only list bodies clip, preserving the absolutely positioned header actions.
 Keyboard activation and reduced-motion preferences disable these transitions.
-Session tab close controls use centered 32px targets, matching the
-Chat header and Sidecar toolbar actions. Tab selection fills the available height
-inside the 42px header without overflowing its bottom border.
+Session tab close controls and Chat header actions use centered 28px targets.
+Tab selection fills the available height inside the 36px header without
+overflowing its bottom border. The window frame is also 36px tall, with
+28px menu/history buttons and 36px-wide window controls.
 
 Shared scrollbar tokens keep native overflow thumbs quiet against the current
 theme, with stronger hover and drag states and transparent tracks. Desktop
@@ -61,14 +62,14 @@ Session-row entrance styles apply only to the workspace's explicitly eligible
 initial rows, with a bounded 30 ms stagger. Ordinary search/navigation never
 inherits an entrance animation from the list container.
 Its search action expands from the compact icon into a full-width inline input;
-the outer search field stays 32px high including its border, with a 28px input
+the outer search field stays 28px high including its border, with a 24px input
 and close button, so toggling search never shifts the session rows vertically.
 The mounted search layer reveals and retracts toward its trigger through reversible
 160ms clip-path and opacity transitions; the default title controls crossfade in
 the same fixed-height row. Focus-within styling keeps the active boundary visible,
 and reduced-motion mode disables these transitions.
-The collapsed sidebar is a 42px vertical shortcut rail matching the top bar's
-height, with centered 32px buttons, 16px action icons, and a 24px mascot.
+The collapsed sidebar is a 36px vertical shortcut rail matching the top bar's
+height, with centered 28px buttons, 16px action icons, and a 22px mascot.
 Its top control presents the Tinybot mascot at rest, then reveals the expand icon
 on pointer hover or keyboard focus; new-chat, add-workspace, and search actions
 follow in that order.

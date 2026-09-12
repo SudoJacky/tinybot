@@ -1,9 +1,13 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:a8b5ad63f6e3e81fba7a96c548faa7fc548a5150092aaf0b2b582d1ce36dd52c -->
+<!-- tinybot-module-fingerprint: sha256:5efe0804ade814af5f10046684dc236a715c5daf2345baf8ab3f4e9bfea1018e -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
 desktop session coordination.
+
+`imageArtifact` resolves supported raster image MIME types. `codeArtifact`
+maps source/configuration filenames and MIME types to syntax languages,
+preserving distinctions such as TSX versus TypeScript.
 
 `providerRetryStatus` validates transient provider status updates and correlates
 them with a Thread, Turn, and model call. It never infers failures from assistant text

@@ -7,6 +7,12 @@ import { removeStartupSplash } from "./react-workbench/startupSplash";
 import { installRendererPerformanceTracking } from "./app-core/native/rendererPerformance";
 import { createDesktopNativeStartupTrace } from "./app-core/native/desktopNativeChatDebug";
 
+// App-owned windows share this entry. Keep the browser menu for development,
+// while allowing application context-menu handlers to run in production.
+if (import.meta.env.PROD) {
+  document.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+
 installRendererPerformanceTracking();
 const entryTrace = createDesktopNativeStartupTrace({ startedAt: 0 });
 const surface = new URLSearchParams(window.location.search).get("surface");

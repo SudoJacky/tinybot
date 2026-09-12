@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:0c2e81f8d3e9c8f1284c1ce3c31774b388425c08aa905bfbdb3086e01733bb7e -->
+<!-- tinybot-module-fingerprint: sha256:f1138635ec2d99534343ce7d558de46a33d6716cf0a6cba22d25dc7fea9a46eb -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -95,8 +95,8 @@ open/toggle operations; resource snapshots never enter page state.
 The Chat header offers an open action only while Sidecar is closed. When visible,
 Sidecar owns the single hide action in its toolbar, including expanded mode.
 Hiding restores keyboard focus after the Chat header's open action remounts.
-Chat header icon actions use centered 32px targets matching the Sidecar toolbar;
-the header is 42px tall including its bottom border, aligned with Sidecar.
+Chat header icon actions use centered 28px targets;
+the header is 36px tall including its bottom border.
 `useChatSubmission.ts` owns submission preparation, model-save ordering,
 optimistic message reconciliation, Artifact review capture, and compaction.
 Session operations are supplied through semantic operations; the page supplies
@@ -498,3 +498,5 @@ fails, or is interrupted. Awaiting input shows a static localized label; optimis
 dispatch shows one board until the canonical turn arrives. Localized playful
 phrases cycle with a stable accessible label. Offscreen/background indicators pause,
 and reduced motion stays static.
+
+Local raster previews read revision-bound bytes and release object URLs on replacement or close. Code previews select their syntax language from the filename or MIME type and copy the original source text.

@@ -252,6 +252,12 @@ impl WorkspaceMemoryRuntime {
     }
 
     async fn process_pending_turn(&self, pending: &PendingMemoryTurn) -> Result<(), String> {
+        // Heartbeats and notifications share this serial worker. A heartbeat
+        // can finish durable work before its queued notification is received.
+        if !self.store.is_turn_pending(pending)? {
+            increment_metric("memory.phase1.stale_notification.skipped");
+            return Ok(());
+        }
         let evidence =
             persisted_turn_evidence(&self.thread_store, &pending.thread_id, &pending.turn_id)?;
         if evidence.user_messages.is_empty() && evidence.successful_tool_results.is_empty() {
