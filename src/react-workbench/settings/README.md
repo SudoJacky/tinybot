@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:575092ea5c7cae965b97e3b6f71dd049b767d03202da91c2496ee76c479716cd -->
+<!-- tinybot-module-fingerprint: sha256:bc7a41b622aaf7eb93ee67bf4036dcd076f82fd2dd52acde11a47423d9861ed1 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -24,6 +24,8 @@ Action Fusion toggle persists `experiments.actionFusion` through revision-guarde
 native configuration operations. Load and save failures stay visible; a failed
 save leaves the last confirmed flag intact. Changes apply to new Agent Turns.
 The page explains the Exec prerequisite and patch/command failure behavior.
+Shared persistence notes wrap within the available width so long explanations
+do not widen the form and push its controls outside the viewport.
 
 The Appearance page owns the complete desktop-pet settings surface: visibility,
 three-step size, safe-position recovery, and classic or dimensional style. All
@@ -91,6 +93,8 @@ reuse its trigger, popover, selected state, keyboard navigation, and co-located
 stylesheet instead of rendering platform-native select menus. App-language
 choices keep their names and descriptions in each target language so they remain
 discoverable regardless of the currently selected interface language.
+Memory also reuses this control for scope filtering and editing. Escape from
+an open choice menu is consumed locally so it does not close a containing dialog.
 Each choice menu owns the input source for its opening event, independently of
 shell-menu history. Pointer openings use the shared 160 ms anchored transition;
 keyboard openings are immediate. Reduced motion keeps only a 140 ms pointer

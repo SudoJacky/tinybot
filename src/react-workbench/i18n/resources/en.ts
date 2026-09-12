@@ -990,6 +990,20 @@ export const en = {
     },
   },
   memory: {
+    manage: {
+      missingWorkspace: "{{path}} (folder unavailable)",
+      add: "Add memory", edit: "Edit memory", delete: "Delete", content: "Memory content", scope: "Applies to",
+      allWorkspaces: "All workspaces (user memory)", oneWorkspace: "One workspace", workspacePath: "Workspace path", browse: "Browse",
+      cancel: "Cancel", save: "Save memory", saving: "Saving…", deleting: "Deleting…", deleteTitle: "Delete selected memories?",
+      deleteNote: "This removes the selected entries from memory used by new chats. Existing chats retain their saved snapshots. Similar memories may be learned again from future conversations.",
+      protectionNote: "Memories you add or edit are user-managed. Automatic consolidation cannot edit or delete them.",
+      userManaged: "User-managed", search: "Search memories", filter: "Filter by scope", filterAll: "All memory", otherWorkspaces: "Other workspaces",
+      select: "Select", done: "Done", selectVisible: "Select visible", selected: "{{count}} selected", deleteSelected: "Delete selected",
+      selectEntry: "Select memory: {{content}}", editEntry: "Edit memory: {{content}}", deleteEntry: "Delete memory: {{content}}",
+      oneFact: "Enter one non-empty fact on a single line (up to 2,000 characters).", noMatches: "No memories match your search.",
+      saved: "Memory saved. New chats will use the latest memory.", deleted: "Selected memories deleted. Existing chats are unchanged.",
+      saveFailed: "Could not complete this change: {{message}}",
+    },
     overview: "Latest preferences and workspace context stored on this device.",
     refresh: "Refresh memory",
     refreshAction: "Refresh",
@@ -1016,7 +1030,8 @@ export const en = {
       title: "Workspace memory",
       description: "Facts and conventions remembered only for a specific workspace.",
       current: "Current workspace",
-      count: "{{count}} memories",
+      count_one: "{{count}} memory",
+      count_other: "{{count}} memories",
       empty: "No active memory for this workspace.",
     },
   },
@@ -1057,6 +1072,7 @@ export const en = {
     install: "Download and install",
   },
   chat: {
+    codeBlock: { wrap: "Wrap code lines", unwrap: "Disable line wrapping" },
     providerRetry: {
       waiting: "Request failed temporarily. Retrying in {{seconds}} s ({{attempt}}/{{max}})",
       requesting: "Retrying request ({{attempt}}/{{max}})",

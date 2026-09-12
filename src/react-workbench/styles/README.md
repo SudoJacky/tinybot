@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:1f09e4df2e95e9a266052d84fef3c525b360b93e358ea82f8f0802ded5659557 -->
+<!-- tinybot-module-fingerprint: sha256:41e3446bfa76385c526269c95f90de59d26253898591666e9135a6e0d731300c -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -20,6 +20,10 @@ held drag can reverse direction and reopen the sidebar.
 
 Workspace session reveal buttons align with session titles and use the sidebar's
 muted text, row hover surface, and keyboard focus styling.
+Workspace and project disclosures transition list height over 220 ms and opacity
+over 160 ms. Native details content visibility stays rendered until closing ends;
+only list bodies clip, preserving the absolutely positioned header actions.
+Keyboard activation and reduced-motion preferences disable these transitions.
 Session tab close controls use centered 32px targets, matching the
 Chat header and Sidecar toolbar actions. Tab selection fills the available height
 inside the 42px header without overflowing its bottom border.

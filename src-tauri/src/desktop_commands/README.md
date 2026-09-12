@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:be41b56711221ef23b972db003b66b0f34025533ba5a328ba55a2ab6488c32d0 -->
+<!-- tinybot-module-fingerprint: sha256:d1c8dd89d6dd8fb4884a590c2dfc8f57782c122511513c5a870686e0aec1f3f7 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -8,6 +8,11 @@ definitions, threads, retry, WebUI, and workspace operations.
 
 These handlers should stay thin and delegate domain behavior to the owning
 backend module.
+
+`memory` exposes revisioned active-memory snapshots and create/update/batch-delete
+commands. SQLite transactions, scope validation, and user-managed protection
+belong to the memory store; the command refreshes the derived Markdown view and
+reports post-commit view failures explicitly. These commands are main-window only.
 
 Agent execution returns a typed `AgentTurnResult` through the internal bridge.
 The command response adapter serializes that result using the existing

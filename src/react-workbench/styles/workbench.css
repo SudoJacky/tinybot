@@ -1280,8 +1280,35 @@ button:disabled {
   opacity: 1;
 }
 
-.react-session-workspace__details:not([open]) > .react-session-workspace__sessions {
-  display: none;
+/* Keep native details content rendered through the closing transition. Animate
+   only the list body so the absolutely positioned header actions stay visible. */
+.react-session-workspace__details::details-content,
+.react-project-group::details-content {
+  transition: content-visibility var(--motion-duration-medium) allow-discrete;
+}
+
+.react-session-workspace__sessions,
+.react-project-group__content {
+  interpolate-size: allow-keywords;
+  height: 0;
+  overflow: clip;
+  opacity: 0;
+  transition:
+    height var(--motion-duration-medium) var(--motion-ease-standard),
+    opacity var(--motion-duration-fast) ease-out,
+    padding-bottom var(--motion-duration-medium) var(--motion-ease-standard);
+}
+
+.react-session-workspace__details[open] > .react-session-workspace__sessions,
+.react-project-group[open] > .react-project-group__content {
+  height: auto;
+  opacity: 1;
+}
+
+.react-session-list__rows [data-disclosure-motion="keyboard"]::details-content,
+.react-session-list__rows [data-disclosure-motion="keyboard"] > .react-session-workspace__sessions,
+.react-session-list__rows [data-disclosure-motion="keyboard"] > .react-project-group__content {
+  transition: none;
 }
 
 .react-project-group {
@@ -1305,7 +1332,7 @@ button:disabled {
 }
 
 .react-project-group:not([open]) > .react-project-group__content {
-  display: none;
+  padding-bottom: 0;
 }
 
 .react-project-group__content {
@@ -2096,6 +2123,13 @@ button:disabled {
     opacity: 1;
     transform: none;
     animation: none !important;
+  }
+
+  .react-session-workspace__details::details-content,
+  .react-project-group::details-content,
+  .react-session-workspace__sessions,
+  .react-project-group__content {
+    transition: none;
   }
 
   .react-session-row[data-dissolving="true"] {

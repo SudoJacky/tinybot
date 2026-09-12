@@ -491,12 +491,26 @@ export const zh = {
     },
   },
   memory: {
+    manage: {
+      missingWorkspace: "{{path}}（文件夹不可用）",
+      add: "添加记忆", edit: "编辑记忆", delete: "删除", content: "记忆内容", scope: "适用范围",
+      allWorkspaces: "所有工作区（用户记忆）", oneWorkspace: "指定工作区", workspacePath: "工作区路径", browse: "选择目录",
+      cancel: "取消", save: "保存记忆", saving: "正在保存…", deleting: "正在删除…", deleteTitle: "删除选中的记忆？",
+      deleteNote: "这些条目将从新会话使用的记忆中移除。已有会话仍保留原来的快照；未来的对话也可能再次提取相似记忆。",
+      protectionNote: "你添加或编辑的条目会标记为用户维护，自动整理无法修改或删除它们。",
+      userManaged: "用户维护", search: "搜索记忆", filter: "筛选范围", filterAll: "全部记忆", otherWorkspaces: "其他工作区",
+      select: "多选", done: "完成", selectVisible: "选择当前显示的条目", selected: "已选 {{count}} 条", deleteSelected: "删除选中",
+      selectEntry: "选择记忆：{{content}}", editEntry: "编辑记忆：{{content}}", deleteEntry: "删除记忆：{{content}}",
+      oneFact: "请用一行记录一条事实，内容不能为空且不超过 2,000 字符。", noMatches: "没有找到匹配的记忆。",
+      saved: "记忆已保存，新会话将使用最新内容。", deleted: "选中的记忆已删除，已有会话保持不变。",
+      saveFailed: "未能完成修改：{{message}}",
+    },
     overview: "查看保存在此设备上的最新偏好和工作区上下文。", refresh: "刷新记忆", refreshAction: "刷新", refreshing: "正在刷新…", usedWhen: "在会话开始时使用",
     snapshotNote: "新会话会使用这里的记忆；已有会话会保留创建时保存的记忆快照。", loadFailed: "无法加载记忆。", retry: "重试",
     loading: "正在加载记忆…", emptyTitle: "还没有有效记忆", emptyDescription: "完成的会话经过整理后，Tinybot 会添加长期记忆。",
     summary: { label: "记忆摘要", total: "共 {{count}} 条", user: "用户记忆 {{count}} 条", workspace: "工作区记忆 {{count}} 条" },
     user: { title: "用户记忆", description: "Tinybot 可以跨工作区沿用的偏好和事实。", empty: "没有有效的用户记忆。" },
-    workspace: { title: "工作区记忆", description: "只在特定工作区内记住的事实和约定。", current: "当前工作区", count: "{{count}} 条记忆", empty: "此工作区没有有效记忆。" },
+    workspace: { title: "工作区记忆", description: "只在特定工作区内记住的事实和约定。", current: "当前工作区", count_one: "{{count}} 条记忆", count_other: "{{count}} 条记忆", empty: "此工作区没有有效记忆。" },
   },
   updates: {
     desktopOnly: "只能在 Tinybot 桌面应用中检查更新。", unavailable: "当前没有经过审核、可供安装的更新。", updateAvailableLabel: "Tinybot 有可用更新",
@@ -512,6 +526,7 @@ export const zh = {
     downloading: "正在下载 {{percent}}%", installing: "正在安装…", install: "下载并安装",
   },
   chat: {
+    codeBlock: { wrap: "自动换行", unwrap: "关闭自动换行" },
     providerRetry: {
       waiting: "请求暂时失败，等待 {{seconds}} 秒后重试（{{attempt}}/{{max}}）",
       requesting: "正在重试请求（{{attempt}}/{{max}}）",

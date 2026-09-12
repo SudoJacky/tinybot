@@ -9,7 +9,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const PHASE2_WATERMARK_KEY: &str = "phase2_fragment_watermark";
+const MEMORY_REVISION_KEY: &str = "memory_revision";
 const MEMORY_CONTENT_MAX_CHARS: usize = 2_000;
+
+#[path = "management.rs"]
+mod management;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MemoryStore {
@@ -153,7 +157,10 @@ impl MemoryStore {
     }
 
     pub(crate) fn phase2_input(&self) -> Result<Option<Phase2Input>, String> {
-        let connection = self.open()?;
+        let mut database = self.open()?;
+        let connection = database.transaction().map_err(memory_db_error)?;
+        let revision = state_value(&connection, MEMORY_REVISION_KEY)?;
+        let protected_ids = management::protected_ids(&connection)?;
         let watermark = state_value(&connection, PHASE2_WATERMARK_KEY)?;
         let through_fragment_id = connection
             .query_row(
@@ -193,6 +200,8 @@ impl MemoryStore {
         })
         .collect();
         Ok(Some(Phase2Input {
+            revision,
+            protected_ids,
             watermark,
             through_fragment_id,
             active,
@@ -208,6 +217,7 @@ impl MemoryStore {
         validate_selection_diff(input, diff)?;
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(memory_db_error)?;
+        management::check_revision(&transaction, input.revision)?;
         let current_watermark = state_value(&transaction, PHASE2_WATERMARK_KEY)?;
         if current_watermark != input.watermark {
             return Err(format!(
@@ -250,6 +260,9 @@ impl MemoryStore {
                 params![PHASE2_WATERMARK_KEY, input.through_fragment_id],
             )
             .map_err(memory_db_error)?;
+        if changed {
+            management::advance_revision(&transaction)?;
+        }
         transaction.commit().map_err(memory_db_error)?;
         Ok(changed)
     }
@@ -267,6 +280,7 @@ impl MemoryStore {
         Ok(render_prompt_memories(&memories))
     }
 
+    #[cfg(test)]
     pub(crate) fn active_memories(&self) -> Result<Vec<MemoryRecord>, String> {
         let connection = self.open()?;
         query_memories(
@@ -356,6 +370,9 @@ impl MemoryStore {
                          (scope = 'user' AND path IS NULL) OR
                          (scope = 'workspace' AND path IS NOT NULL AND length(path) > 0)
                      )
+                 );
+                 CREATE TABLE IF NOT EXISTS user_managed_memories (
+                     memory_id INTEGER PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE
                  );
                  CREATE TABLE IF NOT EXISTS pending_memory_turns (
                      thread_store_path TEXT NOT NULL,
@@ -509,6 +526,12 @@ fn validate_selection_diff(input: &Phase2Input, diff: &SelectionDiff) -> Result<
         }
     }
     for update in &diff.update {
+        if input.protected_ids.contains(&update.id) {
+            return Err(format!(
+                "cannot automatically update user-managed memory {}",
+                update.id
+            ));
+        }
         normalized_memory_content(&update.content)?;
         if !active_ids.contains(&update.id) {
             return Err(format!(
@@ -524,6 +547,11 @@ fn validate_selection_diff(input: &Phase2Input, diff: &SelectionDiff) -> Result<
         }
     }
     for id in &diff.remove {
+        if input.protected_ids.contains(id) {
+            return Err(format!(
+                "cannot automatically remove user-managed memory {id}"
+            ));
+        }
         if !active_ids.contains(id) {
             return Err(format!(
                 "memory Selection Diff remove references unknown id {id}"

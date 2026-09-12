@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:1ba3e95c5907c7cf6475b8bd7ded13d0843861d61268cac5184cc95972918af1 -->
+<!-- tinybot-module-fingerprint: sha256:820666180f1c0196a76dab80ba03c920bb0d379ecf7be69acae66c39bba55f0c -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -33,6 +33,11 @@ remain untranslated.
 
 User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.
+Chat code-block wrapping controls use localized labels and tooltips; code
+content remains unchanged.
+Memory management localizes creation, editing, scope filters, selection,
+deletion confirmation, protection explanations, and save status. Entry content
+and paths remain user data; backend conflict details are displayed verbatim.
 External menu actions localize their system-browser title while repository URLs
 remain language-neutral constants. Help-menu labels for documentation, issue
 reporting, the shortcut settings module, and the repository follow the same

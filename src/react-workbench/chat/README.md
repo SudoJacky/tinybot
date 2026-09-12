@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:f4b28e5740ff15ad10a9a89693ad6a566fa18b9c7da0f8c4670e1fcfe6683277 -->
+<!-- tinybot-module-fingerprint: sha256:0c2e81f8d3e9c8f1284c1ce3c31774b388425c08aa905bfbdb3086e01733bb7e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -50,6 +50,9 @@ Inline session search stays mounted within the expanded sidebar so both opening
 and closing can transition, including rapid reversals. The inactive search or
 title controls are inert and hidden from accessibility APIs. Closing clears the
 query and immediately restores trigger focus; Escape follows the same path.
+Workspace and project groups retain native disclosure behavior. Pointer toggles
+animate the list height and opacity; keyboard toggles are immediate. Refreshing
+session data preserves each group's open state.
 Workspace session lists initially show six rows. Each workspace independently
 reveals twelve rows on the first Show more click and all remaining rows on the
 second. General chats and project member workspaces use the same behavior;
@@ -181,7 +184,14 @@ overall progress count. Reduced motion disables its spatial transitions.
 Form completion refreshes stop capabilities even when the active Turn ID and
 status are unchanged, because a live resume acknowledgement may arrive before
 the persisted resolution. Successful form-command status no longer stays above the composer; failures remain visible.
-`AssistantMarkdown.tsx` owns assistant prose and link presentation. Streaming
+`AssistantMarkdown.tsx` owns assistant prose and link presentation. Code-block
+styles lay out Streamdown's line spans independently of line numbers and apply
+its syntax-token colors using the application's light or dark theme.
+`MarkdownCode.tsx` reuses Streamdown's highlighting and copy components and
+adds a per-block line-wrap toggle beside Copy. Wrapping is off by default,
+uses presentation-only whitespace rules, and never changes copied source text.
+The control exposes its pressed state and remains usable while code streams.
+Streaming
 prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
 for uninterrupted CJK text and no stagger delay. Existing character nodes are
 reused without replaying their fade; completed messages render without animation

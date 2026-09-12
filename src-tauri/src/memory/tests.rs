@@ -17,6 +17,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[path = "management_tests.rs"]
+mod management_tests;
+
 struct MemoryFixture {
     root: PathBuf,
     store: MemoryStore,
@@ -451,6 +454,8 @@ fn memory_models_use_the_configured_provider_protocol() {
             "{\"add\":[{\"scope\":\"workspace\",\"path\":\"D:\\\\workspace\",\"content\":\"Uses Rust.\"}],\"update\":[],\"remove\":[]}",
         ),
         &super::Phase2Input {
+            revision: 0,
+            protected_ids: Vec::new(),
             watermark: 0,
             through_fragment_id: 1,
             active: Vec::new(),
@@ -699,6 +704,38 @@ fn thread_creation_persists_snapshot_and_fork_inherits_it() {
         .unwrap()
         .unwrap();
     assert!(source_snapshot.contains("This workspace uses Rust."));
+
+    let current = fixture.store.management_snapshot().unwrap();
+    fixture
+        .store
+        .mutate_memory(
+            current.revision,
+            &crate::memory::MemoryMutation::Update {
+                id: current.entries[0].record.id,
+                scope: MemoryScope::Workspace,
+                path: Some(fixture.workspace_path.clone()),
+                content: "User corrected the workspace memory.".to_string(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        rpc.get_thread_memory_snapshot("thread-source")
+            .unwrap()
+            .as_ref(),
+        Some(&source_snapshot)
+    );
+    let fresh = thread_record(
+        "thread-fresh",
+        "desktop",
+        &fixture.workspace_path,
+        "2026-07-28T00:00:30Z",
+    );
+    rpc.create_from_thread_record(&fresh).unwrap();
+    assert!(rpc
+        .get_thread_memory_snapshot("thread-fresh")
+        .unwrap()
+        .unwrap()
+        .contains("User corrected the workspace memory."));
 
     let mut fork = thread_record(
         "thread-fork",

@@ -26,7 +26,7 @@
 .react-memory-overview button,
 .react-memory-error button {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 7px;
@@ -222,8 +222,10 @@
 }
 
 .react-memory-list li {
-  position: relative;
-  padding: 12px 14px 12px 32px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
   color: var(--color-body);
   font-size: 13px;
   line-height: 1.5;
@@ -231,17 +233,6 @@
 
 .react-memory-list li + li {
   border-top: 1px solid color-mix(in srgb, var(--color-hairline) 72%, transparent);
-}
-
-.react-memory-list li::before {
-  position: absolute;
-  top: 19px;
-  left: 15px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-primary);
-  content: "";
 }
 
 .react-memory-workspaces {
@@ -320,13 +311,13 @@
 
 @media (max-width: 780px) {
   .react-memory-overview,
-.react-memory-error {
+  .react-memory-error {
     align-items: stretch;
     flex-direction: column;
   }
 
   .react-memory-overview button,
-.react-memory-error button {
+  .react-memory-error button {
     align-self: flex-start;
   }
 
@@ -338,7 +329,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .react-memory-overview button,
-.react-memory-error button {
+  .react-memory-error button {
     transition-duration: 0ms;
   }
 
@@ -349,13 +340,304 @@
 
 @media (prefers-contrast: more) {
   .react-memory-note,
-.react-memory-list,
-.react-memory-workspace,
-.react-memory-empty {
+  .react-memory-list,
+  .react-memory-workspace,
+  .react-memory-empty {
     border-color: var(--color-body);
   }
 }
 
 @keyframes react-settings-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.react-memory-toolbar-actions,
+.react-memory-filters,
+.react-memory-selection,
+.react-memory-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-memory-toolbar-actions {
+  flex-shrink: 0;
+}
+.react-memory-filters,
+.react-memory-selection {
+  flex-wrap: wrap;
+}
+.react-memory-page button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)),
+.react-memory-dialog
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 6px 11px;
+  background: var(--color-panel);
+  color: var(--color-body);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.react-memory-page
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled,
+.react-memory-dialog
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.react-memory-page
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
+    :disabled
+  ),
+.react-memory-dialog
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
+    :disabled
+  ) {
+  background: var(--color-surface-soft);
+}
+.react-memory-page .react-memory-primary,
+.react-memory-dialog .react-memory-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.react-memory-page .react-memory-primary:hover:not(:disabled),
+.react-memory-dialog .react-memory-primary:hover:not(:disabled) {
+  background: var(--color-primary-active);
+}
+.react-memory-page .react-memory-danger,
+.react-memory-dialog .react-memory-danger {
+  color: var(--color-error);
+}
+.react-memory-page
+  :is(button, input):where(
+    :not(.react-settings-choice-trigger, .react-settings-choice-item)
+  ):focus-visible,
+.react-memory-dialog
+  :is(button, input, textarea):where(
+    :not(.react-settings-choice-trigger, .react-settings-choice-item)
+  ):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.react-memory-search {
+  display: flex;
+  align-items: center;
+  flex: 1 1 220px;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  color: var(--color-muted);
+}
+.react-memory-search input {
+  height: 38px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}
+.react-memory-dialog :is(input, textarea) {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}
+.react-memory-selection {
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.react-memory-selection label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.react-memory-page input[type="checkbox"] {
+  accent-color: var(--color-primary);
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+.react-memory-entry {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+.react-memory-entry small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+.react-memory-row-actions {
+  flex: 0 0 auto;
+  gap: 2px;
+}
+.react-memory-row-actions button {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+}
+.react-memory-feedback {
+  margin: 0;
+  color: var(--color-primary-active);
+  font-size: 12px;
+}
+.react-memory-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(0 0 0 / 30%);
+}
+.react-memory-dialog {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 520px);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+  background: var(--color-panel);
+  box-shadow: 0 16px 60px rgb(0 0 0 / 18%);
+}
+.react-memory-dialog h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 20px;
+}
+.react-memory-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 600;
+}
+.react-memory-dialog textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.6;
+}
+.react-memory-dialog__hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.react-memory-dialog__error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.react-memory-workspace-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+.react-memory-workspace-picker .react-settings-choice-item .react-top-menu__menu-label {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+.react-memory-workspace-picker .react-settings-choice-item small {
+  justify-self: start;
+}
+.react-memory-workspace-picker .react-settings-choice-trigger small {
+  display: none;
+}
+.react-memory-workspace-picker .react-settings-choice-popover {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform-origin: bottom left;
+}
+.react-memory-workspace-path {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.react-memory-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.react-memory-delete-preview {
+  margin: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-left: 20px;
+  color: var(--color-body);
+  font-size: 13px;
+}
+.react-memory-delete-preview li {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.react-memory-filter {
+  flex: 0 1 190px;
+  min-width: 0;
+}
+.react-memory-filter .react-settings-choice__label {
+  display: none;
+}
+.react-memory-filter .react-settings-choice {
+  gap: 0;
+}
+.react-memory-filter .react-settings-choice-trigger {
+  height: 40px;
+}
+.react-memory-dialog .react-settings-choice__label {
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .react-memory-overview {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .react-memory-filter {
+    flex: 1;
+  }
+  .react-memory-search {
+    flex-basis: 100%;
+  }
+  .react-memory-modal {
+    padding: 12px;
+  }
+  .react-memory-dialog {
+    padding: 18px;
+  }
 }

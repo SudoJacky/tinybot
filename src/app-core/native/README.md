@@ -1,10 +1,14 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:2f7d1417725258c7d7e3f0e6df8367d9f25f73c18916f2242a9827fdcd5477b4 -->
+<!-- tinybot-module-fingerprint: sha256:a2848d5a31fdfb9f40af6ba4d8c729ccce8940be4730c1e47e8568673d18e192 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
 Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
 snapshots.
+
+`desktopNativeMemory` carries stable memory IDs, scope, user-managed status,
+and snapshot revision through the snapshot/mutate commands. Mutations include
+the expected revision; the backend owns validation, persistence, and conflicts.
 
 `rendererPerformance` installs one bounded observer set at the entry module for
 resources, long tasks, paint and slow interaction events. Each stream retains

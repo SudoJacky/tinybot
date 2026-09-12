@@ -102,14 +102,14 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       subscribe: vi.fn(() => () => undefined),
     },
     memoryStore: {
+      mutate: vi.fn(),
       load: vi.fn(async () => ({
         currentWorkspacePath: "D:\\Code\\py\\tinybot",
-        userMemories: ["User prefers concise answers."],
-        workspaces: [{
-          current: true,
-          path: "D:\\Code\\py\\tinybot",
-          memories: ["This workspace uses Rust."],
-        }],
+        revision: 1,
+        entries: [
+          { id: 1, scope: "user" as const, path: null, content: "User prefers concise answers.", userManaged: false },
+          { id: 2, scope: "workspace" as const, path: "D:\\Code\\py\\tinybot", content: "This workspace uses Rust.", userManaged: false },
+        ],
       })),
     },
     projectGroupStore: {
@@ -797,7 +797,7 @@ describe("DesktopShell", () => {
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Memory" }));
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeTruthy();
     expect(await screen.findByText("User prefers concise answers.")).toBeTruthy();
-    expect(screen.getByText("Current workspace")).toBeTruthy();
+    expect(screen.getByText("Current workspace", { selector: "span" })).toBeTruthy();
     expect(services.memoryStore.load).toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));

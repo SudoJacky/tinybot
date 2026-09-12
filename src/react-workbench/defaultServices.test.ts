@@ -288,12 +288,11 @@ describe("desktop native app services", () => {
   test("loads the canonical active memory snapshot", async () => {
     const snapshot = {
       currentWorkspacePath: "D:\\Code\\py\\tinybot",
-      userMemories: ["User prefers concise answers."],
-      workspaces: [{
-        current: true,
-        path: "D:\\Code\\py\\tinybot",
-        memories: ["This workspace uses Rust."],
-      }],
+      revision: 1,
+        entries: [
+          { id: 1, scope: "user" as const, path: null, content: "User prefers concise answers.", userManaged: false },
+          { id: 2, scope: "workspace" as const, path: "D:\\Code\\py\\tinybot", content: "This workspace uses Rust.", userManaged: false },
+        ],
     };
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
