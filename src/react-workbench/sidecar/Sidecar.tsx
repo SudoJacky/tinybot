@@ -4,7 +4,6 @@ import {
   Globe2,
   Maximize2,
   Minimize2,
-  MoreHorizontal,
   PanelRightClose,
   Plus,
   SquareTerminal,
@@ -82,6 +81,7 @@ export function Sidecar({
   const onResizeRef = useRef(onResize);
   const sidecarRef = useRef<HTMLElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const tabListRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef(width);
   const [maxWidth, setMaxWidth] = useState(() => maxSidecarWidthForWorkspace(window.innerWidth, window.innerWidth));
   onResizeRef.current = onResize;
@@ -120,8 +120,23 @@ export function Sidecar({
   }, [newTabMenuOpen]);
 
   useLayoutEffect(() => {
-    tabRefs.current.get(activeTabId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    tabRefs.current.get(activeTabId)?.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeTabId]);
+
+  useEffect(() => {
+    const list = tabListRef.current;
+    if (!list) return;
+    const scrollTabs = (event: WheelEvent) => {
+      if (event.ctrlKey || list.scrollWidth <= list.clientWidth) return;
+      // Leave horizontal trackpad gestures to the browser.
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? list.clientWidth : 1;
+      list.scrollLeft += event.deltaY * unit;
+    };
+    list.addEventListener("wheel", scrollTabs, { passive: false });
+    return () => list.removeEventListener("wheel", scrollTabs);
+  }, []);
 
   useLayoutEffect(() => {
     const workspace = sidecarRef.current?.parentElement;
@@ -282,7 +297,7 @@ export function Sidecar({
       </div>
 
       <header className="react-sidecar__header">
-        <div aria-label={t("sidecar.openTabs")} className="react-sidecar-tabs" role="tablist">
+        <div aria-label={t("sidecar.openTabs")} className="react-sidecar-tabs" ref={tabListRef} role="tablist">
           {tabs.map((tab) => {
             const active = tab.id === activeTabId;
             const Icon = sidecarTabIcon(tab);
@@ -373,9 +388,6 @@ export function Sidecar({
               </div>
             ) : null}
           </div>
-          <button aria-label={t("sidecar.more")} disabled title={t("sidecar.more")} type="button">
-            <MoreHorizontal aria-hidden="true" size={17} />
-          </button>
           <span aria-hidden="true" className="react-sidecar__control-divider" />
           <button
             aria-label={expanded ? t("sidecar.restore") : t("sidecar.expand")}

@@ -72,7 +72,7 @@ type TopMenuLabel = string;
 type MotionSource = "keyboard" | "pointer";
 
 const TINYBOT_GITHUB_URL = "https://github.com/SudoJacky/tinybot";
-const TINYBOT_DOCUMENTATION_URL = `${TINYBOT_GITHUB_URL}#readme`;
+const TINYBOT_DOCUMENTATION_URL = "https://sudojacky.github.io/tinybot/";
 const TINYBOT_NEW_ISSUE_URL = `${TINYBOT_GITHUB_URL}/issues/new/choose`;
 
 type TopMenuCommandId =

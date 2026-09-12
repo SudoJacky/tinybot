@@ -426,7 +426,7 @@ button:disabled {
   gap: 16px;
   cursor: default;
   font-size: 13px;
-  line-height: 1.25;
+  line-height: 1.5;
 }
 
 .react-top-menu__separator {
@@ -868,11 +868,12 @@ button:disabled {
 .react-session-list__header {
   display: grid;
   gap: 8px;
-  padding: 10px 8px;
+  padding: 10px 8px 10px 14px;
 }
 
 .react-session-list__title-row {
   position: relative;
+  min-width: 0;
   height: 32px;
 }
 
@@ -897,7 +898,6 @@ button:disabled {
 }
 
 .react-session-list__workspace-actions {
-  position: relative;
   display: inline-grid;
 }
 
@@ -906,7 +906,7 @@ button:disabled {
   z-index: 30;
   top: 36px;
   right: 0;
-  width: 196px;
+  width: min(196px, 100%);
 }
 
 .react-session-list__workspace-menu button {

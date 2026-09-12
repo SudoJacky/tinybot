@@ -825,7 +825,7 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "Help" }));
     let helpMenu = screen.getByRole("menu", { name: "Help menu" });
     await user.click(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" }));
-    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot#readme"));
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://sudojacky.github.io/tinybot/"));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Help" }));

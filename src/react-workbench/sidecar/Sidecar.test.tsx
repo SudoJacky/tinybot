@@ -60,6 +60,27 @@ function mockWorkspaceWidth(readWidth: () => number) {
 }
 
 describe("Sidecar", () => {
+  it("scrolls overflowing tabs with the wheel and preserves horizontal gestures and zoom", () => {
+    renderSidecar();
+    const list = screen.getByRole("tablist");
+    Object.defineProperties(list, {
+      scrollWidth: { configurable: true, value: 900 },
+      clientWidth: { configurable: true, value: 300 },
+    });
+    expect(fireEvent.wheel(list, { deltaY: 80 })).toBe(false);
+    expect(list.scrollLeft).toBe(80);
+    fireEvent.wheel(list, { deltaY: -2, deltaMode: 1 });
+    expect(list.scrollLeft).toBe(48);
+    expect(fireEvent.wheel(list, { deltaX: 40, deltaY: 2 })).toBe(true);
+    const zoom = new WheelEvent("wheel", { deltaY: 50, bubbles: true, cancelable: true });
+    Object.defineProperty(zoom, "ctrlKey", { value: true });
+    expect(fireEvent(list, zoom)).toBe(true);
+    expect(list.scrollLeft).toBe(48);
+    Object.defineProperty(list, "scrollWidth", { value: 300 });
+    expect(fireEvent.wheel(list, { deltaY: 80 })).toBe(true);
+    expect(list.scrollLeft).toBe(48);
+  });
+
   it("retains closing browser chrome while hiding its native surface and cancels stale exits", async () => {
     const { props, rerender } = renderSidecar({ activeTabId: "browser-1" });
     const aside = screen.getByLabelText("Sidecar");

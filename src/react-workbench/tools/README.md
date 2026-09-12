@@ -1,5 +1,7 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:b45343d42cf7162f25475225fc5fb6b47e4fee5811449cab2609e3a021b85212 -->
+<!-- tinybot-module-fingerprint: sha256:7875adbe830d67449d32e060f512d76f54ecf9a1f63872d12653e6ede3505406 -->
+
+MCP form inputs use the panel background token, with existing border, focus, and validation feedback.
 
 `tools` owns the lazy Tools and Plugins route, including separate Plugins,
 Skills, MCP, and callable Tools views plus catalog, lifecycle, migration,

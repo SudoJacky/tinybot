@@ -1,5 +1,7 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:41e3446bfa76385c526269c95f90de59d26253898591666e9135a6e0d731300c -->
+<!-- tinybot-module-fingerprint: sha256:d6897bfd633c09e732a28bc28a3052b4f31dfec02b83f901b610fe882f241424 -->
+
+The sidebar title aligns with workspace folder icons. Its workspace menu anchors to the title row and fits the available width. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
