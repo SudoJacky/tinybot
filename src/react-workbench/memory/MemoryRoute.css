@@ -356,7 +356,6 @@
 .react-memory-toolbar-actions,
 .react-memory-filters,
 .react-memory-selection,
-.react-memory-path,
 .react-memory-row-actions {
   display: flex;
   align-items: center;
@@ -560,12 +559,33 @@
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.react-memory-path input {
-  flex: 1;
-  width: 0;
+.react-memory-workspace-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
 }
-.react-memory-path button {
-  flex-shrink: 0;
+.react-memory-workspace-picker .react-settings-choice-item .react-top-menu__menu-label {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+.react-memory-workspace-picker .react-settings-choice-item small {
+  justify-self: start;
+}
+.react-memory-workspace-picker .react-settings-choice-trigger small {
+  display: none;
+}
+.react-memory-workspace-picker .react-settings-choice-popover {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform-origin: bottom left;
+}
+.react-memory-workspace-path {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .react-memory-dialog footer {
   display: flex;

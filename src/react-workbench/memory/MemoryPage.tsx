@@ -12,17 +12,31 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { MemoryEntry, MemoryMutation, MemorySnapshot, MemoryStore } from "../services";
-import { SettingsChoiceList } from "../settings/SettingsChoiceList";
+import type {
+  MemoryEntry,
+  MemoryMutation,
+  MemorySnapshot,
+  MemoryStore,
+  WorkspaceRegistryEntry,
+  WorkspaceRegistryStore,
+} from "../services";
+import { SettingsChoiceList, type SettingsChoiceOption } from "../settings/SettingsChoiceList";
 import { MemoryDeleteDialog, MemoryEditor } from "./MemoryEditor";
 
 type Dialog =
   | { kind: "edit"; entry: MemoryEntry | null; revision: number }
   | { kind: "delete"; entries: MemoryEntry[]; revision: number };
 
-export function MemoryPage({ memoryStore }: { memoryStore: MemoryStore }) {
+export function MemoryPage({
+  memoryStore,
+  workspaceRegistryStore,
+}: {
+  memoryStore: MemoryStore;
+  workspaceRegistryStore: WorkspaceRegistryStore;
+}) {
   const { t } = useTranslation("memory");
   const [snapshot, setSnapshot] = useState<MemorySnapshot | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceRegistryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -38,10 +52,11 @@ export function MemoryPage({ memoryStore }: { memoryStore: MemoryStore }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void memoryStore.load().then(
-      (next) => {
+    void Promise.all([memoryStore.load(), workspaceRegistryStore.list()]).then(
+      ([next, registered]) => {
         if (!cancelled) {
           setSnapshot(next);
+          setWorkspaces(registered);
           setLoading(false);
           setSelected(new Set());
         }
@@ -57,7 +72,7 @@ export function MemoryPage({ memoryStore }: { memoryStore: MemoryStore }) {
     return () => {
       cancelled = true;
     };
-  }, [memoryStore, reloadToken]);
+  }, [memoryStore, workspaceRegistryStore, reloadToken]);
   const workspacePaths = useMemo(
     () =>
       snapshot
@@ -70,6 +85,21 @@ export function MemoryPage({ memoryStore }: { memoryStore: MemoryStore }) {
         : [],
     [snapshot],
   );
+  const workspaceOptions = useMemo(() => {
+    const registered = new Map(workspaces.map((workspace) => [workspace.path, workspace]));
+    const paths = [
+      ...new Set([...workspacePaths, ...workspaces.map((workspace) => workspace.path)]),
+    ];
+    return paths.map((path): SettingsChoiceOption => {
+      const workspace = registered.get(path);
+      return {
+        value: path,
+        label: workspace?.name ?? path.split(/[\\/]/).filter(Boolean).pop() ?? path,
+        description: workspace?.exists === false ? t("manage.missingWorkspace", { path }) : path,
+        disabled: workspace?.exists === false && !workspacePaths.includes(path),
+      };
+    });
+  }, [workspacePaths, workspaces, t]);
   const entries = snapshot?.entries ?? [];
   const visible = entries.filter((entry) => {
     const scopeMatches =
@@ -374,7 +404,7 @@ export function MemoryPage({ memoryStore }: { memoryStore: MemoryStore }) {
       {dialog?.kind === "edit" ? (
         <MemoryEditor
           entry={dialog.entry}
-          workspacePaths={workspacePaths}
+          workspaceOptions={workspaceOptions}
           pending={pending}
           error={saveError}
           onClose={() => setDialog(null)}

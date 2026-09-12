@@ -3,19 +3,19 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useModalDialog } from "../../components/ui/useModalDialog";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
-import { SettingsChoiceList } from "../settings/SettingsChoiceList";
+import { SettingsChoiceList, type SettingsChoiceOption } from "../settings/SettingsChoiceList";
 import type { MemoryEntry, MemoryMutation } from "../services";
 
 export function MemoryEditor({
   entry,
-  workspacePaths,
+  workspaceOptions,
   pending,
   error,
   onClose,
   onSave,
 }: {
   entry: MemoryEntry | null;
-  workspacePaths: string[];
+  workspaceOptions: SettingsChoiceOption[];
   pending: boolean;
   error: string | null;
   onClose: () => void;
@@ -24,10 +24,23 @@ export function MemoryEditor({
   const { t } = useTranslation("memory");
   const [content, setContent] = useState(entry?.content ?? "");
   const [scope, setScope] = useState<"user" | "workspace">(entry?.scope ?? "user");
-  const [path, setPath] = useState(entry?.path ?? workspacePaths[0] ?? "");
+  const [path, setPath] = useState(
+    entry?.path ?? workspaceOptions.find((option) => !option.disabled)?.value ?? "",
+  );
   const [localError, setLocalError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const busy = pending || picking;
+  const options =
+    path && !workspaceOptions.some((option) => option.value === path)
+      ? [
+          ...workspaceOptions,
+          {
+            value: path,
+            label: path.split(/[\\/]/).filter(Boolean).pop() ?? path,
+            description: path,
+          },
+        ]
+      : workspaceOptions;
   const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLFormElement>({
     onClose,
     closeEnabled: !busy,
@@ -100,27 +113,19 @@ export function MemoryEditor({
           ]}
         />
         {scope === "workspace" ? (
-          <label>
-            <span id="memory-path-label">{t("manage.workspacePath")}</span>
-            <div className="react-memory-path">
-              <input
-                aria-labelledby="memory-path-label"
-                value={path}
-                list="memory-workspaces"
-                required
-                disabled={busy}
-                onChange={(event) => setPath(event.target.value)}
-              />
-              <button type="button" disabled={busy} onClick={() => void chooseWorkspace()}>
-                {t("manage.browse")}
-              </button>
-            </div>
-            <datalist id="memory-workspaces">
-              {workspacePaths.map((workspace) => (
-                <option key={workspace} value={workspace} />
-              ))}
-            </datalist>
-          </label>
+          <div className="react-memory-workspace-picker">
+            <SettingsChoiceList
+              label={t("manage.workspacePath")}
+              value={path}
+              options={options}
+              disabled={busy}
+              onChange={setPath}
+            />
+            <button type="button" disabled={busy} onClick={() => void chooseWorkspace()}>
+              {t("manage.browse")}
+            </button>
+            <p className="react-memory-workspace-path">{path}</p>
+          </div>
         ) : null}
         <p className="react-memory-dialog__hint">{t("manage.protectionNote")}</p>
         <p className="react-memory-dialog__hint">{t("snapshotNote")}</p>

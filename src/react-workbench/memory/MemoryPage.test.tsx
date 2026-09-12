@@ -2,7 +2,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MemorySnapshot, MemoryStore } from "../services";
+import type { MemorySnapshot, MemoryStore, WorkspaceRegistryStore } from "../services";
 import { MemoryPage } from "./MemoryPage";
 
 afterEach(() => {
@@ -58,10 +58,105 @@ function store(): MemoryStore {
   };
 }
 
+const workspaceRegistryStore: WorkspaceRegistryStore = {
+  list: vi.fn(async () => [
+    {
+      path: "D:\\Code\\new-project",
+      name: "New project",
+      exists: true,
+      addedAtMs: 1,
+      updatedAtMs: 1,
+    },
+  ]),
+  register: vi.fn(),
+  rename: vi.fn(),
+  forget: vi.fn(),
+};
+
 describe("MemoryPage", () => {
+  it("discovers registered workspaces without memories and saves the selected canonical path", async () => {
+    const user = userEvent.setup();
+    const memoryStore = store();
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
+    await user.click(await screen.findByRole("button", { name: "Add memory" }));
+    await user.type(screen.getByLabelText("Memory content"), "New workspace convention.");
+    await user.click(screen.getByRole("button", { name: /^Applies to:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "One workspace" }));
+    await user.click(screen.getByRole("button", { name: /^Workspace path:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: /New project/ }));
+    await user.click(screen.getByRole("button", { name: "Save memory" }));
+    await waitFor(() =>
+      expect(memoryStore.mutate).toHaveBeenCalledWith({
+        expectedRevision: 3,
+        mutation: {
+          operation: "create",
+          scope: "workspace",
+          path: "D:\\Code\\new-project",
+          content: "New workspace convention.",
+        },
+      }),
+    );
+  });
+
+  it("keeps historical scopes selectable while disabling missing registered folders without memories", async () => {
+    const user = userEvent.setup();
+    const registry = {
+      ...workspaceRegistryStore,
+      list: vi.fn(async () => [
+        {
+          path: snapshot().currentWorkspacePath,
+          name: "Stored workspace",
+          exists: false,
+          addedAtMs: 1,
+          updatedAtMs: 1,
+        },
+        {
+          path: "D:\\missing",
+          name: "Missing workspace",
+          exists: false,
+          addedAtMs: 1,
+          updatedAtMs: 1,
+        },
+      ]),
+    };
+    render(<MemoryPage workspaceRegistryStore={registry} memoryStore={store()} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Edit memory: This workspace uses Rust." }),
+    );
+    await user.click(screen.getByRole("button", { name: /^Workspace path:/ }));
+    expect(
+      screen.getByRole<HTMLButtonElement>("menuitemradio", { name: /Stored workspace/ }).disabled,
+    ).toBe(false);
+    expect(
+      screen.getByRole<HTMLButtonElement>("menuitemradio", { name: /Missing workspace/ }).disabled,
+    ).toBe(true);
+    expect(screen.getByRole("menuitemradio", { name: /other/ })).toBeTruthy();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(3);
+  });
+
+  it("reports workspace discovery failures and reloads the catalog on retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const registry = {
+      ...workspaceRegistryStore,
+      list: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Workspace registry unavailable"))
+        .mockResolvedValue([]),
+    };
+    const user = userEvent.setup();
+    render(<MemoryPage workspaceRegistryStore={registry} memoryStore={store()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Workspace registry unavailable",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("This workspace uses Rust.");
+    expect(registry.list).toHaveBeenCalledTimes(2);
+  });
   it("dismisses the scope menu before closing the memory editor with Escape", async () => {
     const user = userEvent.setup();
-    render(<MemoryPage memoryStore={store()} />);
+    render(<MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={store()} />);
     await user.click(
       await screen.findByRole("button", { name: "Edit memory: User prefers concise answers." }),
     );
@@ -82,7 +177,9 @@ describe("MemoryPage", () => {
   it("shows grouped memory, protection, and refreshes the canonical snapshot", async () => {
     const memoryStore = store(),
       user = userEvent.setup();
-    render(<MemoryPage memoryStore={memoryStore} />);
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
     expect(await screen.findByText("User prefers concise answers.")).toBeTruthy();
     expect(screen.getByText("This workspace uses Rust.")).toBeTruthy();
     expect(screen.getByText("User-managed")).toBeTruthy();
@@ -96,7 +193,9 @@ describe("MemoryPage", () => {
     const current = { ...snapshot(), entries: [] };
     const memoryStore = { load: vi.fn(async () => current), mutate: vi.fn(async () => snapshot()) };
     const user = userEvent.setup();
-    render(<MemoryPage memoryStore={memoryStore} />);
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
     expect(await screen.findByText("No active memory yet")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add memory" }));
     await user.type(screen.getByLabelText("Memory content"), "  Use cargo for builds.  ");
@@ -119,7 +218,9 @@ describe("MemoryPage", () => {
   it("edits the identified entry, changes its scope, and shows user ownership", async () => {
     const memoryStore = store(),
       user = userEvent.setup();
-    render(<MemoryPage memoryStore={memoryStore} />);
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
     await user.click(
       await screen.findByRole("button", { name: "Edit memory: User prefers concise answers." }),
     );
@@ -144,7 +245,9 @@ describe("MemoryPage", () => {
   it("only batch deletes visible selections and confirms before changing memory", async () => {
     const memoryStore = store(),
       user = userEvent.setup();
-    render(<MemoryPage memoryStore={memoryStore} />);
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
     await screen.findByText("User prefers concise answers.");
     await user.type(screen.getByRole("searchbox"), "uses");
     await user.click(screen.getByRole("button", { name: /^Filter by scope:/ }));
@@ -173,7 +276,9 @@ describe("MemoryPage", () => {
       throw new Error("Memory changed. Reload memory.");
     });
     const user = userEvent.setup();
-    render(<MemoryPage memoryStore={memoryStore} />);
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
     await user.click(
       await screen.findByRole("button", { name: "Edit memory: User prefers concise answers." }),
     );
@@ -195,7 +300,9 @@ describe("MemoryPage", () => {
       .mockRejectedValueOnce(new Error("memory database is unavailable"))
       .mockResolvedValueOnce({ ...snapshot(), entries: [] });
     const user = userEvent.setup();
-    render(<MemoryPage memoryStore={memoryStore} />);
+    render(
+      <MemoryPage workspaceRegistryStore={workspaceRegistryStore} memoryStore={memoryStore} />,
+    );
     expect((await screen.findByRole("alert")).textContent).toContain(
       "memory database is unavailable",
     );

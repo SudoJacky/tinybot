@@ -492,6 +492,7 @@ export const zh = {
   },
   memory: {
     manage: {
+      missingWorkspace: "{{path}}（文件夹不可用）",
       add: "添加记忆", edit: "编辑记忆", delete: "删除", content: "记忆内容", scope: "适用范围",
       allWorkspaces: "所有工作区（用户记忆）", oneWorkspace: "指定工作区", workspacePath: "工作区路径", browse: "选择目录",
       cancel: "取消", save: "保存记忆", saving: "正在保存…", deleting: "正在删除…", deleteTitle: "删除选中的记忆？",

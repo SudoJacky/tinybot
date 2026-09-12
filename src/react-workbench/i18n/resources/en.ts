@@ -991,6 +991,7 @@ export const en = {
   },
   memory: {
     manage: {
+      missingWorkspace: "{{path}} (folder unavailable)",
       add: "Add memory", edit: "Edit memory", delete: "Delete", content: "Memory content", scope: "Applies to",
       allWorkspaces: "All workspaces (user memory)", oneWorkspace: "One workspace", workspacePath: "Workspace path", browse: "Browse",
       cancel: "Cancel", save: "Save memory", saving: "Saving…", deleting: "Deleting…", deleteTitle: "Delete selected memories?",

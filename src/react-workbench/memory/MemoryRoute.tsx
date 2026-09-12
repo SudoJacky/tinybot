@@ -8,7 +8,7 @@ export default function MemoryRoute({ services }: { services: AppServices }) {
   return (
     <div className="react-workbench-page">
       <header><h1>{t("routes.memory")}</h1></header>
-      <MemoryPage memoryStore={services.memoryStore} />
+      <MemoryPage memoryStore={services.memoryStore} workspaceRegistryStore={services.workspaceRegistryStore} />
     </div>
   );
 }
