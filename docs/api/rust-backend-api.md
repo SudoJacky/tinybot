@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:1aff2f953f660946258062e9246ed6ca019c7359df3f092b98e7d4aa231f7362 -->
+<!-- tinybot-doc-fingerprint: sha256:8918876ae6707606892e05c0774a2741e9e3a7563f0f4eed0c8e359aea751035 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -127,6 +127,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeAgentGraphsApi` | `src/app-core/native/desktopNativeAgentGraphs.ts` | Workspace Agent Graph definition list/save/delete |
 | `createDesktopNativeAgentGraphRuntime` | `src/app-core/native/desktopNativeAgentGraphRuntime.ts` | Graph Run history and saved-revision execution |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
+| `createDesktopNativeMemoryApi` | `src/app-core/native/desktopNativeMemory.ts` | Active-memory snapshot and revision-checked create/update/batch delete |
 | `createDesktopNativeHooksApi` | `src/app-core/native/desktopNativeHooks.ts` | Workspace hook catalog, managed-hook save/test/archive, constrained script editing, and exact-definition trust |
 | `createDesktopNativePetFileDropImporter` | `src/app-core/native/desktopNativePetFileDrop.ts` | Bounded Windows WebView2 file-drop result handshake, timeout, and strict attachment-metadata parsing |
 | `createDesktopNativePetQuickChatHost` / quick-chat clients | `src/app-core/native/desktopNativePetQuickChat.ts` | Validated desktop-pet draft-and-attachment handoff, panel presentation, dismissal, and explicit Thread handoff to `main` through scoped Tauri events |

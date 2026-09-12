@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:a96df8be401a2c9954ced0332596860f76bc472dcd6a5275e022c77cb5923f8f -->
+<!-- tinybot-module-fingerprint: sha256:8eb5c0e7d4e41a167ed36e4314f37d466e01c24c916d126b5b082f2e510fca2a -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.

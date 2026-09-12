@@ -36,7 +36,7 @@ impl MemoryScope {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct MemoryRecord {
     pub(crate) id: i64,
     pub(crate) scope: MemoryScope,
@@ -52,10 +52,45 @@ pub(crate) struct ExtractedMemory {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Phase2Input {
+    pub(crate) revision: i64,
+    pub(crate) protected_ids: Vec<i64>,
     pub(crate) watermark: i64,
     pub(crate) through_fragment_id: i64,
     pub(crate) active: Vec<MemoryRecord>,
     pub(crate) fragments: Vec<MemoryRecord>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MemoryEntry {
+    #[serde(flatten)]
+    pub(crate) record: MemoryRecord,
+    pub(crate) user_managed: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct MemoryManagementSnapshot {
+    pub(crate) revision: i64,
+    pub(crate) entries: Vec<MemoryEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum MemoryMutation {
+    Create {
+        scope: MemoryScope,
+        path: Option<String>,
+        content: String,
+    },
+    Update {
+        id: i64,
+        scope: MemoryScope,
+        path: Option<String>,
+        content: String,
+    },
+    Delete {
+        ids: Vec<i64>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]

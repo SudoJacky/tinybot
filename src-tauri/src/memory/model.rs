@@ -19,6 +19,7 @@ Return {\"memories\":[]} when nothing is worth retaining.";
 const PHASE2_SYSTEM_PROMPT: &str = "\
 You maintain a compact active long-term memory set.
 Compare active memories with new extracted fragments and return the smallest Selection Diff.
+IDs listed in user_managed_ids are maintained by the user: never update or remove them, or add conflicting replacements. Preserve their content and scope.
 Remove or replace memories contradicted or made obsolete by newer fragments.
 Merge duplicates, preserve useful non-conflicting memories, and do not invent facts.
 Treat user scope and every distinct workspace path as isolated memory sets.
@@ -63,6 +64,7 @@ pub(crate) async fn select_diff(
         PHASE2_SYSTEM_PROMPT,
         json!({
             "active_memories": active,
+            "user_managed_ids": input.protected_ids,
             "new_fragments": fragments,
         }),
     )

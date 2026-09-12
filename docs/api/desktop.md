@@ -19,7 +19,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:062585cd2e5e94e77cda779b25af4f38682f5326a8138e33a15bce38d12b131a -->
+<!-- tinybot-doc-fingerprint: sha256:524d9fa986c8a8b3df49f36e5c848e84388fb29a2ef25ff3e7e3eb9e2bc4c51a -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -221,6 +221,9 @@ The long-term-memory source is historical context, not an instruction authority.
 explicitly states that the current request wins when it conflicts with stored memory. The exact
 snapshot is fixed when the Thread is created, so later global memory changes do not invalidate the
 stable prompt prefix of an existing Thread.
+The Memory page can add, edit, and batch-delete active entries through main-window
+Tauri commands. User-maintained entries are protected from automatic edits and
+deletion; see [the memory command contract](threads-and-memory.md#long-term-memory).
 
 Turn instruction fields may appear at the turn specification root or under
 `metadata`; snake_case aliases are also accepted. `selectedSkills` is an

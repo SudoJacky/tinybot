@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:c6b603a36ab58968ac734d095576c715477ea99b1aa49221dba190180c6227ad -->
+<!-- tinybot-module-fingerprint: sha256:e342054111cc44a8ffa0276434cdf75bdb2d4aa87025cdd7f84685e3e40ccc96 -->
 
 Desktop-pet quick chat shares composer drop and clipboard import with main Chat;
 it also shares live provider retry status with main Chat.

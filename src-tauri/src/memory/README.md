@@ -1,13 +1,14 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:3ffb2db6529033788ac8a2647ecdf334aab81ab1d186a8ab64acb2cb15f95520 -->
+<!-- tinybot-module-fingerprint: sha256:4d6632d070dab77b0ce650e425dc6e4246a99a196025ec770bb8280d5d70e6d6 -->
 
-`memory` provides Tinybot's local long-term memory. The V1 implementation is
-intentionally limited to two model-backed phases:
+`memory` provides Tinybot's local long-term memory. Automatic maintenance uses
+two model-backed phases:
 
 1. extract small memory fragments after a completed Turn;
 2. periodically consolidate those fragments into the active memory set.
 
-This document describes the implemented V1 behavior and its boundaries.
+The desktop also supports explicit user management of the active set. This
+document describes the implemented behavior and its boundaries.
 
 ## Ownership and dependencies
 
@@ -18,7 +19,7 @@ the asynchronous extraction and selection operations; `NativeMemoryModel`
 adapts the configured provider. There is no process-global worker registry.
 
 `MemoryStore::new` receives the application data directory explicitly. Background
-workers, the desktop snapshot command, and new Thread snapshots use the same
+workers, desktop management commands, and new Thread snapshots use the same
 directory from `WorkspaceThreadStore`, including in tests.
 
 Shutdown stops accepting jobs, cancels in-flight model futures, and joins the
@@ -30,9 +31,10 @@ Restart is accepted only after the previous workers have finished shutdown.
 
 ## Authority
 
-Persisted Turn content is the source from which memory is derived. Phase 1
+Persisted Turn content is the source from which automatic memory is derived. Phase 1
 must run only after the Turn trace has been flushed and the completed Turn has
-been persisted successfully.
+been persisted successfully. Desktop user mutations write the active set
+directly and do not manufacture extracted fragments or Turn history.
 
 SQLite owns both extracted fragments and the active memory set. Markdown is a
 derived prompt view and must not become a second writable authority.
@@ -216,13 +218,32 @@ existing Thread must not reread this changing file for every Turn. At Thread
 creation, the snapshot renderer reads SQLite and selects user memory plus
 memory whose absolute path exactly matches that Thread's working directory.
 
-## Read-only desktop view
+## Desktop memory management
 
-The desktop Memory page calls `worker_memory_snapshot` to inspect the latest
-active SQLite state. The response groups user memories and workspace memories
-without parsing `raw_memories.md`, and always identifies the current workspace,
-including when that workspace has no active memory. This boundary is read-only:
-the renderer cannot add, update, or remove memory.
+The desktop Memory page calls `worker_memory_snapshot` to read the latest
+active SQLite state, returning `currentWorkspacePath`, `revision`, and entries
+with stable `id`, `scope`, `path`, `content`, and `userManaged` fields. It never
+parses `raw_memories.md`.
+
+`worker_memory_mutate` accepts an expected revision and a create, update, or
+batch delete operation. `management.rs` owns validation and one immediate
+SQLite transaction covering the revision check, changes, protection metadata,
+and returned snapshot. Content is a non-empty single-line fact of at most
+2,000 characters. User scope has no path; new workspace paths are canonicalized
+to match Thread scope selection. Existing scope paths remain editable after
+their folders disappear. A missing delete ID rolls back the entire batch.
+
+The additive `user_managed_memories` table protects manually created or edited
+rows; its foreign key cascades when a row is deleted. The revision is stored in
+`memory_state`. Both manual mutations and Phase 2 content changes advance it.
+Phase 2 reads a consistent revision and protected IDs, instructs the model to
+respect them, and rejects stale diffs or attempts to edit/delete protected rows.
+Conflicts fail explicitly and leave consolidation pending for its normal retry.
+
+After committing, the desktop command refreshes the derived Markdown view and
+logs the operation and revision without memory content. A view refresh failure
+reports explicitly that SQLite was saved and the page should reload. Deleting
+a fact does not prevent it from being learned again from later conversations.
 
 Refreshing the page does not alter any Thread. Existing Threads keep their
 creation-time snapshot; a new independent Thread captures the latest active

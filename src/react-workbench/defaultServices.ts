@@ -379,6 +379,10 @@ export function createDesktopAppServices(
         await initialize();
         return requireNative(nativeMemory, "Memory").snapshot();
       },
+      async mutate(request) {
+        await initialize();
+        return requireNative(nativeMemory, "Memory").mutate(request);
+      },
     },
     projectGroupStore: {
       async list() {

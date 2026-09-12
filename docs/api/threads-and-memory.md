@@ -15,7 +15,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:7c77da3ed58cf4188d19ec83c917ed70a1db38be813a7357cac6aa4053e3f938 -->
+<!-- tinybot-doc-fingerprint: sha256:4e2b070a100e233b41eb594456f5a4fbaab0b05335a9762420938d2266386fc2 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -221,9 +221,9 @@ URLs remain inert text/metadata.
 
 ## Long-Term Memory
 
-Long-term memory is backend-owned automation. The desktop renderer has one read-only Tauri command,
-`worker_memory_snapshot`; there is no Worker RPC namespace, WebUI route, agent-callable tool, or
-renderer mutation path.
+Long-term memory combines backend extraction/consolidation with explicit desktop user management.
+The desktop exposes snapshot and mutation Tauri commands; there is no Worker RPC namespace,
+WebUI route, or agent-callable memory management tool.
 
 Phase 1 extraction and Phase 2 consolidation use `memory.activeProfile` and `memory.model` when
 both are configured. If neither is configured, both phases dynamically follow
@@ -235,13 +235,28 @@ parsing: Chat Completions uses `messages`/`choices`, while Responses uses non-pe
 
 | Tauri command | Params | Result |
 | --- | --- | --- |
-| `worker_memory_snapshot` | none | `{ currentWorkspacePath, userMemories, workspaces }` |
+| `worker_memory_snapshot` | none | `{ currentWorkspacePath, revision, entries }` |
+| `worker_memory_mutate` | `{ expectedRevision, mutation }` | The updated snapshot |
 
-The command reads the canonical active set directly from SQLite and returns user memories plus
-workspace groups. Each workspace group includes `path`, `current`, and `memories`; the current
-workspace is present even when its active set is empty. It does not parse the derived Markdown
-view. Refreshing this snapshot only changes the inspection page: existing Threads continue using
-their immutable creation-time memory snapshot.
+Each entry has `id`, `scope` (`user` or `workspace`), `path` (null for user scope), `content`, and
+`userManaged`. The current workspace path is returned even when it has no entries. The UI groups
+and filters this canonical SQLite data; it does not parse the derived Markdown view.
+
+Mutation shapes are `{ operation: "create", scope, path, content }`,
+`{ operation: "update", id, scope, path, content }`, and `{ operation: "delete", ids }`.
+Content must be a non-empty single-line fact of at most 2,000 characters. New workspace scopes
+require an existing absolute directory, which is canonicalized. Stored scopes remain editable if
+their directory disappears. Batch deletion is atomic and requires distinct, existing IDs.
+
+Every mutation checks `expectedRevision` inside its SQLite transaction. Stale writes fail with
+a reload instruction. Manual creation or editing marks the entry user-managed; automatic
+consolidation cannot update or remove those rows and also checks the same revision before commit.
+Successful commands refresh the derived Markdown view. If that post-commit refresh fails, the
+error explicitly states the database change was saved and the page must reload.
+
+Management changes affect new independent Threads. Existing Threads and forks retain their
+immutable creation-time memory snapshots. Deleting entries does not permanently block learning
+similar facts from future conversations.
 
 | Path | Authority |
 | --- | --- |

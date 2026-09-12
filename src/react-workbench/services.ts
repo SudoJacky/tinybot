@@ -157,20 +157,12 @@ export type WorkspaceStore = {
   readThreadFileBytes?(request: { expectedRevision?: string; path: string; threadId: string }): Promise<Uint8Array>;
 };
 
-export type MemoryWorkspace = {
-  path: string;
-  current: boolean;
-  memories: string[];
-};
-
-export type MemorySnapshot = {
-  currentWorkspacePath: string;
-  userMemories: string[];
-  workspaces: MemoryWorkspace[];
-};
-
+export type MemoryEntry = import("../app-core/native/desktopNativeMemory").NativeMemoryEntry;
+export type MemorySnapshot = import("../app-core/native/desktopNativeMemory").NativeMemorySnapshot;
+export type MemoryMutation = import("../app-core/native/desktopNativeMemory").MemoryMutation;
 export type MemoryStore = {
   load(): Promise<MemorySnapshot>;
+  mutate(request: import("../app-core/native/desktopNativeMemory").MemoryMutationRequest): Promise<MemorySnapshot>;
 };
 
 export type HooksStore = {
