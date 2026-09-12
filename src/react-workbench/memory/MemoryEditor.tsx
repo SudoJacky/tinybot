@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useModalDialog } from "../../components/ui/useModalDialog";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
+import { SettingsChoiceList } from "../settings/SettingsChoiceList";
 import type { MemoryEntry, MemoryMutation } from "../services";
 
 export function MemoryEditor({
@@ -88,18 +89,16 @@ export function MemoryEditor({
             }}
           />
         </label>
-        <label>
-          <span id="memory-scope-label">{t("manage.scope")}</span>
-          <select
-            aria-labelledby="memory-scope-label"
-            value={scope}
-            disabled={busy}
-            onChange={(event) => setScope(event.target.value as "user" | "workspace")}
-          >
-            <option value="user">{t("manage.allWorkspaces")}</option>
-            <option value="workspace">{t("manage.oneWorkspace")}</option>
-          </select>
-        </label>
+        <SettingsChoiceList
+          label={t("manage.scope")}
+          value={scope}
+          disabled={busy}
+          onChange={(value) => setScope(value as "user" | "workspace")}
+          options={[
+            { value: "user", label: t("manage.allWorkspaces") },
+            { value: "workspace", label: t("manage.oneWorkspace") },
+          ]}
+        />
         {scope === "workspace" ? (
           <label>
             <span id="memory-path-label">{t("manage.workspacePath")}</span>

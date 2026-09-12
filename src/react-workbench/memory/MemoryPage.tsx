@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MemoryEntry, MemoryMutation, MemorySnapshot, MemoryStore } from "../services";
+import { SettingsChoiceList } from "../settings/SettingsChoiceList";
 import { MemoryDeleteDialog, MemoryEditor } from "./MemoryEditor";
 
 type Dialog =
@@ -237,19 +238,22 @@ export function MemoryPage({ memoryStore }: { memoryStore: MemoryStore }) {
                 }}
               />
             </label>
-            <select
-              aria-label={t("manage.filter")}
-              value={filter}
-              onChange={(event) => {
-                setFilter(event.target.value);
-                setSelected(new Set());
-              }}
-            >
-              <option value="all">{t("manage.filterAll")}</option>
-              <option value="user">{t("user.title")}</option>
-              <option value="current">{t("workspace.current")}</option>
-              <option value="other">{t("manage.otherWorkspaces")}</option>
-            </select>
+            <div className="react-memory-filter">
+              <SettingsChoiceList
+                label={t("manage.filter")}
+                value={filter}
+                onChange={(value) => {
+                  setFilter(value);
+                  setSelected(new Set());
+                }}
+                options={[
+                  { value: "all", label: t("manage.filterAll") },
+                  { value: "user", label: t("user.title") },
+                  { value: "current", label: t("workspace.current") },
+                  { value: "other", label: t("manage.otherWorkspaces") },
+                ]}
+              />
+            </div>
             <button
               disabled={busy || entries.length === 0}
               onClick={() => {

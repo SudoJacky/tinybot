@@ -59,6 +59,26 @@ function store(): MemoryStore {
 }
 
 describe("MemoryPage", () => {
+  it("dismisses the scope menu before closing the memory editor with Escape", async () => {
+    const user = userEvent.setup();
+    render(<MemoryPage memoryStore={store()} />);
+    await user.click(
+      await screen.findByRole("button", { name: "Edit memory: User prefers concise answers." }),
+    );
+    const trigger = screen.getByRole("button", { name: /^Applies to:/ });
+    await user.click(trigger);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("menuitemradio", { name: "All workspaces (user memory)" }),
+      ),
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
   it("shows grouped memory, protection, and refreshes the canonical snapshot", async () => {
     const memoryStore = store(),
       user = userEvent.setup();
@@ -80,7 +100,8 @@ describe("MemoryPage", () => {
     expect(await screen.findByText("No active memory yet")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Add memory" }));
     await user.type(screen.getByLabelText("Memory content"), "  Use cargo for builds.  ");
-    await user.selectOptions(screen.getByLabelText("Applies to"), "workspace");
+    await user.click(screen.getByRole("button", { name: /^Applies to:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "One workspace" }));
     await user.click(screen.getByRole("button", { name: "Save memory" }));
     await waitFor(() =>
       expect(memoryStore.mutate).toHaveBeenCalledWith({
@@ -104,7 +125,8 @@ describe("MemoryPage", () => {
     );
     await user.clear(screen.getByLabelText("Memory content"));
     await user.type(screen.getByLabelText("Memory content"), "Give detailed explanations.");
-    await user.selectOptions(screen.getByLabelText("Applies to"), "workspace");
+    await user.click(screen.getByRole("button", { name: /^Applies to:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "One workspace" }));
     await user.click(screen.getByRole("button", { name: "Save memory" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(memoryStore.mutate).toHaveBeenCalledWith({
@@ -125,7 +147,8 @@ describe("MemoryPage", () => {
     render(<MemoryPage memoryStore={memoryStore} />);
     await screen.findByText("User prefers concise answers.");
     await user.type(screen.getByRole("searchbox"), "uses");
-    await user.selectOptions(screen.getByLabelText("Filter by scope"), "current");
+    await user.click(screen.getByRole("button", { name: /^Filter by scope:/ }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Current workspace" }));
     expect(screen.queryByText("This workspace uses pnpm.")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Select" }));
     await user.click(screen.getByLabelText("Select visible"));

@@ -26,7 +26,7 @@
 .react-memory-overview button,
 .react-memory-error button {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 7px;
@@ -370,29 +370,38 @@
 .react-memory-selection {
   flex-wrap: wrap;
 }
-.react-memory-page button,
-.react-memory-dialog button {
+.react-memory-page button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)),
+.react-memory-dialog
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 34px;
+  min-height: 40px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 6px 11px;
   background: var(--color-panel);
   color: var(--color-body);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
-.react-memory-page button:disabled,
-.react-memory-dialog button:disabled {
+.react-memory-page
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled,
+.react-memory-dialog
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled {
   opacity: 0.5;
   cursor: default;
 }
-.react-memory-page button:hover:not(:disabled),
-.react-memory-dialog button:hover:not(:disabled) {
+.react-memory-page
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
+    :disabled
+  ),
+.react-memory-dialog
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
+    :disabled
+  ) {
   background: var(--color-surface-soft);
 }
 .react-memory-page .react-memory-primary,
@@ -409,8 +418,14 @@
 .react-memory-dialog .react-memory-danger {
   color: var(--color-error);
 }
-.react-memory-page :is(button, input, select):focus-visible,
-.react-memory-dialog :is(button, input, select, textarea):focus-visible {
+.react-memory-page
+  :is(button, input):where(
+    :not(.react-settings-choice-trigger, .react-settings-choice-item)
+  ):focus-visible,
+.react-memory-dialog
+  :is(button, input, textarea):where(
+    :not(.react-settings-choice-trigger, .react-settings-choice-item)
+  ):focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
@@ -427,19 +442,19 @@
   color: var(--color-muted);
 }
 .react-memory-search input {
+  height: 38px;
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  min-height: 0;
   border: 0;
   background: transparent;
   color: var(--color-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
-.react-memory-filters select,
-.react-memory-dialog :is(input, select, textarea) {
+.react-memory-dialog :is(input, textarea) {
   min-width: 0;
-  min-height: 36px;
+  min-height: 40px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 8px 10px;
@@ -483,8 +498,8 @@
   gap: 2px;
 }
 .react-memory-row-actions button {
-  width: 30px;
-  min-height: 30px;
+  width: 32px;
+  min-height: 32px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -569,13 +584,31 @@
   margin: 6px 0;
   overflow-wrap: anywhere;
 }
+
+.react-memory-filter {
+  flex: 0 1 190px;
+  min-width: 0;
+}
+.react-memory-filter .react-settings-choice__label {
+  display: none;
+}
+.react-memory-filter .react-settings-choice {
+  gap: 0;
+}
+.react-memory-filter .react-settings-choice-trigger {
+  height: 40px;
+}
+.react-memory-dialog .react-settings-choice__label {
+  font-size: 12px;
+}
+
 @media (max-width: 600px) {
   .react-memory-overview {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
   }
-  .react-memory-filters select {
+  .react-memory-filter {
     flex: 1;
   }
   .react-memory-search {

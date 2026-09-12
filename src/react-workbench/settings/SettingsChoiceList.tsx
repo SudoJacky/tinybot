@@ -80,6 +80,7 @@ export function SettingsChoiceList({
   function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       closeAndRestoreFocus();
       return;
     }
