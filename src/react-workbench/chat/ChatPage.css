@@ -767,20 +767,22 @@
 
 .react-message-markdown [data-streamdown="code-block-header"] {
   min-height: 24px;
-  padding: 3px 38px 3px 4px;
+  padding: 3px 70px 3px 4px;
   color: var(--color-muted);
   font-family: var(--font-code);
   font-size: 11px;
 }
 
 .react-message-markdown [data-streamdown="code-block-actions"] {
+  display: flex;
+  gap: 6px;
   position: absolute;
   top: 7px;
   right: 7px;
   z-index: 1;
 }
 
-.react-message-markdown [data-streamdown="code-block-copy-button"] {
+.react-message-markdown :is([data-streamdown="code-block-copy-button"], [data-streamdown="code-block-wrap-button"]) {
   display: grid;
   width: 26px;
   height: 26px;
@@ -812,6 +814,24 @@
 .react-message-markdown [data-streamdown="code-block-body"] pre,
 .react-message-markdown [data-streamdown="code-block-body"] code {
   font-family: var(--font-code);
+}
+
+.react-message-markdown [data-streamdown="code-block-wrap-button"]:is(:hover, :focus-visible, [aria-pressed="true"]) {
+  border-color: var(--color-primary);
+  color: var(--color-ink);
+}
+
+.react-message-markdown [data-streamdown="code-block-wrap-button"][aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-primary) 15%, var(--color-surface-card));
+}
+
+.react-markdown-code {
+  min-width: 0;
+}
+
+.react-message-markdown .react-markdown-code[data-wrap="true"] [data-streamdown="code-block-body"] :is(pre, code) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Streamdown emits a span per line without newline separators. Keep the

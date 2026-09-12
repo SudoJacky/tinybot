@@ -21,6 +21,31 @@ afterEach(() => {
 });
 
 describe("AssistantMarkdown", () => {
+  it("keeps wrapping enabled as an initially empty code fence streams more text", async () => {
+    const { container, rerender } = render(<AssistantMarkdown streaming text={"```python\n"} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Wrap code lines" }));
+    rerender(<AssistantMarkdown streaming text={"```python\nprint('hello')\n"} />);
+    await waitFor(() => expect(container.querySelector("pre code")?.textContent).toBe("print('hello')"));
+    expect(screen.getByRole("button", { name: "Wrap code lines" }).getAttribute("aria-pressed")).toBe("true");
+  });
+  it.each([false, true])("toggles wrapping per code block without changing text (streaming=%s)", async (streaming) => {
+    const source = "    print('" + "long text ".repeat(30) + "')";
+    const { container } = render(<AssistantMarkdown streaming={streaming} text={`Inline \`code\`\n\n\`\`\`python\n${source}\n\`\`\`\n\n\`\`\`\nsecond block\n\`\`\``} />);
+    const buttons = await screen.findAllByRole("button", { name: "Wrap code lines" });
+    expect(buttons).toHaveLength(2);
+    const bodies = () => container.querySelectorAll('[data-streamdown="code-block-body"]');
+    const original = bodies()[0].textContent;
+    fireEvent.click(buttons[0]);
+    expect(buttons[0].getAttribute("aria-pressed")).toBe("true");
+    expect(bodies()[0].closest(".react-markdown-code")?.getAttribute("data-wrap")).toBe("true");
+    expect(bodies()[1].closest(".react-markdown-code")?.getAttribute("data-wrap")).toBe("false");
+    expect(bodies()[0].textContent).toBe(original);
+    expect(container.querySelector('[data-streamdown="inline-code"]')?.textContent).toBe("code");
+    fireEvent.click(buttons[0]);
+    expect(buttons[0].getAttribute("aria-pressed")).toBe("false");
+    expect(bodies()[0].textContent).toBe(source);
+    expect(container.querySelectorAll('[data-streamdown="code-block-copy-button"]')).toHaveLength(2);
+  });
   it.each([
     { streaming: false, theme: "light" },
     { streaming: false, theme: "dark" },

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:097014963cd9083defd02b0dbafd7eb6b31bcc4ee72e870bc0f3bdc4dd64bb64 -->
+<!-- tinybot-module-fingerprint: sha256:0c2e81f8d3e9c8f1284c1ce3c31774b388425c08aa905bfbdb3086e01733bb7e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -187,6 +187,10 @@ the persisted resolution. Successful form-command status no longer stays above t
 `AssistantMarkdown.tsx` owns assistant prose and link presentation. Code-block
 styles lay out Streamdown's line spans independently of line numbers and apply
 its syntax-token colors using the application's light or dark theme.
+`MarkdownCode.tsx` reuses Streamdown's highlighting and copy components and
+adds a per-block line-wrap toggle beside Copy. Wrapping is off by default,
+uses presentation-only whitespace rules, and never changes copied source text.
+The control exposes its pressed state and remains usable while code streams.
 Streaming
 prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
 for uninterrupted CJK text and no stagger delay. Existing character nodes are

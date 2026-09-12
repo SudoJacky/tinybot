@@ -1072,6 +1072,7 @@ export const en = {
     install: "Download and install",
   },
   chat: {
+    codeBlock: { wrap: "Wrap code lines", unwrap: "Disable line wrapping" },
     providerRetry: {
       waiting: "Request failed temporarily. Retrying in {{seconds}} s ({{attempt}}/{{max}})",
       requesting: "Retrying request ({{attempt}}/{{max}})",

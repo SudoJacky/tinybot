@@ -18,6 +18,7 @@ import {
 import "streamdown/styles.css";
 import { isAssistantFileHref, type AssistantFileLink } from "./assistantFileLinks";
 import { ViewportContent } from "./ViewportContent";
+import { MarkdownCode } from "./MarkdownCode";
 
 // Character boundaries keep appended CJK text incremental, too. No staggered
 // delay: a streamed chunk becomes readable immediately and fades together.
@@ -27,7 +28,6 @@ const ASSISTANT_TEXT_FADE = {
 } satisfies AnimateOptions;
 
 const ASSISTANT_MARKDOWN_CONTROLS = {
-  code: { copy: true, download: false },
   mermaid: false,
   table: false,
 } satisfies ControlsConfig;
@@ -216,6 +216,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       <AssistantMarkdownLink {...props} onOpenFileLink={onOpenFileLink} />
     ),
     strong: AssistantMarkdownStrong,
+    code: MarkdownCode,
   } satisfies Components), [onOpenFileLink]);
   if (!text.trim()) {
     return null;

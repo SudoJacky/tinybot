@@ -526,6 +526,7 @@ export const zh = {
     downloading: "正在下载 {{percent}}%", installing: "正在安装…", install: "下载并安装",
   },
   chat: {
+    codeBlock: { wrap: "自动换行", unwrap: "关闭自动换行" },
     providerRetry: {
       waiting: "请求暂时失败，等待 {{seconds}} 秒后重试（{{attempt}}/{{max}}）",
       requesting: "正在重试请求（{{attempt}}/{{max}}）",
