@@ -8,6 +8,7 @@ import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import {
@@ -58,6 +59,10 @@ import {
 
 const SIDEBAR_ROOT_CONTAINER_ID = "sidebar:root";
 const SESSION_PAGE_SIZE = 6;
+
+function setDisclosureMotion(event: ReactMouseEvent<HTMLElement>): void {
+  event.currentTarget.parentElement!.dataset.disclosureMotion = event.detail === 0 ? "keyboard" : "pointer";
+}
 
 type SidebarOrderItem = {
   itemId: string;
@@ -874,6 +879,7 @@ export function ChatSessionWorkspace({
                 >
                   <details className="react-session-workspace__details" open>
                     <summary
+                      onClick={setDisclosureMotion}
                       aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
                       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                       draggable
@@ -957,6 +963,7 @@ export function ChatSessionWorkspace({
                 role="group"
               >
                 <summary
+                  onClick={setDisclosureMotion}
                   aria-description={t("shell.reorderProject", { name: projectGroup.project.name })}
                   aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   draggable

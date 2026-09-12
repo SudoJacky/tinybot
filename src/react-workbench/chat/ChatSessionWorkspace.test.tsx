@@ -20,6 +20,22 @@ afterEach(() => {
 });
 
 describe("ChatSessionWorkspace", () => {
+  test("keeps native group toggles and their state across session refreshes", () => {
+    const view = renderWorkspace();
+    const group = screen.getByRole("group", { name: "Workspace tinybot" });
+    const details = group.querySelector("details")!;
+    const summary = details.querySelector("summary")!;
+    expect(details.open).toBe(true);
+    fireEvent.click(summary, { detail: 1 });
+    expect(details.open).toBe(false);
+    expect(details.dataset.disclosureMotion).toBe("pointer");
+    view.rerenderSessions([{ ...planningSession(), updatedAtMs: Date.now() }]);
+    expect(details.open).toBe(false);
+    fireEvent.click(summary, { detail: 0 });
+    expect(details.open).toBe(true);
+    expect(details.dataset.disclosureMotion).toBe("keyboard");
+  });
+
   test("shares running and failure indicators with tabs and clears them after completion", () => {
     const actions = createActions();
     const session = { ...planningSession(), status: "running" as const };

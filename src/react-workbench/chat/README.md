@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a1b5d99bc44fa314d1bdb4b6bf985cdc91d436d637e58d82c03f4d537290ba69 -->
+<!-- tinybot-module-fingerprint: sha256:097014963cd9083defd02b0dbafd7eb6b31bcc4ee72e870bc0f3bdc4dd64bb64 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -50,6 +50,9 @@ Inline session search stays mounted within the expanded sidebar so both opening
 and closing can transition, including rapid reversals. The inactive search or
 title controls are inert and hidden from accessibility APIs. Closing clears the
 query and immediately restores trigger focus; Escape follows the same path.
+Workspace and project groups retain native disclosure behavior. Pointer toggles
+animate the list height and opacity; keyboard toggles are immediate. Refreshing
+session data preserves each group's open state.
 Workspace session lists initially show six rows. Each workspace independently
 reveals twelve rows on the first Show more click and all remaining rows on the
 second. General chats and project member workspaces use the same behavior;
