@@ -16,17 +16,17 @@
 
 > **版本状态：** Tinybot v1.0.0 是基于 Rust 后端的首个正式版本。核心对话、原生工具、插件和工作区功能已基本稳定，可用于日常使用。
 
-[English](README.md)
+[English](README.md) · [帮助中心](https://sudojacky.github.io/tinybot/) · [快速开始](https://sudojacky.github.io/tinybot/guide/getting-started.html) · [下载](https://github.com/SudoJacky/tinybot/releases)
 
 Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人 AI 助手。
 
-架构和维护文档请从 [Tinybot 工程文档地图](docs/README.md) 开始阅读。
-
-使用方法请从 [Tinybot 帮助中心](https://sudojacky.github.io/tinybot/) 开始阅读；帮助网页的本地预览与发布方式见 [网站维护说明](website/README.md)。
+使用方法请从 [Tinybot 帮助中心](https://sudojacky.github.io/tinybot/) 开始阅读，包含安装、模型配置、对话、工作区、插件和 Agent Graph 的操作步骤与应用截图。
 
 安装 Tinybot 时，请前往 [GitHub Releases](https://github.com/SudoJacky/tinybot/releases)，选择最新发布版本并下载适合当前平台的安装包。
 
 如需参与开发，请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)，了解开发环境初始化和仓库贡献要求。
+
+架构和维护文档请从 [Tinybot 工程文档地图](docs/README.md) 开始阅读；帮助网页的本地预览与发布方式见 [网站维护说明](website/README.md)。
 
 我们已经支持了Agent graph的编排和高自由度的定义，未来将会支持由Agent负责和调用的Graph。
 我们支持了灵动的宠物系统，Tinybot将以宠物的形式在工作中陪伴，同时可以将文字内容拖动给宠物并快速唤起会话，多模态和文件的支持将在未来实现（应该很快）。

@@ -16,20 +16,20 @@
 
 > **Release status:** Tinybot v1.0.0 is the first stable release of the Rust-based desktop app, with core conversation, native tool, plugin, and workspace capabilities ready for everyday use.
 
-[中文](README_ZH.md)
+[中文](README_ZH.md) · [Help Center (Chinese)](https://sudojacky.github.io/tinybot/) · [Quick Start (Chinese)](https://sudojacky.github.io/tinybot/guide/getting-started.html) · [Download](https://github.com/SudoJacky/tinybot/releases)
 
 A lightweight personal AI assistant powered by Large Language Models and a native tool system.
 
-Architecture and maintainer documentation starts at the
-[Tinybot engineering documentation map](docs/README.md).
-
-For end-user instructions, visit the [Tinybot Help Center](https://sudojacky.github.io/tinybot/).
-The [help website guide](website/README.md) covers local preview and GitHub Pages deployment.
+Visit the [Tinybot Help Center](https://sudojacky.github.io/tinybot/) for step-by-step guides with screenshots covering installation, model configuration, conversations, workspaces, plugins, and Agent Graph. The handbook is currently available in Chinese.
 
 To install Tinybot, open [GitHub Releases](https://github.com/SudoJacky/tinybot/releases), select the latest release, and download the installer for your platform.
 
 For development setup and repository contribution requirements, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Architecture and maintainer documentation starts at the
+[Tinybot engineering documentation map](docs/README.md).
+The [help website guide](website/README.md) covers local preview and GitHub Pages deployment.
 
 We have already supported the orchestration of Agent graphs and the definition of high degrees of freedom. In the future, we will support graphs managed and called by Agents.
 We support a dynamic pet system, where Tinybot will accompany pets at work in the form of pets, while also being able to drag text content to pets and quickly initiate conversations. Multimodal and file support will be implemented in the future (which should be soon).
