@@ -22,6 +22,8 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 架构和维护文档请从 [Tinybot 工程文档地图](docs/README.md) 开始阅读。
 
+使用方法请从 [Tinybot 帮助中心](https://sudojacky.github.io/tinybot/) 开始阅读；帮助网页的本地预览与发布方式见 [网站维护说明](website/README.md)。
+
 安装 Tinybot 时，请前往 [GitHub Releases](https://github.com/SudoJacky/tinybot/releases)，选择最新发布版本并下载适合当前平台的安装包。
 
 如需参与开发，请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)，了解开发环境初始化和仓库贡献要求。

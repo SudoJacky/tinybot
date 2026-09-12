@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="title desc">
+  <title id="title">Tinybot mark</title>
+  <desc id="desc">Compact Tinybot bot-core mark.</desc>
+  <circle cx="22.8" cy="25.5" r="17.4" fill="#faf9f5"/>
+  <circle cx="22.8" cy="25.5" r="15.5" fill="#141413"/>
+  <circle cx="17.7" cy="20.4" r="3.7" fill="#faf9f5"/>
+  <circle cx="40.6" cy="8" r="2.8" fill="#cc785c"/>
+</svg>

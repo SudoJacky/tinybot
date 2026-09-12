@@ -23,6 +23,9 @@ A lightweight personal AI assistant powered by Large Language Models and a nativ
 Architecture and maintainer documentation starts at the
 [Tinybot engineering documentation map](docs/README.md).
 
+For end-user instructions, visit the [Tinybot Help Center](https://sudojacky.github.io/tinybot/).
+The [help website guide](website/README.md) covers local preview and GitHub Pages deployment.
+
 To install Tinybot, open [GitHub Releases](https://github.com/SudoJacky/tinybot/releases), select the latest release, and download the installer for your platform.
 
 For development setup and repository contribution requirements, see
