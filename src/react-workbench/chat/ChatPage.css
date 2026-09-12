@@ -52,7 +52,7 @@
   --react-chat-content-gutter: clamp(20px, 4%, 40px);
   position: relative;
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr) auto;
+  grid-template-rows: 36px minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: var(--color-canvas);
@@ -89,15 +89,15 @@
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
-  padding-left: 8px;
+  padding-left: 4px;
   border-left: 1px solid color-mix(in srgb, var(--color-hairline) 76%, transparent);
 }
 
 .react-chat-header__actions > button {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
 }
 
@@ -3463,6 +3463,14 @@
   max-width: 100%;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
+}
+
+.react-artifact-detail__image {
+  display: block;
+  justify-self: center;
+  height: auto;
+  max-height: 70vh;
+  object-fit: contain;
 }
 
 .react-artifact-detail__text {

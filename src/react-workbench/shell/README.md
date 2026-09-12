@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:eed0ed9795dd997fb6b8e3d4fcdca730500e1d938cb06097f117af4e661cfc42 -->
+<!-- tinybot-module-fingerprint: sha256:482ba7721505393aede0851d1c40c580da25dfb31739ea5a6e1ce56b38dec551 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -97,3 +97,5 @@ Update dialogs retain update lifecycle state in the shell and reuse
 System > What's New reopens the validated latest update record persisted by
 `app-core/native/desktopUpdateNotes`, while automatic update prompts continue
 to render the live native updater snapshot.
+
+The window frame and Chat session bar are 36px tall, with 28px icon buttons and 36px-wide window controls. Production renderer entry points suppress the browser default context menu while development retains it.

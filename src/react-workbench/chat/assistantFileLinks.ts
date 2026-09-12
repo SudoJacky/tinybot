@@ -1,4 +1,5 @@
 import type { ArtifactRef } from "../../app-core/chat/chatTurnContracts";
+import { resolveImageArtifactMimeType } from "../../app-core/chat/imageArtifact";
 
 export type AssistantFileLink = {
   href: string;
@@ -83,7 +84,7 @@ export function assistantFileArtifact(file: Pick<ResolvedAssistantFileLink, "pat
   return {
     fetchPath: file.path,
     id: `workspace-file:${file.path}`,
-    kind: mimeType === "text/markdown" ? "markdown" : mimeType === "application/json" ? "json" : "text",
+    kind: mimeType.startsWith("image/") ? "image" : mimeType === "text/markdown" ? "markdown" : mimeType === "application/json" ? "json" : "text",
     mimeType,
     status: "completed",
     title: file.title,
@@ -189,6 +190,8 @@ function stripLineSuffix(value: string): { line?: number; path: string } {
 }
 
 function assistantFileMimeType(path: string): string {
+  const imageMimeType = resolveImageArtifactMimeType({ path });
+  if (imageMimeType) return imageMimeType;
   const extension = /(?:^|\/)\.?(?:[^./]+)(\.[^./]+)$/.exec(path.toLowerCase())?.[1] ?? "";
   switch (extension) {
     case ".md":

@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:09e9f12b5ae1f58c4852032bca51d0c1f173ea3b19dc33c0b798543e960d1da0 -->
+<!-- tinybot-doc-fingerprint: sha256:f25020876530645ca9f011caf1d4ffc3d8eed5cb7cae52a9567bc623025fec25 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -53,6 +53,10 @@ Before dispatch, Chat asks the native Workspace service to save the original
 bytes. Sidecar presents value/preview comparisons and explicit keep/restore
 actions; native storage owns the baseline and exact-content conflict checks.
 Keeping acknowledges the live file, while restoring atomically replaces it.
+
+Raster previews use the same revision-bound binary reads; code previews reuse
+the renderer's syntax highlighter. File-type recognition stays in application
+core, while image URLs, decode errors and preview controls remain renderer-owned.
 
 Form answers resume the same Turn. Native persistence owns the resolution
 boundary and consumes its waiting checkpoint before publishing the completed

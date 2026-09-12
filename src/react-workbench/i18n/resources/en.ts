@@ -1296,6 +1296,7 @@ export const en = {
       type: "Type", loadingArtifact: "Loading artifact…", noPreview: "No preview content is available.", subagentTrace: "Subagent trace",
       fileOutsideWorkspace: "This file is outside the active workspace.", filePreviewUnavailable: "Workspace file preview is unavailable in this runtime.",
       binaryFilePreviewUnsupported: "Binary files cannot be previewed here yet.", filePreviewTruncated: "Preview truncated. Open the file directly to inspect the remaining content.",
+      imagePreviewFailed: "Could not preview {{name}}. The image may be damaged or use an unsupported format.",
       officePreviewLoading: "Rendering {{format}} preview…", officePreviewFailed: "{{format}} preview failed: {{message}}",
       officeSheets: "Workbook sheets", officeSpreadsheetTruncated: "Showing the first {{rows}} rows and {{columns}} columns.",
       officePresentationNavigation: "PowerPoint slides", officePresentationSlide: "Go to slide {{slide}}",

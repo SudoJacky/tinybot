@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import type { ChatStore, SessionSummary, WorkspaceStore } from "../services";
 import type { ArtifactRef, LoadedArtifactDetail } from "../../app-core/chat/chatTurnContracts";
 import type { OfficeArtifactSource, SpreadsheetCellChangeRequest } from "../../app-core/chat/officeArtifact";
+import { resolveCodeArtifactLanguage } from "../../app-core/chat/codeArtifact";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import type { NativeBrowserSnapshot, NativeBrowserSession } from "../../app-core/native/nativeBrowserSnapshot";
 import { officeContentReference } from "../../app-core/chat/officeContentReference";
@@ -18,6 +19,8 @@ import { ArtifactReviewPanel } from "./ArtifactReviewPanel";
 import { DelimitedTextPreview } from "./DelimitedTextPreview";
 import { artifactDelimiter } from "./delimitedText";
 import { OfficeArtifactPreview } from "./OfficeArtifactPreview";
+import { ImageArtifactPreview } from "./ImageArtifactPreview";
+import { CodeArtifactPreview } from "./CodeArtifactPreview";
 import { Sidecar } from "./Sidecar";
 import { SidecarBrowser } from "./SidecarBrowser";
 import { useSidecarBrowserState } from "./useSidecarBrowserState";
@@ -578,6 +581,7 @@ function ArtifactDetails({
   const delimiter = !markdown && !office && !detail?.dataView && !detail?.imageDataUrl
     ? artifactDelimiter(artifact.fetchPath || artifact.title, detail?.mimeType || artifact.mimeType) : undefined;
   const delimited = delimiter !== undefined && detail?.textContent !== undefined;
+  const codeLanguage = resolveCodeArtifactLanguage({ path: artifact.fetchPath, title: artifact.title, mimeType: detail?.mimeType || artifact.mimeType });
   const referenceAction = <button disabled={loading || Boolean(error)} onClick={referenceArtifact} type="button">{t("details.referenceInChat")}</button>;
   const markdownContent = detail?.textContent && markdown
     ? { text: detail.textContent, title: detail.title }
@@ -597,7 +601,7 @@ function ArtifactDetails({
       {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p className="react-artifact-detail__notice">{notice}</p> : null}
-      {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
+      {detail?.imageDataUrl ? <ImageArtifactPreview key={detail.imageDataUrl} src={detail.imageDataUrl} title={detail.title} path={artifact.fetchPath} /> : null}
       {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
       {office ? (
         <OfficeArtifactPreview
@@ -619,7 +623,9 @@ function ArtifactDetails({
             text={markdownContent.text}
           />
         </article>
-      ) : detail?.textContent ? <pre className="react-artifact-detail__text">{detail.textContent}</pre> : null}
+      ) : detail?.textContent ? codeLanguage
+        ? <CodeArtifactPreview text={detail.textContent} language={codeLanguage} />
+        : <pre className="react-artifact-detail__text">{detail.textContent}</pre> : null}
       {!markdown && !office ? <details className="react-artifact-detail__metadata">
         <summary>{t("details.fileDetails")}</summary>
         <dl>

@@ -6,6 +6,14 @@ import {
 } from "./assistantFileLinks";
 
 describe("assistant file links", () => {
+  it.each([
+    ["photo.jpg", "image/jpeg"], ["photo.JPEG", "image/jpeg"], ["图表.PNG", "image/png"],
+    ["motion.gif", "image/gif"], ["photo.webp", "image/webp"], ["photo.bmp", "image/bmp"],
+    ["photo.avif", "image/avif"], ["icon.ico", "image/x-icon"],
+  ])("recognizes %s as an image artifact", (title, mimeType) => {
+    expect(assistantFileArtifact({ path: `images/${title}`, title })).toMatchObject({ kind: "image", mimeType });
+  });
+
   it("recognizes workspace-relative, absolute, and file URL targets without treating web URLs as files", () => {
     expect(isAssistantFileHref("./docs/guide.md")).toBe(true);
     expect(isAssistantFileHref("D:/Code/tinybot/src/main.ts")).toBe(true);

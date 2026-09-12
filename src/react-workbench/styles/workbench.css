@@ -191,7 +191,7 @@ button:disabled {
 
 .react-desktop-shell {
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
+  grid-template-rows: 36px minmax(0, 1fr);
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -201,8 +201,8 @@ button:disabled {
   display: grid;
   grid-template-columns: auto auto minmax(80px, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 12px;
+  gap: 4px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--color-hairline);
   background: var(--color-canvas);
   user-select: none;
@@ -218,10 +218,10 @@ button:disabled {
 .react-window-frame__history button {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   border: 0;
   border-radius: 7px;
@@ -273,10 +273,11 @@ button:disabled {
 .react-window-frame__control {
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  min-width: 44px;
+  width: 36px;
+  min-width: 36px;
   height: 100%;
-  min-height: 42px;
+  min-height: 0;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -314,13 +315,13 @@ button:disabled {
   flex: 0 0 auto;
   width: auto;
   max-width: 160px;
-  min-width: 32px;
-  height: 30px;
-  min-height: 30px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   gap: 0;
   overflow: hidden;
   border-radius: 999px;
-  padding: 0 8px;
+  padding: 0 5px;
   color: var(--color-ink);
   cursor: default;
   font-size: 12px;
@@ -815,7 +816,7 @@ button:disabled {
 }
 
 .react-session-list[data-collapsed="true"] {
-  width: 42px;
+  width: 36px;
 }
 
 .react-session-list[data-resizing="true"][data-collapsed="false"] {
@@ -868,13 +869,13 @@ button:disabled {
 .react-session-list__header {
   display: grid;
   gap: 8px;
-  padding: 10px 8px 10px 14px;
+  padding: 4px 8px 4px 12px;
 }
 
 .react-session-list__title-row {
   position: relative;
   min-width: 0;
-  height: 32px;
+  height: 28px;
 }
 
 .react-session-list__title-default {
@@ -904,7 +905,7 @@ button:disabled {
 .react-session-list__workspace-menu {
   position: absolute;
   z-index: 30;
-  top: 36px;
+  top: 32px;
   right: 0;
   width: min(196px, 100%);
 }
@@ -945,10 +946,10 @@ button:disabled {
 .react-session-list__collapse {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   color: var(--color-muted);
 }
@@ -957,10 +958,10 @@ button:disabled {
 .react-session-list__search {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   color: var(--color-muted);
   transition:
@@ -982,19 +983,19 @@ button:disabled {
   z-index: 1;
   inset: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  grid-template-columns: 18px minmax(0, 1fr) 24px;
   align-items: center;
   gap: 4px;
   width: 100%;
   min-width: 0;
-  height: 32px;
+  height: 28px;
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
   background: var(--color-panel);
   padding: 0 3px 0 9px;
   color: var(--color-muted);
-  clip-path: inset(0 36px 0 calc(100% - 68px) round 9px);
+  clip-path: inset(0 32px 0 calc(100% - 60px) round 9px);
   opacity: 0;
   pointer-events: none;
   transition:
@@ -1016,7 +1017,7 @@ button:disabled {
 .react-session-list__inline-search input {
   width: 100%;
   min-width: 0;
-  height: 28px;
+  height: 24px;
   min-height: 0;
   border: 0;
   outline: 0;
@@ -1034,9 +1035,9 @@ button:disabled {
 .react-session-list__search-close {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
   padding: 0;
   color: var(--color-muted);
 }
@@ -1045,17 +1046,17 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 5px 4px;
+  gap: 4px;
+  padding: 4px 3px;
 }
 
 .react-session-list__collapsed-nav > button {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   color: var(--color-muted);
 }
@@ -1085,7 +1086,7 @@ button:disabled {
 }
 
 .react-session-list__collapsed-mascot .react-tinybot-mascot {
-  --tinybot-mascot-size: 24px;
+  --tinybot-mascot-size: 22px;
 }
 
 .react-session-list__collapsed-expand {
@@ -1875,14 +1876,14 @@ button:disabled {
 .react-session-tab__select {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
   height: 100%;
   min-height: 0;
   flex: 1;
   overflow: hidden;
   border-radius: 0;
-  padding: 0 4px 0 16px;
+  padding: 0 4px 0 12px;
   color: inherit;
   text-align: left;
 }
@@ -1937,10 +1938,10 @@ button:disabled {
 .react-session-tab__close {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   border-radius: 0;
   padding: 0;
   color: var(--color-muted-soft);
