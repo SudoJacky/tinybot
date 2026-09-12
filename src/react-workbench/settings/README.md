@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:575092ea5c7cae965b97e3b6f71dd049b767d03202da91c2496ee76c479716cd -->
+<!-- tinybot-module-fingerprint: sha256:9b2c2fd125ffb910b23976c3f3d6f65ee1025eb4b870e636106dfe8a705d35a3 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -24,6 +24,8 @@ Action Fusion toggle persists `experiments.actionFusion` through revision-guarde
 native configuration operations. Load and save failures stay visible; a failed
 save leaves the last confirmed flag intact. Changes apply to new Agent Turns.
 The page explains the Exec prerequisite and patch/command failure behavior.
+Shared persistence notes wrap within the available width so long explanations
+do not widen the form and push its controls outside the viewport.
 
 The Appearance page owns the complete desktop-pet settings surface: visibility,
 three-step size, safe-position recovery, and classic or dimensional style. All

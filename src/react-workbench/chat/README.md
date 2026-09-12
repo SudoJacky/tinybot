@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:f4b28e5740ff15ad10a9a89693ad6a566fa18b9c7da0f8c4670e1fcfe6683277 -->
+<!-- tinybot-module-fingerprint: sha256:a1b5d99bc44fa314d1bdb4b6bf985cdc91d436d637e58d82c03f4d537290ba69 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -181,7 +181,10 @@ overall progress count. Reduced motion disables its spatial transitions.
 Form completion refreshes stop capabilities even when the active Turn ID and
 status are unchanged, because a live resume acknowledgement may arrive before
 the persisted resolution. Successful form-command status no longer stays above the composer; failures remain visible.
-`AssistantMarkdown.tsx` owns assistant prose and link presentation. Streaming
+`AssistantMarkdown.tsx` owns assistant prose and link presentation. Code-block
+styles lay out Streamdown's line spans independently of line numbers and apply
+its syntax-token colors using the application's light or dark theme.
+Streaming
 prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
 for uninterrupted CJK text and no stagger delay. Existing character nodes are
 reused without replaying their fade; completed messages render without animation

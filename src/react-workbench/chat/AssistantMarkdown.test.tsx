@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 
@@ -15,9 +16,35 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  document.head.querySelectorAll('[data-test-style="markdown"]').forEach((style) => style.remove());
+  document.documentElement.removeAttribute("data-theme");
 });
 
 describe("AssistantMarkdown", () => {
+  it.each([
+    { streaming: false, theme: "light" },
+    { streaming: false, theme: "dark" },
+    { streaming: true, theme: "light" },
+    { streaming: true, theme: "dark" },
+  ])("preserves highlighted code lines ($theme, streaming=$streaming)", async ({ streaming, theme }) => {
+    document.documentElement.dataset.theme = theme;
+    const style = document.createElement("style");
+    style.dataset.testStyle = "markdown";
+    style.textContent = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+    document.head.append(style);
+    const source = "def harvest_farm():\n    if can_harvest():\n        harvest()\n\nharvest_farm()";
+    const { container } = render(<AssistantMarkdown streaming={streaming} text={`\`\`\`python\n${source}\n\`\`\``} />);
+    await waitFor(() => expect(container.querySelector<HTMLElement>('pre span[style*="--sdm-c"]')
+      ?.style.getPropertyValue("--sdm-c")).toMatch(/^#/));
+    const lines = Array.from(container.querySelectorAll<HTMLElement>("pre code > span"));
+    expect(lines.map((line) => line.textContent === "\n" ? "" : line.textContent).join("\n")).toBe(source);
+    for (const line of lines) {
+      expect(getComputedStyle(line).display).toBe("block");
+    }
+    const keyword = container.querySelector<HTMLElement>('pre span[style*="--sdm-c"]')!;
+    expect(getComputedStyle(keyword).color).toBe(keyword.style.getPropertyValue(theme === "dark" ? "--shiki-dark" : "--sdm-c"));
+  });
+
   it("repairs incomplete Markdown and removes animation wrappers after completion", async () => {
     const { container, rerender } = render(<AssistantMarkdown streaming text="Checking **the current state" />);
 
@@ -73,7 +100,7 @@ describe("AssistantMarkdown", () => {
     expect(screen.getByRole("list")).toBeTruthy();
     expect(screen.getByRole("table")).toBeTruthy();
     await waitFor(() => expect(container.querySelector('[data-streamdown="code-block"]')).toBeTruthy());
-    expect(screen.getByText("const ok = true;")).toBeTruthy();
+    expect(container.querySelector("pre code")?.textContent).toBe("const ok = true;");
   });
 
   it("skips raw HTML and remote images", () => {

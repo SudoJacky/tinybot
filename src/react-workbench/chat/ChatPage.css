@@ -814,6 +814,21 @@
   font-family: var(--font-code);
 }
 
+/* Streamdown emits a span per line without newline separators. Keep the
+   layout independent of its optional line-number / Tailwind classes. */
+.react-message-markdown [data-streamdown="code-block-body"] pre code > span {
+  display: block;
+}
+
+/* Syntax tokens expose colors as variables; this app supplies their styles. */
+.react-message-markdown [data-streamdown="code-block-body"] pre code > span > span {
+  color: var(--sdm-c, inherit);
+}
+
+:root[data-theme="dark"] .react-message-markdown [data-streamdown="code-block-body"] pre code > span > span {
+  color: var(--shiki-dark, var(--sdm-c, inherit));
+}
+
 .react-message__actions {
   display: flex;
   align-items: center;
