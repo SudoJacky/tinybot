@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:3e7622d9c67b3569b9feafc2c57b4926668a004ca216dcbca011ad0964e5aa31 -->
+<!-- tinybot-module-fingerprint: sha256:70368d03db7c5d7f8c45b79cfdc16abd7527d2da67b3f89c4bd4cd34dc1013fc -->
 
 The sidebar title aligns with workspace folder icons. Its workspace menu anchors to the title row and fits the available width. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
 
@@ -103,3 +103,9 @@ conversation, sidebar, and fatal-error surfaces own any required overflow. The
 native window configuration remains the only minimum-size boundary; duplicating
 its outer-window minimum on `body` would overflow the smaller inner WebView once
 window chrome is subtracted.
+
+The sidebar Scheduled shortcut stays in the fixed header above scrolling
+sessions and uses the shared row hover color and visible keyboard focus.
+Its clock rotates once over 280 ms on pointer hover, including in the collapsed
+rail. Touch input, keyboard focus, and reduced-motion preferences do not trigger
+the decorative animation. The SVG uses CSS transforms without an animation library.

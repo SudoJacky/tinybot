@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:fbd7ba5004687eb59b94c3998bc3422ec0f0ae9482fefa2963a055c591bb6d55 -->
+<!-- tinybot-module-fingerprint: sha256:d0c61538dc683f737bb0eb04bc902a938c5ca2a583900d3b0c1d850e2c1f6dc6 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -129,3 +129,6 @@ isolated Node process and checks both continued delivery and disconnection.
 
 The Chat service event contract includes transient provider retry updates,
 separate from canonical timeline patches and terminal errors.
+
+The `automationStore` service wraps native saved tasks and runs. The lazy
+[`automations/`](automations/README.md) route owns its forms and report previews.

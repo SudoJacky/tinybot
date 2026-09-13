@@ -61,7 +61,7 @@ export function MemoryEditor({
   return createPortal(
     <div className="react-memory-modal" onPointerDown={onBackdropPointerDown}>
       <form
-        className="react-memory-dialog"
+        className="react-form-controls react-memory-dialog"
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -169,7 +169,7 @@ export function MemoryDeleteDialog({
   return createPortal(
     <div className="react-memory-modal" onPointerDown={onBackdropPointerDown}>
       <div
-        className="react-memory-dialog"
+        className="react-form-controls react-memory-dialog"
         ref={dialogRef}
         role="dialog"
         aria-modal="true"

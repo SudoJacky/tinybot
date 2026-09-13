@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:d1c8dd89d6dd8fb4884a590c2dfc8f57782c122511513c5a870686e0aec1f3f7 -->
+<!-- tinybot-module-fingerprint: sha256:d56d6699cff6860a8d276c51beb35e01211df7ec296eb21f89d7102d1bacf431 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -79,3 +79,9 @@ application data root, then runs snapshot operations on a blocking worker so
 filesystem sync does not block the UI thread. `workspace::artifact_review`
 owns storage, content checks and restoration. The command records mutations
 and failures without logging file contents.
+
+Saved automation commands delegate definition revision checks, preflight, run
+ownership, and canonical report reads to `automation`. Run dispatch returns
+immediately while the native task continues with the shared Agent services.
+The startup scheduler reserves due tasks every five seconds and uses the same
+dispatch path. Scheduled preflight failures persist as failed runs with logs.

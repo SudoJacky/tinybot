@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:5cf6f7a691fd95a9ecb63530b8a1461879597e35b37d8bc2ccb2e3d9087a7f13 -->
+<!-- tinybot-module-fingerprint: sha256:16cf4cb31d9e630a6eb67a61694f709fe72e2df71ea267df75c1a7b20459d1cd -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -135,3 +135,9 @@ Provider retry status includes waiting/requesting labels, retry counts, delays,
 and transport failure categories in both languages.
 
 Image decode failures use localized chat.details.imagePreviewFailed messages; filenames remain user data.
+
+Saved automation forms, conversation/provider/model/effort selections, local frequency settings, next-run times, run states, report previews,
+and deletion/history guidance are localized in English and Chinese.
+
+The Chat sidebar automation shortcut is labeled Scheduled in English and
+定时任务 in Chinese.

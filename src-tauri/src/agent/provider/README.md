@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:c870917c1fd1ceb954e049f33c3bedc5857698e8f772ff9d7036011f337c857a -->
+<!-- tinybot-module-fingerprint: sha256:6f7492a716aeb13f6103f51c60be3d1ffd69e7577bff083fcc26377f634fc820 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -51,3 +51,7 @@ their existing selection.
   accepts both summary deltas and provider-compatible textual reasoning deltas.
   Non-empty tool names and argument deltas also notify the runtime's timing
   observer in both protocols; empty chunks and metadata do not mark first output.
+
+`validate_provider_configuration` reuses client construction to validate API
+mode, endpoint presence, and required credentials without issuing a request.
+Saved automation preflight uses it before claiming a run.

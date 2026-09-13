@@ -1,3 +1,5 @@
+@import "../lib/FormControls.css";
+
 .react-memory-page {
   display: grid;
   align-content: start;
@@ -369,65 +371,6 @@
 .react-memory-selection {
   flex-wrap: wrap;
 }
-.react-memory-page button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)),
-.react-memory-dialog
-  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 40px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 6px 11px;
-  background: var(--color-panel);
-  color: var(--color-body);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.react-memory-page
-  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled,
-.react-memory-dialog
-  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.react-memory-page
-  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
-    :disabled
-  ),
-.react-memory-dialog
-  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
-    :disabled
-  ) {
-  background: var(--color-surface-soft);
-}
-.react-memory-page .react-memory-primary,
-.react-memory-dialog .react-memory-primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-on-primary);
-}
-.react-memory-page .react-memory-primary:hover:not(:disabled),
-.react-memory-dialog .react-memory-primary:hover:not(:disabled) {
-  background: var(--color-primary-active);
-}
-.react-memory-page .react-memory-danger,
-.react-memory-dialog .react-memory-danger {
-  color: var(--color-error);
-}
-.react-memory-page
-  :is(button, input):where(
-    :not(.react-settings-choice-trigger, .react-settings-choice-item)
-  ):focus-visible,
-.react-memory-dialog
-  :is(button, input, textarea):where(
-    :not(.react-settings-choice-trigger, .react-settings-choice-item)
-  ):focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
 .react-memory-search {
   display: flex;
   align-items: center;
@@ -451,17 +394,7 @@
   font: inherit;
   font-size: 13px;
 }
-.react-memory-dialog :is(input, textarea) {
-  min-width: 0;
-  min-height: 40px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: var(--color-panel);
-  color: var(--color-ink);
-  font: inherit;
-  font-size: 13px;
-}
+
 .react-memory-selection {
   justify-content: space-between;
   font-size: 12px;

@@ -71,6 +71,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 } {
   return {
+    automationStore: { list: vi.fn(async () => ({ definitions: [], runs: [] })), save: vi.fn(), delete: vi.fn(), run: vi.fn(), output: vi.fn() },
     agentGraphRuntime: {
       list: vi.fn(async () => []),
       start: vi.fn(async () => { throw new Error("Graph execution is not configured in this fixture"); }),

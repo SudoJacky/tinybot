@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:482ba7721505393aede0851d1c40c580da25dfb31739ea5a6e1ce56b38dec551 -->
+<!-- tinybot-module-fingerprint: sha256:21980e6554963a9d6d80249cf21a48e7377c80f1c3d025d638ac262cb7f1f122 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -99,3 +99,9 @@ System > What's New reopens the validated latest update record persisted by
 to render the live native updater snapshot.
 
 The window frame and Chat session bar are 36px tall, with 28px icon buttons and 36px-wide window controls. Production renderer entry points suppress the browser default context menu while development retains it.
+
+Resources > Automations opens a lazy route owned by `automations/`. Opening a
+run conversation refreshes the session catalog before the shell activates Chat.
+
+Chat also exposes Scheduled below the sidebar title. RouteSurface forwards
+that action into the same Automations route used by the Resources menu.

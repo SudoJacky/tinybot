@@ -80,6 +80,7 @@ type TopMenuCommandId =
   | "stop-generation"
   | "search-sessions"
   | "open-chat"
+  | "open-automations"
   | "open-graphs"
   | "open-memory"
   | "open-tools"
@@ -122,6 +123,7 @@ const menuSeparator = (id: string): TopMenuEntry => ({ kind: "separator", id });
 function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
   return {
     chat: t("routes.chat"),
+    automations: t("routes.automations"),
     graphs: t("routes.graphs"),
     memory: t("routes.memory"),
     tools: t("routes.tools"),
@@ -158,6 +160,7 @@ function createTopMenuItems(
     icon: Folder,
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
+      menuCommand({ id: "open-automations", label: routeLabels.automations, route: "automations" }),
       menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
       menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
@@ -715,6 +718,11 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
             settingsNavigationRequest={settingsNavigationRequest}
             services={services}
             workingDirectory={activeWorkspaceDirectory}
+            onOpenThread={async (sessionId) => {
+              await services.sessionStore.refresh?.();
+              setActivateChatSessionRequest((current) => ({ sessionId, signal: (current?.signal ?? 0) + 1 }));
+              navigateToRoute("chat");
+            }}
             onNavigate={navigateToRoute}
           />
         </section>

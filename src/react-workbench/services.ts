@@ -375,6 +375,7 @@ export type PerformanceStore = {
 };
 
 export type AppServices = {
+  automationStore: import("../app-core/native/desktopNativeAutomations").AutomationStore;
   agentGraphStore: AgentGraphStore;
   agentGraphRuntime: AgentGraphRuntime;
   sessionStore: SessionStore;

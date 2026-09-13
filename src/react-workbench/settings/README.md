@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:bc7a41b622aaf7eb93ee67bf4036dcd076f82fd2dd52acde11a47423d9861ed1 -->
+<!-- tinybot-module-fingerprint: sha256:dc2fe76484b73a45371677b0c5103a01b5c288da12a9654ae9d4246ce71dc21f -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -147,3 +147,5 @@ override per profile.
 
 Provider rows expose Models and Configure as direct actions for every connection
 status; model selection and connection credentials keep their separate sheets.
+
+`SettingsChoiceList` supports optional fixed menu placement for scrolling dialogs. It chooses space above or below the trigger and dismisses when its surrounding viewport scrolls or resizes. Escape restores trigger focus without closing the owning dialog.

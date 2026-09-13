@@ -6,7 +6,7 @@ import type { AppServices } from "../services";
 import type { SettingsModuleId } from "../settings/SettingsRoute";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "graphs" | "memory" | "tools" | "settings" | "performanceTrace";
+export type AppRoute = "chat" | "automations" | "graphs" | "memory" | "tools" | "settings" | "performanceTrace";
 
 export type SettingsNavigationRequest = {
   moduleId: SettingsModuleId;
@@ -34,6 +34,7 @@ type DesktopPetRouteProps = {
   onResetPosition: () => void;
 };
 
+const loadAutomationsRoute = () => import("../automations/AutomationsRoute");
 const loadMemoryRoute = () => import("../memory/MemoryRoute");
 const loadAgentGraphsRoute = () => import("../agent-graph/AgentGraphsRoute");
 const loadPerformanceTraceRoute = () => import("../performance/PerformanceTraceRoute");
@@ -44,6 +45,7 @@ export function RouteSurface({
   chat,
   desktopPet,
   onNavigate,
+  onOpenThread,
   route,
   settingsNavigationRequest,
   services,
@@ -52,6 +54,7 @@ export function RouteSurface({
   chat: ChatRouteProps;
   desktopPet: DesktopPetRouteProps;
   onNavigate: (route: AppRoute) => void;
+  onOpenThread: (threadId: string) => Promise<void>;
   route: AppRoute;
   settingsNavigationRequest?: SettingsNavigationRequest | null;
   services: AppServices;
@@ -80,11 +83,14 @@ export function RouteSurface({
           onActiveWorkspaceChange={chat.onActiveWorkspaceChange}
           onMascotMoodChange={chat.onMascotMoodChange}
           onSessionSidebarCollapsedChange={chat.onSessionSidebarCollapsedChange}
+          onOpenAutomations={() => onNavigate("automations")}
           onStartupSessionHydrated={chat.onStartupSessionHydrated}
           onStopGenerationTargetChange={chat.onStopGenerationTargetChange}
           startInNewSession={chat.startInNewSession}
         />
       );
+    case "automations":
+      return <DeferredSurface load={loadAutomationsRoute} name={routeName} surfaceProps={{ services, onOpenThread }} />;
     case "graphs":
       return <DeferredSurface load={loadAgentGraphsRoute} name={routeName} surfaceProps={{ services }} />;
     case "memory":
