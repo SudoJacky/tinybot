@@ -878,6 +878,47 @@ button:disabled {
   height: 28px;
 }
 
+.react-session-list__scheduled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-body);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.react-session-list__scheduled > svg {
+  flex-shrink: 0;
+}
+
+.react-session-list__scheduled:hover {
+  background: var(--color-cream-strong);
+}
+
+.react-session-list__scheduled:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+@keyframes sidebar-clock-turn {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .react-session-list button:hover > .react-session-list__scheduled-icon {
+    animation: sidebar-clock-turn 280ms cubic-bezier(0.4, 0, 0.2, 1);
+    transform-origin: center;
+  }
+}
+
 .react-session-list__title-default {
   display: flex;
   align-items: center;

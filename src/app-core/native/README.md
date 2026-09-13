@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:a2848d5a31fdfb9f40af6ba4d8c729ccce8940be4730c1e47e8568673d18e192 -->
+<!-- tinybot-module-fingerprint: sha256:ddb971cbf84fbbcc33de36bc7a4f9c548d252ad00b549e0237b5c1cd11b108d6 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -161,3 +161,8 @@ trusted renderer and do not expose an additional command to remote pages.
 
 Annotation script tests also cover per-side spacing previews, original inline
 priorities, and removal of changes when the user returns to the original value.
+
+`desktopNativeAutomations` carries saved definitions, revision preconditions,
+conversation/provider/profile/model/effort options, recurrence and next-run
+timestamps, run history, asynchronous dispatch, and canonical report output. Failures remain
+rejected native promises; storage and run ownership stay in Rust.

@@ -1,3 +1,4 @@
+pub(crate) mod automations;
 pub(crate) mod agent;
 pub(crate) mod agent_graphs;
 pub(crate) mod config;

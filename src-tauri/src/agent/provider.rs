@@ -18,6 +18,7 @@ pub use completion::{
     NativeProviderFailure, NativeProviderFailureKind,
 };
 pub(crate) use plugins::adapt_provider_request;
+pub(crate) use completion::validate_provider_configuration;
 pub use streaming::NativeProviderStreamEvent;
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 import { createDesktopChatCommands } from "./chat/desktopChatCommands";
+import { createDesktopNativeAutomationsApi } from "../app-core/native/desktopNativeAutomations";
 import { invoke } from "@tauri-apps/api/core";
 import { rendererPerformanceSnapshot } from "../app-core/native/rendererPerformance";
 import { listen } from "@tauri-apps/api/event";
@@ -58,6 +59,7 @@ export function createDesktopAppServices(
   const desktopPetHost = createDesktopNativePetHost();
   const desktopPetQuickChatHost = createDesktopNativePetQuickChatHost();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
+  const nativeAutomations = nativeMode ? createDesktopNativeAutomationsApi({ invoke }) : undefined;
   const nativeAgentGraphs = nativeMode ? createDesktopNativeAgentGraphsApi({ invoke }) : undefined;
   const nativeAgentGraphRuntime = nativeMode ? createDesktopNativeAgentGraphRuntime({ invoke }) : undefined;
   const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
@@ -186,6 +188,13 @@ export function createDesktopAppServices(
   return {
     desktopPetHost,
     desktopPetQuickChatHost,
+    automationStore: {
+      async list() { await initialize(); return requireNative(nativeAutomations, "Automations").list(); },
+      async save(input) { await initialize(); return requireNative(nativeAutomations, "Automations").save(input); },
+      async delete(id, revision) { await initialize(); await requireNative(nativeAutomations, "Automations").delete(id, revision); },
+      async run(id) { await initialize(); return requireNative(nativeAutomations, "Automations").run(id); },
+      async output(id) { await initialize(); return requireNative(nativeAutomations, "Automations").output(id); },
+    },
     agentGraphRuntime: {
       async list(input) {
         await initialize();

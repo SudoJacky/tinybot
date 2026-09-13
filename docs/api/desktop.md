@@ -8,6 +8,8 @@ src-tauri/src/desktop/logging.rs
 src-tauri/src/desktop/tray.rs
 src-tauri/src/desktop/update.rs
 src-tauri/src/desktop_terminal.rs
+src-tauri/src/desktop_commands/automations.rs
+src/app-core/native/desktopNativeAutomations.ts
 src-tauri/src/desktop_commands/config.rs
 src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
@@ -19,7 +21,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:524d9fa986c8a8b3df49f36e5c848e84388fb29a2ef25ff3e7e3eb9e2bc4c51a -->
+<!-- tinybot-doc-fingerprint: sha256:9ab6c11d5d7656b8d25e118c2d86ed78ac86623faba66adfcc4c660ce3e9a6ad -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -798,3 +800,37 @@ Desktop bootstrap registers the main-window `browser_annotate` command. Its
 session ownership and typed action contract are documented under
 [Native Browser session runtime](tools-and-processes.md#native-browser-session-runtime).
 Remote child WebViews do not receive access to this command.
+
+## Saved workspace automations
+
+These commands are main-window only. The native Adapter is
+`src/app-core/native/desktopNativeAutomations.ts`.
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `worker_automations_list` | None | `{ definitions, runs }` |
+| `worker_automation_save` | `{ input: { id?, expectedRevision?, name, instructions, workspacePath, execution?, schedule? } }` | Saved definition |
+| `worker_automation_delete` | `{ id, expectedRevision }` | Unit; history and files retained |
+| `worker_automation_run` | `{ id }` | Claimed run; native execution continues asynchronously |
+| `worker_automation_output` | `{ id }` | Latest nonempty assistant text from the owning canonical Turn |
+
+`execution` accepts `threadId?`, `provider?`, `profile?`, `model?`, and
+`reasoningEffort?` (`low`, `medium`, `high`, `xhigh`, `max`). A null Thread creates
+a new conversation; a selected Thread must be unarchived and in the same workspace.
+Provider and model must be selected together; unavailable/disabled choices reject.
+`schedule` contains `repeat` (`manual`, `once`, `daily`, `weekdays`, `weekly`) and
+`startAtMs` for non-manual schedules. Definitions expose `nextRunAtMs` and persist
+`modelPolicy: "inherit_default"` or `"explicit"`. Runs retain their exact
+definition revision and non-secret effective model settings, owning Thread ID,
+status, timestamps, stop reason, and error. Workspace and provider preflight
+reject before dispatch. A definition cannot have overlapping running/waiting
+runs. First access after process restart marks abandoned running records
+interrupted without replay. Waiting-run completion is reconciled from the owning
+canonical Turn. Output absence and missing Threads reject explicitly.
+The desktop scheduler runs every five seconds while Tinybot is running, follows
+the local wall clock, and coalesces missed triggers. It reserves the run and
+advances its cursor atomically. Scheduled preflight failures persist with a null
+`effectiveModel`, failed status, and an error; manual preflight still rejects.
+
+See the [automation module contract](../../src-tauri/src/automation/README.md)
+and [desktop walkthrough](../guides/saved-automations.md).

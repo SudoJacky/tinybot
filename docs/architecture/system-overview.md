@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:f25020876530645ca9f011caf1d4ffc3d8eed5cb7cae52a9567bc623025fec25 -->
+<!-- tinybot-doc-fingerprint: sha256:4f64df106ad035a7119d2dd7ac3924f19fcf986a3325f5795e9f355a777f3600 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -106,6 +106,7 @@ Desktop Commands / Desktop Host
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
 | `app-core/desktop-pet` | Pet preferences plus monitor-aware pet and quick-chat window geometry | React rendering or native window calls |
 | `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
+| `automation` | Saved task definitions, per-run configuration snapshots, durable schedule claims and dispatch to canonical Threads | A second Agent Loop or conversation transcript |
 | `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation, including Thread-scoped workspace selection for Artifact file reads | Reusable workspace path validation or file-reading behavior |

@@ -111,6 +111,7 @@ export type ChatPageProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
+  onOpenAutomations?: () => void;
   onActiveWorkspaceChange?: (workingDirectory?: string) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
   onMascotMoodChange?: (mood: TinybotMascotMood) => void;
@@ -239,6 +240,7 @@ export function ChatPage({
   onActiveWorkspaceChange,
   onMascotMoodChange,
   onSessionSidebarCollapsedChange,
+  onOpenAutomations,
   onStartupSessionHydrated,
   onStopGenerationTargetChange,
   sessionSidebarCollapsed,
@@ -993,6 +995,7 @@ export function ChatPage({
         actions={{
           onCancelDeleteConfirmation: (sessionId) => dispatchDelete({ type: "row-left", sessionId }),
           onCollapsedChange: handleSessionSidebarCollapsedChange,
+          onOpenAutomations,
           onCreateSession: handleCreateSession,
           onDeleteSession: handleDeleteSession,
           onSelectSession: handleSelectSession,

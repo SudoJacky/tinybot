@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   CirclePlus,
+  Clock,
   ChevronLeft,
   Folder,
   FolderOpen,
@@ -84,6 +85,7 @@ export type ProjectSessionContext = {
 };
 
 export type ChatSessionWorkspaceActions = {
+  onOpenAutomations?: () => void;
   onCancelDeleteConfirmation: (sessionId: string) => void;
   onCollapsedChange: (collapsed: boolean) => void;
   onCreateSession: (
@@ -716,6 +718,16 @@ export function ChatSessionWorkspace({
               </span>
               <PanelLeftOpen aria-hidden="true" className="react-session-list__collapsed-expand" size={18} />
             </button>
+            {actions.onOpenAutomations && (
+              <button
+                aria-label={t("shell.scheduledTasks")}
+                title={t("shell.scheduledTasks")}
+                type="button"
+                onClick={actions.onOpenAutomations}
+              >
+                <Clock aria-hidden="true" className="react-session-list__scheduled-icon" size={18} />
+              </button>
+            )}
             <button
               aria-label={t("shell.newChat")}
               disabled={createPending}
@@ -847,6 +859,16 @@ export function ChatSessionWorkspace({
                   </div>
                 </div>
             </div>
+            {actions.onOpenAutomations && (
+              <button
+                className="react-session-list__scheduled"
+                type="button"
+                onClick={actions.onOpenAutomations}
+              >
+                <Clock aria-hidden="true" className="react-session-list__scheduled-icon" size={18} />
+                <span>{t("shell.scheduledTasks")}</span>
+              </button>
+            )}
             {displayError ? (
               <p className="react-session-list__error" role="alert">{displayError}</p>
             ) : null}

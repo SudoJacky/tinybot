@@ -251,6 +251,7 @@ pub(crate) fn run() {
                 "desktop.startup.nativeRuntime.durationMs",
                 native_runtime_started.elapsed(),
             );
+            crate::desktop_commands::automations::start_scheduler(app.handle().clone(), setup_state.clone());
             #[cfg(windows)]
             super::update::spawn_startup_update_check(
                 app.handle().clone(),
@@ -280,6 +281,11 @@ pub(crate) fn run() {
             crate::desktop_commands::agent_graphs::worker_agent_graph_save,
             crate::desktop_commands::agent_graphs::worker_agent_graph_delete,
             crate::desktop_commands::graph_runs::worker_agent_graph_runs_list,
+            crate::desktop_commands::automations::worker_automations_list,
+            crate::desktop_commands::automations::worker_automation_save,
+            crate::desktop_commands::automations::worker_automation_delete,
+            crate::desktop_commands::automations::worker_automation_run,
+            crate::desktop_commands::automations::worker_automation_output,
             crate::desktop_commands::graph_runs::worker_agent_graph_run,
             crate::desktop_commands::skills::worker_skills_list,
             crate::desktop_commands::skills::worker_skills_detail,

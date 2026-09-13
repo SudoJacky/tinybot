@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:f1138635ec2d99534343ce7d558de46a33d6716cf0a6cba22d25dc7fea9a46eb -->
+<!-- tinybot-module-fingerprint: sha256:5e118278727b02a4219d4aac5cfb118b479d07c6215a65b4c3be80dcf811f83f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -500,3 +500,7 @@ phrases cycle with a stable accessible label. Offscreen/background indicators pa
 and reduced motion stays static.
 
 Local raster previews read revision-bound bytes and release object URLs on replacement or close. Code previews select their syntax language from the filename or MIME type and copy the original source text.
+
+The sidebar header exposes a clock-icon Scheduled shortcut below Tinybot and
+keeps an icon-only shortcut in the collapsed rail. The route supplies its
+navigation callback; Chat does not own automation execution or scheduling.

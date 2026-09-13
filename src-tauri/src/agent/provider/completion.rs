@@ -605,6 +605,11 @@ async fn wait_for_provider_cancellation(cancellation: Arc<dyn WorkerRequestCance
     }
 }
 
+pub(crate) fn validate_provider_configuration(profile: &NativeProviderProfile) -> Result<(), String> {
+    profile.parsed_api_mode()?;
+    openai_client(profile.clone()).map(|_| ()).map_err(|error| error.message)
+}
+
 fn openai_client(profile: NativeProviderProfile) -> Result<Client<OpenAIConfig>, NativeChatError> {
     let api_base = profile
         .api_base
