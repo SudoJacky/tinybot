@@ -12,13 +12,13 @@ pub use catalog::{
     resolve_provider_profile, NativeProviderApiMode, NativeProviderCatalogEntry,
     NativeProviderModelList, NativeProviderModelsRequest, NativeProviderProfile,
 };
+pub(crate) use completion::validate_provider_configuration;
 #[allow(unused_imports)]
 pub use completion::{
     complete_chat_for_agent_with_observer_async, complete_responses_for_agent_with_observer_async,
     NativeProviderFailure, NativeProviderFailureKind,
 };
 pub(crate) use plugins::adapt_provider_request;
-pub(crate) use completion::validate_provider_configuration;
 pub use streaming::NativeProviderStreamEvent;
 
 #[cfg(test)]

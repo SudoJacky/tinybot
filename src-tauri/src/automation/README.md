@@ -1,5 +1,5 @@
 # Automation
-<!-- tinybot-module-fingerprint: sha256:d9f8017551261b924812c9e2e3067a15a8f435983c545ac8d767eb43141a917a -->
+<!-- tinybot-module-fingerprint: sha256:d77e1e9503c54ceb7646cff413cf3525ef463c48e85f031bdaffcee90f46bd8d -->
 
 `automation` manages work that runs outside an active foreground turn.
 
