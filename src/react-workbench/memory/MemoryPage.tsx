@@ -199,7 +199,7 @@ export function MemoryPage({
     );
   }
   return (
-    <div className="react-memory-page">
+    <div className="react-form-controls react-memory-page">
       <div className="react-memory-overview">
         <p>{t("overview")}</p>
         <div className="react-memory-toolbar-actions">

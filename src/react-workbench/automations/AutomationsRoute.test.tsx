@@ -7,6 +7,10 @@ import type { AutomationSnapshot, SaveAutomation, SavedAutomation } from "../../
 import AutomationsRoute from "./AutomationsRoute";
 
 afterEach(cleanup);
+async function choose(user: ReturnType<typeof userEvent.setup>, label: string, option: string | RegExp) {
+  await user.click(await screen.findByRole("button", { name: new RegExp(`^${label}:`) }));
+  await user.click(screen.getByRole("menuitemradio", { name: option }));
+}
 function fixture() {
   let snapshot: AutomationSnapshot = { definitions: [], runs: [] };
   const services = {
@@ -45,8 +49,7 @@ it("creates, runs, previews the report and retains history after deleting the de
   render(<AutomationsRoute services={appServices} onOpenThread={open} />);
   await user.click(screen.getByRole("button", { name: "New automation" }));
   await user.type(screen.getByLabelText("Name"), "Weekly report");
-  await screen.findByRole("option", { name: "Project · D:/project" });
-  await user.selectOptions(screen.getByLabelText("Workspace"), "D:/project");
+  await choose(user, "Workspace", /Project/);
   await user.type(screen.getByLabelText("Instructions and output location"), "Write report.md");
   await user.click(screen.getByRole("button", { name: "Save" }));
   await user.click(await screen.findByRole("button", { name: "Run now" }));
@@ -68,8 +71,7 @@ it("keeps an edited draft and exposes native validation failures", async () => {
   render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "New automation" }));
   await user.type(screen.getByLabelText("Name"), "Report");
-  await screen.findByRole("option", { name: "Project · D:/project" });
-  await user.selectOptions(screen.getByLabelText("Workspace"), "D:/project");
+  await choose(user, "Workspace", /Project/);
   await user.type(screen.getByLabelText("Instructions and output location"), "Create report");
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Workspace unavailable");
@@ -80,16 +82,18 @@ it("persists conversation, provider/model, effort and schedule selections across
   const { services, appServices } = fixture(); const user = userEvent.setup();
   render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: /Project weekly review/ }));
-  await screen.findByRole("option", { name: "Work provider" });
-  await user.selectOptions(screen.getByLabelText("Workspace"), "D:/project");
-  expect(screen.queryByRole("option", { name: "Other workspace chat" })).toBeNull();
-  await user.selectOptions(screen.getByLabelText("Runs in"), "existing");
-  await user.selectOptions(screen.getByLabelText("Provider"), "work");
-  expect(screen.queryByRole("option", { name: "Disabled model" })).toBeNull();
-  expect(screen.queryByRole("option", { name: "Disabled provider" })).toBeNull();
-  await user.selectOptions(screen.getByLabelText("Model"), "model-b");
-  await user.selectOptions(screen.getByLabelText("Reasoning effort"), "high");
-  await user.selectOptions(screen.getByLabelText("Repeat"), "weekdays");
+  await choose(user, "Workspace", /Project/);
+  await user.click(screen.getByRole("button", { name: /^Runs in:/ }));
+  expect(screen.queryByRole("menuitemradio", { name: "Other workspace chat" })).toBeNull();
+  await user.click(screen.getByRole("menuitemradio", { name: "Existing report chat" }));
+  await user.click(screen.getByRole("button", { name: /^Provider:/ }));
+  expect(screen.queryByRole("menuitemradio", { name: "Disabled provider" })).toBeNull();
+  await user.click(screen.getByRole("menuitemradio", { name: "Work provider" }));
+  await user.click(screen.getByRole("button", { name: /^Model:/ }));
+  expect(screen.queryByRole("menuitemradio", { name: "Disabled model" })).toBeNull();
+  await user.click(screen.getByRole("menuitemradio", { name: "Model B" }));
+  await choose(user, "Reasoning effort", "High");
+  await choose(user, "Repeat", "Weekdays");
   expect((screen.getByLabelText("Starts at") as HTMLInputElement).value).not.toBe("");
   await user.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByRole("button", { name: "Run now" });
@@ -98,8 +102,8 @@ it("persists conversation, provider/model, effort and schedule selections across
     schedule: { repeat: "weekdays", startAtMs: expect.any(Number) },
   }));
   await user.click(screen.getByRole("button", { name: /Project weekly review Weekdays/ }));
-  expect((await screen.findByLabelText("Model") as HTMLSelectElement).value).toBe("model-b");
-  expect((screen.getByLabelText("Runs in") as HTMLSelectElement).value).toBe("existing");
+  expect(await screen.findByRole("button", { name: "Model: Model B" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Runs in: Existing report chat" })).toBeTruthy();
 });
 
 it("creates a suggestion draft without running, then searches and filters saved tasks", async () => {
@@ -110,8 +114,7 @@ it("creates a suggestion draft without running, then searches and filters saved 
   expect((screen.getByLabelText("Instructions and output location") as HTMLTextAreaElement).value).toContain("reports/weekly-review.md");
   expect(services.automationStore.save).not.toHaveBeenCalled();
   expect(services.automationStore.run).not.toHaveBeenCalled();
-  await screen.findByRole("option", { name: "Project · D:/project" });
-  await user.selectOptions(screen.getByLabelText("Workspace"), "D:/project");
+  await choose(user, "Workspace", /Project/);
   await user.click(screen.getByRole("button", { name: "Save" }));
   await user.click(await screen.findByRole("button", { name: "Run now" }));
   await user.click(await screen.findByRole("button", { name: "Back to tasks" }));
@@ -136,4 +139,18 @@ it("retains the saved revision when save-and-run fails so retry can succeed", as
   await user.click(screen.getByRole("button", { name: "Save and run" }));
   await screen.findByRole("button", { name: "View report" });
   expect(services.automationStore.save).toHaveBeenLastCalledWith(expect.objectContaining({ id: "report", expectedRevision: 2 }));
+});
+
+it("closes a settings menu with Escape while keeping the editor and draft open", async () => {
+  const { appServices } = fixture(); const user = userEvent.setup();
+  render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: /Project weekly review/ }));
+  const trigger = await screen.findByRole("button", { name: /^Repeat:/ });
+  await user.click(trigger);
+  await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("menuitemradio"));
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Project weekly review");
 });

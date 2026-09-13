@@ -88,7 +88,7 @@ export default function AutomationsRoute({ services, onOpenThread }: {
   });
   const runs = snapshot.runs.filter((r) => !selected || r.definition.id === selected);
 
-  return <div className="automation-ui automation-page">
+  return <div className="react-form-controls automation-ui automation-page">
     <header className="automation-page-header">
       <div><h1>{t("automations.pageTitle")}</h1><p>{t("automations.intro")}</p></div>
       <div className="automation-actions">

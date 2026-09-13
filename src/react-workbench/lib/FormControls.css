@@ -1,0 +1,65 @@
+/* Shared desktop form controls, extracted from the memory editor. */
+.react-form-controls
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 6px 11px;
+  background: var(--color-panel);
+  color: var(--color-body);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.react-form-controls
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.react-form-controls
+  button:where(:not(.react-settings-choice-trigger, .react-settings-choice-item)):hover:not(
+    :disabled
+  ) {
+  background: var(--color-surface-soft);
+}
+
+.react-form-controls :is(.react-memory-primary, .react-form-primary) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.react-form-controls :is(.react-memory-primary, .react-form-primary):hover:not(:disabled) {
+  background: var(--color-primary-active);
+}
+
+.react-form-controls :is(.react-memory-danger, .react-form-danger) {
+  color: var(--color-error);
+}
+
+.react-form-controls
+  :is(button, input, textarea):where(
+    :not(.react-settings-choice-trigger, .react-settings-choice-item)
+  ):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.react-memory-dialog :is(input, textarea),
+.react-form-controls .react-form-input {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}

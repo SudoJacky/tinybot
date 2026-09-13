@@ -1,5 +1,5 @@
 # Automations
-<!-- tinybot-module-fingerprint: sha256:8e8f556a9a5f947ddf3a27d6ffe0951318f26da3b3d26ebef69c937ea48e71c5 -->
+<!-- tinybot-module-fingerprint: sha256:0a25a6632269fade2f1a77fb286bda56c50954a87c9f825f1ee3aad933854e55 -->
 
 The lazy Automations route owns definition forms, run selection, and report
 presentation. Native storage and execution belong to
@@ -35,3 +35,5 @@ the owning Chat's Artifact sidecar. Errors never become empty successful reports
 `AutomationsRoute.test.tsx` covers creation, execution, file opening, deletion
 with history retention, search/status filtering, suggestion drafts, and preserving
 the draft and revision after a native failure, and all execution/schedule choices.
+
+Editor choices reuse `SettingsChoiceList`, including keyboard navigation, selected indicators and disabled items. Its fixed menu placement avoids clipping within the scrollable dialog. Buttons and text inputs reuse `lib/FormControls.css`; an unavailable workspace disables saving.

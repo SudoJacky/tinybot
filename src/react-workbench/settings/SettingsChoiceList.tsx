@@ -1,5 +1,5 @@
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import "./SettingsChoiceList.css";
 
@@ -17,6 +17,7 @@ export function SettingsChoiceList({
   disabled,
   error,
   label,
+  menuPosition = "absolute",
   onChange,
   options,
   optionsAriaLabel,
@@ -29,6 +30,7 @@ export function SettingsChoiceList({
   disabled?: boolean;
   error?: string;
   label: string;
+  menuPosition?: "absolute" | "fixed";
   onChange: (value: string) => void;
   options: SettingsChoiceOption[];
   optionsAriaLabel?: string;
@@ -39,6 +41,8 @@ export function SettingsChoiceList({
   const id = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>();
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const errorId = error ? `${id}-error` : undefined;
   const menuId = `${id}-menu`;
@@ -49,6 +53,34 @@ export function SettingsChoiceList({
   const defaultFocusIndex = selectedIndex >= 0 && !options[selectedIndex]?.disabled
     ? selectedIndex
     : options.findIndex((option) => !option.disabled);
+
+  useLayoutEffect(() => {
+    if (!open || menuPosition !== "fixed") return;
+    const trigger = triggerRef.current;
+    const menu = menuRef.current;
+    if (!trigger || !menu) return;
+    const rect = trigger.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 16;
+    const above = rect.top - 16;
+    const upward = below < Math.min(menu.scrollHeight, 260) && above > below;
+    const height = Math.max(0, Math.min(260, upward ? above : below));
+    const width = Math.min(Math.max(rect.width, 240), window.innerWidth - 24);
+    setMenuStyle({ position: "fixed", width, maxHeight: height, zIndex: 1100,
+      left: Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12)),
+      right: "auto", top: upward ? "auto" : rect.bottom + 8,
+      bottom: upward ? window.innerHeight - rect.top + 8 : "auto" });
+    function dismissOnScroll(event: Event) {
+      if (event.target instanceof Node && menu?.contains(event.target)) return;
+      setOpen(false);
+    }
+    const dismiss = () => setOpen(false);
+    window.addEventListener("scroll", dismissOnScroll, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      window.removeEventListener("scroll", dismissOnScroll, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [open, menuPosition]);
 
   useEffect(() => {
     if (!open) {
@@ -157,6 +189,8 @@ export function SettingsChoiceList({
           className="react-popover-surface react-settings-choice-popover"
           data-input-source={inputSource}
           id={menuId}
+          ref={menuRef}
+          style={menuPosition === "fixed" ? menuStyle : undefined}
           role="menu"
           onKeyDown={onMenuKeyDown}
         >

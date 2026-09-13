@@ -1,5 +1,5 @@
 # Memory Route
-<!-- tinybot-module-fingerprint: sha256:d0df30977abba21d0486d291527c04d803de52e345b0b097839184e911510f73 -->
+<!-- tinybot-module-fingerprint: sha256:fd914d2a03d22d8ca196b88316df324a9cd9b35ccbf7199056c7b318cc763a4c -->
 
 `memory` provides the lazy desktop manager for Tinybot's active long-term
 memory. `MemoryPage` loads revisioned entries through `MemoryStore`, groups them
@@ -28,3 +28,5 @@ SQLite remains authoritative. User-created or edited entries are protected
 from automatic consolidation. The page explains that changes apply to new
 independent chats, existing snapshots remain fixed, and deleted facts may be
 learned again. Native validation and revision checks live in `memory/store`.
+
+Memory pages and dialogs share the `react-form-controls` styles from `lib/FormControls.css` with Automations; choice controls retain their shared Settings presentation.
