@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e905425706daae81cd4bd4667f920618ca4f286591420690a04cb96b8b6d520f -->
+<!-- tinybot-module-fingerprint: sha256:c1e97fcc6e2f035dc0f3cb06cd8be995677c6bf9c751b72cdb343853d533e64f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -28,8 +28,11 @@ Chat width from 20px to 40px, including docked Sidecar and empty-chat layouts.
 `SessionTabStrip` presents open conversations directly in the header. Overflowing
 tabs remain reachable through horizontal wheel scrolling and keyboard navigation;
 activating a tab scrolls it into view. Each tab retains its close action.
-`SessionStatus` shares running and failure icons between tabs and sidebar rows;
-tab unread dots remain tab-specific. Sidebar status occupies the delete action's
+`SessionStatus` shares running and failure icons between tabs and sidebar rows.
+The active session status follows canonical timeline snapshots on both initial
+load and live updates. Opening a completed pet quick chat therefore clears stale
+running indicators even when the main window missed its completion event.
+Tab unread dots remain tab-specific. Sidebar status occupies the delete action's
 slot and replaces the timestamp while active. Row hover, keyboard focus, and
 delete confirmation show the delete button instead. Idle rows retain timestamps.
 `SessionSidebarResizeHandle` owns sidebar width and its drag lifecycle. Expanded
