@@ -804,11 +804,12 @@ button:disabled {
 
 .react-session-list {
   position: relative;
+  z-index: 1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: var(--session-sidebar-width, 240px);
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   border-right: 1px solid var(--color-hairline);
   background: var(--sidebar-background);
   backdrop-filter: var(--sidebar-backdrop-filter);
@@ -823,15 +824,11 @@ button:disabled {
   transition: none;
 }
 
-.react-session-list:not([data-collapsed="true"]) > .react-session-list__rows {
-  margin-right: 8px;
-}
-
 .react-session-sidebar-resize {
   position: absolute;
   z-index: 5;
   top: 0;
-  right: 0;
+  left: 100%;
   bottom: 0;
   width: 8px;
   cursor: col-resize;
@@ -842,7 +839,7 @@ button:disabled {
   content: "";
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: 2px;
   background: var(--color-accent);
@@ -1167,6 +1164,7 @@ button:disabled {
 }
 
 .react-session-list__rows {
+  position: relative;
   min-height: 0;
   overflow: auto;
   padding: 0 2px 12px 8px;
@@ -1945,7 +1943,7 @@ button:disabled {
   color: inherit;
   font-size: 12px;
   font-weight: 560;
-  line-height: 1.3;
+  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:ea53ec7c790a9c4fd7a343ec9e7363853d219953236e07a29f31d0be16d71f2e -->
+<!-- tinybot-module-fingerprint: sha256:2ee671ccdf869d13faeb54375128add0e21f271008c64f9f9560a5f779b76327 -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
@@ -41,8 +41,8 @@ close event.
 
 ## Presentation and lifecycle
 
-The Sidecar header is 42px tall including its bottom border; the Chat session
-bar is 36px tall. Resource tab selection fills the available header height.
+The Sidecar header and Chat session bar are both 36px tall including their
+bottom borders. Resource tab selection fills the available header height.
 
 `ImageArtifactPreview` displays local raster files proportionally and reports
 decode errors. `CodeArtifactPreview` reuses chat syntax highlighting, themes,
