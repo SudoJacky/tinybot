@@ -8,9 +8,13 @@ export function useChatSessions(store: SessionStore, now: () => number, onChange
   const application = useMemo(() => createChatSessionApplication(store, () => latest.current.now()), [store]);
   useEffect(() => {
     const unsubscribe = application.onChange((event) => latest.current.onChange(event));
+    const unsubscribeStore = store.subscribe?.((sessions) => application.reconcile(sessions));
     void application.load();
-    return unsubscribe;
-  }, [application]);
+    return () => {
+      unsubscribeStore?.();
+      unsubscribe();
+    };
+  }, [application, store]);
   const state = useSyncExternalStore(application.subscribe, application.snapshot);
   return { application, ...state };
 }

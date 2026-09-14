@@ -17,6 +17,28 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("shows an externally created session while keeping the current blank chat open", async () => {
+    const stores = createStores();
+    let publishSessions: ((sessions: SessionSummary[]) => void) | undefined;
+    const unsubscribe = vi.fn();
+    stores.sessionStore.subscribe = vi.fn((listener) => {
+      publishSessions = listener;
+      return unsubscribe;
+    });
+    const view = render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} startInNewSession />);
+    await screen.findByRole("heading", { name: "New chat" });
+    const sessions = await stores.sessionStore.list();
+    act(() => publishSessions?.([
+      { id: "pet-quick-chat", chatId: "pet-quick-chat", title: "Pet quick chat", status: "idle", updatedAtMs: Date.now() },
+      ...sessions,
+    ]));
+    expect(await screen.findByRole("button", { name: "Pet quick chat" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(stores.chatStore.load).not.toHaveBeenCalled();
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("keeps an imported workspace in place after leaving its untouched draft", async () => {
     const user = userEvent.setup();
     const stores = createStores();

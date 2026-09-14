@@ -1,4 +1,5 @@
 import { createDesktopChatCommands } from "./chat/desktopChatCommands";
+import { projectChatEventEffects } from "./chat/chatEventPolicy";
 import { createDesktopNativeAutomationsApi } from "../app-core/native/desktopNativeAutomations";
 import { invoke } from "@tauri-apps/api/core";
 import { rendererPerformanceSnapshot } from "../app-core/native/rendererPerformance";
@@ -77,6 +78,7 @@ export function createDesktopAppServices(
   let initialized: Promise<void> | null = null;
   let conversationThreadPageCount = 0;
   const listeners = new Map<string, Set<Listener>>();
+  const sessionListListeners = new Set<(sessions: SessionSummary[]) => void>();
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -166,6 +168,7 @@ export function createDesktopAppServices(
   }
 
   function notifyAll(event: ChatEvent): void {
+    notifySessionList(event);
     for (const callbacks of listeners.values()) {
       for (const callback of callbacks) {
         callback(event);
@@ -174,9 +177,24 @@ export function createDesktopAppServices(
   }
 
   function notifySession(sessionId: string, event: ChatEvent): void {
+    notifySessionList(event);
     for (const callback of listeners.get(sessionId) ?? []) {
       callback(event);
     }
+  }
+
+  function sessionSummaries(): SessionSummary[] {
+    return controller.state.threads.map((thread) => mapSession(
+      thread, controller.state.respondingThreadIds.has(thread.threadId),
+    ));
+  }
+
+  function notifySessionList(event: ChatEvent): void {
+    if (!sessionListListeners.size) return;
+    if (!projectChatEventEffects(event).reloadSessions
+      && !["session-created", "session-deleted", "session-renamed", "session-model-changed"].includes(event.type)) return;
+    const sessions = sessionSummaries();
+    for (const listener of sessionListListeners) listener(sessions);
   }
 
   const chatCommands = createDesktopChatCommands({
@@ -220,20 +238,18 @@ export function createDesktopAppServices(
       },
     },
     sessionStore: {
+      subscribe(listener) {
+        sessionListListeners.add(listener);
+        return () => { sessionListListeners.delete(listener); };
+      },
       async list() {
         await initialize();
-        return controller.state.threads.map((thread) => mapSession(
-          thread,
-          controller.state.respondingThreadIds.has(thread.threadId),
-        ));
+        return sessionSummaries();
       },
       async refresh() {
         await initialize();
         await controller.loadSessions();
-        return controller.state.threads.map((thread) => mapSession(
-          thread,
-          controller.state.respondingThreadIds.has(thread.threadId),
-        ));
+        return sessionSummaries();
       },
       async create(input) {
         await initialize();

@@ -1,8 +1,11 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c1e97fcc6e2f035dc0f3cb06cd8be995677c6bf9c751b72cdb343853d533e64f -->
+<!-- tinybot-module-fingerprint: sha256:25a0680161c23c53ce2574f872603cac230dbadf6705884516bd82b7ebbffe10 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
+`useChatSessions` subscribes directly to session-list changes for its mounted
+lifetime, including while an uncreated draft is active. External pet chats and
+generated titles appear without route navigation or changing the active tab.
 `useChatSessionRuntime` owns transient provider retry status. The turn tail
 shows the retry count, delay, and reason while execution stays running; matching
 request completion, terminal events, and session changes clear the status.

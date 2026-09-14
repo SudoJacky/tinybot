@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b2943b3b280bdd0141970c8466f313e9ee4a390100d32075beeb6e5bef89b8f2 -->
+<!-- tinybot-doc-fingerprint: sha256:454f80acb32e80d3ec55cdb8e31dad7ead205113e5886a829ae8cb078b14140c -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -274,7 +274,9 @@ bounded service composition and a least-privilege Tauri command permission so
 it can pick attachments and create and continue canonical Threads; the scoped
 native event seam positions it next to the pet and hands an explicit Thread ID
 back to `DesktopShell` when the user opens the conversation in the main Chat
-route. Hiding the main window in the system tray does not remount these
+route. The main Chat session list independently subscribes to native-backed
+summary changes, so pet-created Threads and generated titles appear even when
+no persisted conversation is open. Hiding the main window in the system tray does not remount these
 surfaces or transfer their state authority; restoring `main` focuses the
 existing application window.
 
