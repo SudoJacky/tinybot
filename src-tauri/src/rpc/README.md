@@ -3,13 +3,16 @@
 Turn-persistence dispatch adapts wire parameters to the typed workspace store
 service. Internal Agent persistence calls that service directly, sharing its
 lifecycle lock, canonical writes, projection synchronization, and recovery.
-<!-- tinybot-module-fingerprint: sha256:1d32f8b6bfe083e62d674f954120dd8f1c9fc60eb32265cc22d2db1dd9e6a52a -->
+<!-- tinybot-module-fingerprint: sha256:22f44c6f8dc5b79bcbeee957b8edb48f79abef3508dfee399eab011ed94957b0 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
 in the sibling `protocol/` module.
 
 ## Responsibilities
+
+The generic tool executor rejects the application-owned `CreateAutomation`
+target; the native Agent bridge supplies its storage and caller context.
 
 - Validate every `WorkerRequest` before dispatch.
 - Route stable method namespaces to the service that owns the operation.

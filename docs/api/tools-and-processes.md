@@ -19,12 +19,27 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b6f8a9d947e82b951071744986da073094da33b0c6e3eaa99bd1e7d796a92262 -->
+<!-- tinybot-doc-fingerprint: sha256:af4834613c42509517088ef19099a24c0ede0cc3f8543a0231d238790dd0e848 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
 which defines the shared invocation conventions and source-backed freshness
 policy for this reference set.
+
+## Agent scheduled tasks
+
+`create_automation` creates a saved task through the native Agent bridge, using
+the same validation and store as the desktop Scheduled page. Generic Worker RPC
+tool execution rejects this application-owned target.
+It requires `name`, `instructions`, and `schedule: { repeat, startAt }`, where
+`repeat` is `once`, `daily`, `weekdays`, or `weekly`, and `startAt` is RFC 3339
+with an explicit UTC offset. `workspacePath` defaults to the active Turn's
+workspace. Optional `execution.threadId: "current"` reuses the caller's Thread;
+omitting it creates a new conversation per run. Optional execution model fields
+follow the [desktop automation contract](desktop.md#saved-workspace-automations).
+Success returns `{ definition, nextRunAt }` with a local RFC 3339 timestamp.
+Tinybot must be running for scheduling; recurrences use the computer's local
+wall clock. Creation errors return to the model without claiming success.
 
 ## Owned Shell Processes
 

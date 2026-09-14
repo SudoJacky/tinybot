@@ -32,13 +32,12 @@ pub(crate) fn worker_automation_save(
     state: State<'_, SharedNativeRuntime>,
 ) -> Result<Definition, String> {
     let threads = lock_runtime(state.inner()).thread_store.clone();
-    execution::validate_thread(&input.execution, &input.workspace_path, &threads)?;
-    execution::effective_model(
-        &input.execution,
-        &input.workspace_path,
+    execution::save(
+        &store(state.inner()),
+        &threads,
         &native_runtime_config_snapshot(),
-    )?;
-    store(state.inner()).save(input)
+        input,
+    )
 }
 #[tauri::command]
 pub(crate) fn worker_automation_delete(

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:5e118278727b02a4219d4aac5cfb118b479d07c6215a65b4c3be80dcf811f83f -->
+<!-- tinybot-module-fingerprint: sha256:e905425706daae81cd4bd4667f920618ca4f286591420690a04cb96b8b6d520f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -266,6 +266,9 @@ changing the persisted form schema. Multi-select and radio fields use native
 inputs inside compact option cards so checked state, keyboard focus, and long
 labels remain legible; a required multi-select cannot submit until at least one
 option is checked.
+Timeline regression coverage submits two sequential forms in one Turn: the
+first disappears, the next live request appears, and each submission uses its
+own form ID.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from

@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:21e90f9ba737f41726baf2b62e7a66e1270c4fba9b05de30495de37c037d0818 -->
+<!-- tinybot-module-fingerprint: sha256:f62a734b20f98e1762a72ac065c4e3a7c9fab02397bbb1c9986194e0fc3bae5f -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.
@@ -34,3 +34,7 @@ to the native application log and are not protocol events or Rollout records.
 Form resolution is a durable event. Its values and command correlation are
 persisted before the completed form timeline patch reaches the renderer.
 The initial form request remains represented durably by its awaiting-form checkpoint.
+When a Turn resumes, its event emitter recovers the sequence cursor from
+Rollout history and takes trace identity from the active Turn context. Replayed
+history can omit trace context; it must not remove the Thread correlation from
+new live events, including a second form request after a submitted form.

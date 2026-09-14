@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:70368d03db7c5d7f8c45b79cfdc16abd7527d2da67b3f89c4bd4cd34dc1013fc -->
+<!-- tinybot-module-fingerprint: sha256:c53240244b9abad5debc22784901b31fc5fb6dba0ea5d3ca76b95b711081c476 -->
 
 The sidebar title aligns with workspace folder icons. Its workspace menu anchors to the title row and fits the available width. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
 
@@ -11,10 +11,15 @@ Markdown selectors reach through the viewport wrapper, keeping compact headings
 and list spacing effective in both the update prompt and saved release notes.
 
 Session sidebar width uses a renderer-owned CSS variable. Its 8 px resize target
-highlights on hover and focus, with increasing emphasis past the minimum width.
+sits outside the sidebar on the Chat side of the divider, without taking space
+from or intercepting the session scrollbar. The divider highlights on hover and
+focus, with increasing emphasis past the minimum width.
 Its accent line supplies focus feedback instead of the browser's rectangular
 outline around the full-height drag target.
-The session scroller reserves the handle's gutter so its scrollbar remains usable.
+The session scroller reaches the sidebar edge without a reserved resize gutter.
+It establishes the positioning context for its absolute descendants, including
+the screen-reader reorder announcement, so they remain inside its scroll area
+instead of extending the outer route's scroll range.
 Width transitions are disabled during expanded direct dragging. Collapse keeps
 its existing motion and reduced-motion behavior while pointer capture remains
 active. The collapsed rail hides the handle only after the gesture ends, so a
@@ -30,6 +35,8 @@ Session tab close controls and Chat header actions use centered 28px targets.
 Tab selection fills the available height inside the 36px header without
 overflowing its bottom border. The window frame is also 36px tall, with
 28px menu/history buttons and 36px-wide window controls.
+Session tab labels use a 1.5 line height so Windows Chinese glyphs and Latin
+descenders fit inside the text's ellipsis clipping box.
 
 Shared scrollbar tokens keep native overflow thumbs quiet against the current
 theme, with stronger hover and drag states and transparent tracks. Desktop

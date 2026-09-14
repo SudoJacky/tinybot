@@ -1,4 +1,5 @@
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
+mod automation;
 mod contributors;
 
 use contributors::default_tool_contributors;
@@ -17,6 +18,7 @@ pub const UPDATE_PLAN_METHOD: &str = "update_plan";
 pub const MCP_CALL_TOOL_METHOD: &str = "mcp.call_tool";
 pub const SPAWN_WORKSPACE_THREAD_METHOD: &str = "spawn_workspace_thread";
 pub const SEND_THREAD_MESSAGE_METHOD: &str = "send_thread_message";
+pub const CREATE_AUTOMATION_METHOD: &str = "create_automation";
 
 #[derive(Clone, Debug)]
 pub struct WorkerToolRegistryRpc {
@@ -97,6 +99,7 @@ pub enum ToolExecutionTarget {
     },
     SpawnWorkspaceThread,
     SendThreadMessage,
+    CreateAutomation,
     RuntimeControl(ToolRuntimeControl),
 }
 

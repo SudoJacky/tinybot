@@ -107,6 +107,7 @@ impl AgentRuntimeEventAppender {
         Self::from_existing_events_with_thread_id(session_id, turn_id, None, events)
     }
 
+    #[cfg(test)]
     pub fn from_existing_events_with_thread_id(
         session_id: impl Into<String>,
         turn_id: impl Into<String>,
@@ -215,16 +216,22 @@ impl AgentTurnEmitter {
         }
     }
 
-    pub fn from_existing_events_with_thread_id(
+    pub fn from_existing_events_with_trace_context(
         session_id: impl Into<String>,
-        turn_id: impl Into<String>,
-        thread_id: Option<String>,
+        trace_context: AgentTraceContext,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Self {
+        // Rollout replay reconstructs sequence history, not the current request's trace context.
+        let mut appender =
+            AgentRuntimeEventAppender::new_with_trace_context(session_id, trace_context);
+        appender.next_sequence = events
+            .iter()
+            .map(|event| event.sequence)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
         Self {
-            appender: AgentRuntimeEventAppender::from_existing_events_with_thread_id(
-                session_id, turn_id, thread_id, events,
-            ),
+            appender,
             events: Vec::new(),
         }
     }

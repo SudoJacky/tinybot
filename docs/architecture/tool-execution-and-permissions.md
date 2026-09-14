@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e6d57493d5e9f919ab86ebe68ded00b7995068dacc79f4b2d2c2441449cf0423 -->
+<!-- tinybot-doc-fingerprint: sha256:a2df79837084be68e6c37053845c7a242dbe753f1aa1862b9a003d41024abde1 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -73,6 +73,12 @@ Next provider iteration
 ```
 
 ## Registry Interface
+
+`create_automation` is a model-visible built-in with a native bridge execution
+target. It requires `CronWrite` and `SessionMetadataRead`, runs in an exclusive
+wave, and forbids detachment. The bridge supplies the application Thread store,
+data root, current workspace, and canonical caller identity to shared automation
+validation. Generic Worker RPC cannot execute this target.
 
 Every registry entry declares:
 
@@ -219,6 +225,9 @@ tool execution. A valid request ends the active invocation in `awaiting_form`
 without a human-response timeout. Submit resumes the same provider chain with
 the selected values as the original tool call's result; cancel resolves the
 checkpoint with a distinct cancelled outcome.
+Continuation emitters recover the sequence cursor from history and retain the
+active Turn's trace identity. Replayed events may omit trace context; subsequent
+live forms must still carry the canonical Thread ID for desktop delivery.
 
 Cancellation behavior is part of the registry entry. Tools may cooperate,
 terminate an owned process, or require bounded cleanup. A timeout, cancellation,

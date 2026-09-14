@@ -1,9 +1,12 @@
 # Tool Permissions
-<!-- tinybot-module-fingerprint: sha256:b7423de69329a4c42534c3778aec0145875ef3b857463b2e45a1d4e367fafe68 -->
+<!-- tinybot-module-fingerprint: sha256:03b01d99ad5679fc30a7ec9ac09830475dde078ab6db33dd0cb90b15aecbc779 -->
 
 `permissions` evaluates whether a registered tool is allowed by the current
 capability policy. It reports missing capabilities and normalizes the expected
 filesystem, network, process, and session effects of a call.
+
+`create_automation` reports a background mutation and requires the registry's
+`CronWrite` and `SessionMetadataRead` capabilities.
 
 An `apply_patch` with `thenRun` requires ShellExecute in addition to patch access
 and reports Shell filesystem, network, and environment effects. A plain patch

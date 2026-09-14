@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:620bf44194ff4a63b8e675df2730dda24c44132c1ee96f2b385f7c7b2da1daff -->
+<!-- tinybot-module-fingerprint: sha256:c1e5c6eb9df1ba303b6af19c81bef33c9444ceeb5aaca162d3c913835d822295 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -68,6 +68,10 @@ and state setup, context projection, request building, and hooks. Scope and step
 offsets share the input's monotonic origin; nested scopes must not be summed twice.
 
 ## Responsibilities
+
+Continuation and result-append state restore event sequence numbers from history
+but initialize trace identity from the current Turn context. This keeps later
+live form events correlated even when replayed history omits trace context.
 
 Experimental settings are captured in `AgentTurnSettings` and emitted with
 TurnStarted for diagnostics. Action Fusion stays fixed for that Turn; tool

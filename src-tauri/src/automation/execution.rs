@@ -11,6 +11,17 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub(crate) fn save(
+    store: &Store,
+    threads: &crate::threads::workspace_store::WorkspaceThreadStore,
+    config: &Value,
+    input: super::saved::SaveDefinition,
+) -> Result<super::saved::Definition, String> {
+    validate_thread(&input.execution, &input.workspace_path, threads)?;
+    effective_model(&input.execution, &input.workspace_path, config)?;
+    store.save(input)
+}
+
 pub(crate) fn snapshot(
     store: &Store,
     threads: &crate::threads::workspace_store::WorkspaceThreadStore,
@@ -100,6 +111,9 @@ pub(crate) fn configured_config(
     options: &ExecutionOptions,
     config: &Value,
 ) -> Result<Value, String> {
+    if options.profile.is_some() && options.provider.is_none() {
+        return Err("Select a provider and model when selecting a profile".into());
+    }
     let mut config = config.clone();
     if let Some(provider) = options.provider.as_deref() {
         let selected = if let Some(profile) = options.profile.as_deref() {
@@ -212,8 +226,10 @@ pub(crate) fn validate_thread(
         .metadata
         .working_directory
         .as_deref()
-        .ok_or("Selected conversation has no workspace")?;
-    if canonical_workspace(Path::new(path))? != canonical_workspace(Path::new(workspace))? {
+        .map(Path::new)
+        // General chats use the application's default workspace, just as foreground Turns do.
+        .unwrap_or_else(|| threads.workspace_root());
+    if canonical_workspace(path)? != canonical_workspace(Path::new(workspace))? {
         return Err("Selected conversation belongs to a different workspace".into());
     }
     if thread.source == "project_coordinator" {

@@ -484,6 +484,10 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
         }),
         Arc::new(WorkspaceToolContributor),
         Arc::new(BuiltinMcpToolContributor),
+        Arc::new(CoreToolContributor {
+            id: "builtin.automation",
+            entries: vec![super::automation::create_tool()],
+        }),
         Arc::new(WebToolContributor),
         Arc::new(CoreToolContributor {
             id: "builtin.runtime_tools",

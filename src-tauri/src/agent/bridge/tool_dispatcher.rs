@@ -65,6 +65,28 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         context: &AgentTurnContext,
         tool_call: &PreparedToolCall,
     ) -> Result<NativeAgentToolResult, String> {
+        if matches!(
+            context.tool_execution_target(&tool_call.name),
+            Some(ToolExecutionTarget::CreateAutomation)
+        ) {
+            let result = crate::automation::agent_tool::create(
+                &self.base_services.thread_store,
+                context.settings.working_directory.as_deref(),
+                &context.session_id,
+                &self.base_config_snapshot,
+                tool_call.arguments_value(),
+            );
+            return Ok(match result {
+                Ok(value) => NativeAgentToolResult::generic_success(tool_call, value),
+                Err(error) => {
+                    eprintln!(
+                        "automation_create_failed thread_id={} tool_call_id={} error={error}",
+                        context.session_id, tool_call.id,
+                    );
+                    NativeAgentToolResult::generic_error(tool_call, error)
+                }
+            });
+        }
         if web::is_web_tool(&tool_call.name) {
             return Err(format!(
                 "native tool `{}` requires asynchronous shared-browser dispatch",

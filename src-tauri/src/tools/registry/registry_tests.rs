@@ -2,6 +2,42 @@ use super::*;
 use crate::protocol::capability::default_desktop_capability_policy;
 
 #[test]
+fn automation_creation_is_model_visible_and_requires_write_permission() {
+    let registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy());
+    let tool = registry.get_tool(CREATE_AUTOMATION_METHOD).unwrap();
+    assert_eq!(tool.exposure, ToolExposure::Model);
+    assert_eq!(tool.execution_target, ToolExecutionTarget::CreateAutomation);
+    assert!(tool.available);
+    assert!(!tool.supports_parallel_tool_calls);
+    assert_eq!(
+        tool.runtime_policy.cancellation_mode,
+        ToolCancellationMode::DetachForbidden
+    );
+    assert!(
+        crate::tools::permissions::normalize_tool_effects(&tool, &json!({}))
+            .unwrap()
+            .mutates_background
+    );
+    for capability in [
+        WorkerCapability::CronWrite,
+        WorkerCapability::SessionMetadataRead,
+    ] {
+        let policy = CapabilityPolicy::new(
+            default_desktop_capability_policy()
+                .granted_capabilities()
+                .into_iter()
+                .filter(|c| c != &capability),
+        );
+        assert!(
+            !WorkerToolRegistryRpc::new(policy)
+                .get_tool(CREATE_AUTOMATION_METHOD)
+                .unwrap()
+                .available
+        );
+    }
+}
+
+#[test]
 fn action_fusion_schema_requires_experiment_and_shell_access() {
     for (config, policy, enabled) in [
         (json!({}), default_desktop_capability_policy(), false),

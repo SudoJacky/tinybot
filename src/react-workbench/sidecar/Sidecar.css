@@ -1,7 +1,7 @@
 .react-sidecar {
   position: relative;
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
+  grid-template-rows: 36px minmax(0, 1fr);
   width: var(--react-sidecar-width);
   min-width: 0;
   min-height: 0;

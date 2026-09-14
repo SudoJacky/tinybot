@@ -19,6 +19,197 @@ struct Fixture {
     workspace: PathBuf,
     store: Store,
 }
+
+struct CreateAutomationProvider {
+    calls: AtomicUsize,
+}
+
+impl BlockingTestProvider for CreateAutomationProvider {
+    fn complete(&self, context: &AgentTurnContext) -> Result<NativeAgentProviderResponse, String> {
+        use crate::tools::registry::{ToolExecutionTarget, CREATE_AUTOMATION_METHOD};
+        assert_eq!(
+            context.tool_execution_target(CREATE_AUTOMATION_METHOD),
+            Some(ToolExecutionTarget::CreateAutomation)
+        );
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call == 1 {
+            assert!(
+                serde_json::to_string(&context.messages.to_provider_messages().unwrap())
+                    .unwrap()
+                    .contains("RFC 3339"),
+                "validation errors must reach the model"
+            );
+        }
+        let tool_calls = if call < 3 {
+            let mut arguments = json!({
+                "name": format!("Agent schedule {call}"),
+                "instructions": "Write the project report to report.md and link it.",
+                "schedule": {"repeat": "daily", "startAt": if call == 0 {"not a date"} else {"2099-09-15T09:00:00+08:00"}}
+            });
+            if call == 2 {
+                arguments["execution"] = json!({"threadId":"current"});
+            }
+            vec![NativeAgentToolCall {
+                id: format!("create-{call}"),
+                name: CREATE_AUTOMATION_METHOD.into(),
+                arguments_json: arguments.to_string(),
+                result: Value::Null,
+            }]
+        } else {
+            vec![]
+        };
+        Ok(NativeAgentProviderResponse {
+            final_content: if tool_calls.is_empty() {
+                "Schedules created".into()
+            } else {
+                String::new()
+            },
+            reasoning_delta: None,
+            usage: None,
+            tool_calls,
+            response_items: vec![],
+        })
+    }
+}
+
+#[test]
+fn agent_creation_tool_saves_desktop_tasks_and_resolves_current_conversation() {
+    use crate::agent::bridge::{execute_thread_turn_with_services, SubmitThreadTurnInput};
+    let f = Fixture::new();
+    let threads = f.threads();
+    let thread = crate::rpc::call_rust_state_service(
+        &threads,
+        f.config(),
+        crate::protocol::WorkerRequest::new(
+            "create-conversation",
+            "trace-create-schedules",
+            "thread.create",
+            json!({"title":"Project schedules", "metadata":{"workingDirectory":f.workspace}}),
+        ),
+        "Create workspace conversation for automation tool test",
+    )
+    .unwrap();
+    let thread_id = thread["threadId"].as_str().unwrap().to_string();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(CreateAutomationProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(threads.clone());
+    let result = tauri::async_runtime::block_on(execute_thread_turn_with_services(
+        services,
+        SubmitThreadTurnInput {
+            thread_id: Some(thread_id),
+            input: json!({"role":"user", "content":"Schedule project reports, one in a new conversation and one here."}),
+            spec: json!({"runtime":"rust", "stream":true, "turnId":"create-schedules", "metadata":{"workingDirectory":f.workspace}}),
+        },
+        f.root.clone(), f.config(), None,
+    )).unwrap();
+    assert_eq!(
+        result.result.stop_reason.status().as_str(),
+        "completed",
+        "{:?}",
+        result.result.error
+    );
+    let snapshot = execution::snapshot(&Store::new(threads.data_root()), &threads).unwrap();
+    assert_eq!(snapshot.definitions.len(), 2);
+    assert!(
+        snapshot.runs.is_empty(),
+        "creating a future task must not run it"
+    );
+    let new = snapshot
+        .definitions
+        .iter()
+        .find(|d| d.name == "Agent schedule 1")
+        .unwrap();
+    let current = snapshot
+        .definitions
+        .iter()
+        .find(|d| d.name == "Agent schedule 2")
+        .unwrap();
+    assert!(new.execution.thread_id.is_none());
+    assert_eq!(
+        current.execution.thread_id.as_deref(),
+        Some(result.thread_id.as_str())
+    );
+    assert_eq!(new.model_policy, ModelPolicy::InheritDefault);
+    assert_eq!(
+        new.workspace_path,
+        crate::workspace_registry::workspace_id(&fs::canonicalize(&f.workspace).unwrap())
+    );
+    let at = chrono::DateTime::parse_from_rfc3339("2099-09-15T09:00:00+08:00")
+        .unwrap()
+        .timestamp_millis() as u64;
+    assert_eq!(new.next_run_at_ms, Some(at));
+    assert!(f.store.claim_due(at - 1).unwrap().is_empty());
+    assert_eq!(
+        f.store.claim_due(at).unwrap().len(),
+        2,
+        "the existing scheduler must claim agent-created tasks"
+    );
+    assert!(
+        !fs::read_to_string(threads.data_root().join("automations/store.json"))
+            .unwrap()
+            .contains("secret-must-not-be-saved")
+    );
+}
+
+#[test]
+fn agent_creation_rejects_invalid_inputs_without_persisting_a_task() {
+    let f = Fixture::new();
+    let threads = f.threads();
+    let valid = json!({"name":"Report", "instructions":"Inspect project", "schedule":{"repeat":"once", "startAt":"2099-09-15T09:00:00+08:00"}});
+    for (patch, message) in [
+        (json!({"name":" "}), "name and instructions"),
+        (json!({"id":"existing-task"}), "unknown field"),
+        (
+            json!({"schedule":{"repeat":"hourly", "startAt":"2099-09-15T09:00:00+08:00"}}),
+            "unknown variant",
+        ),
+        (
+            json!({"schedule":{"repeat":"once", "startAt":"2099-09-15T09:00:00"}}),
+            "UTC offset",
+        ),
+        (
+            json!({"execution":{"threadId":"missing-conversation"}}),
+            "Thread",
+        ),
+        (
+            json!({"execution":{"profile":"orphan"}}),
+            "provider and model",
+        ),
+        (
+            json!({"execution":{"provider":"openai", "model":"missing-model"}}),
+            "not available",
+        ),
+    ] {
+        let mut args = valid.clone();
+        args.as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        let error =
+            super::agent_tool::create(&threads, Some(&f.workspace), "unused", &f.config(), args)
+                .unwrap_err();
+        assert!(
+            error.to_lowercase().contains(&message.to_lowercase()),
+            "expected {message}: {error}"
+        );
+        assert!(f.store.snapshot().unwrap().definitions.is_empty());
+    }
+    assert!(
+        super::agent_tool::create(&threads, None, "unused", &f.config(), valid.clone())
+            .unwrap_err()
+            .contains("No current workspace")
+    );
+    let mut explicit = valid;
+    explicit["workspacePath"] = json!(f.workspace);
+    let saved = super::agent_tool::create(&threads, None, "unused", &f.config(), explicit).unwrap();
+    assert!(saved["nextRunAt"].as_str().is_some());
+    assert_eq!(f.store.snapshot().unwrap().definitions.len(), 1);
+}
 impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("tinybot-automations-{}", identity()));
@@ -59,6 +250,208 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         fs::remove_dir_all(&self.root).expect("remove test fixture");
     }
+}
+
+#[test]
+fn regression_general_chat_can_schedule_in_its_default_workspace() {
+    let f = Fixture::new();
+    let threads = f.threads();
+    crate::rpc::call_rust_state_service(
+        &threads,
+        f.config(),
+        crate::protocol::WorkerRequest::new(
+            "create-general-chat",
+            "trace-general",
+            "thread.create",
+            json!({"threadId":"general-chat", "title":"General chat"}),
+        ),
+        "Create general chat",
+    )
+    .unwrap();
+    let thread = threads.read_agent_thread("general-chat").unwrap().thread;
+    assert!(thread.metadata.working_directory.is_none());
+    let arguments = json!({
+        "name":"Default workspace test", "instructions":"Write a report in report.md",
+        "schedule":{"repeat":"once", "startAt":"2099-09-15T09:00:00+08:00"},
+        "execution":{"threadId":"current"}
+    });
+    let result = super::agent_tool::create(
+        &threads,
+        Some(&f.root),
+        &thread.thread_id,
+        &f.config(),
+        arguments,
+    )
+    .unwrap();
+    let definition: Definition = serde_json::from_value(result["definition"].clone()).unwrap();
+    assert_eq!(
+        definition.execution.thread_id.as_deref(),
+        Some("general-chat")
+    );
+    execution::validate_thread(&definition.execution, &definition.workspace_path, &threads)
+        .unwrap();
+    assert!(execution::validate_thread(
+        &definition.execution,
+        &f.workspace.to_string_lossy(),
+        &threads
+    )
+    .unwrap_err()
+    .contains("different workspace"));
+    let run = execution::prepare(&f.store, &definition.id, &f.config()).unwrap();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(ReportProvider {
+            calls: AtomicUsize::new(0),
+            workspace: f.root.clone(),
+            fail: false,
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(threads.clone());
+    tauri::async_runtime::block_on(execution::execute(
+        f.store.clone(),
+        run,
+        services,
+        f.root.clone(),
+        f.config(),
+        None,
+    ))
+    .unwrap();
+    let saved = &f.store.snapshot().unwrap().runs[0];
+    assert_eq!(saved.status, "completed", "{:?}", saved.error);
+    assert_eq!(saved.thread_id.as_deref(), Some("general-chat"));
+}
+
+#[derive(Default)]
+struct LiveFormEvents(
+    std::sync::Mutex<Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>>,
+);
+
+impl NativeAgentTraceSink for LiveFormEvents {
+    fn append_trace_event(
+        &self,
+        _session: &str,
+        _turn: &str,
+        event: &crate::agent::runtime_protocol::AgentRuntimeEventEnvelope,
+    ) -> Result<(), AgentError> {
+        self.0.lock().unwrap().push(event.clone());
+        Ok(())
+    }
+}
+
+struct TwoFormsProvider(AtomicUsize);
+
+impl BlockingTestProvider for TwoFormsProvider {
+    fn complete(&self, context: &AgentTurnContext) -> Result<NativeAgentProviderResponse, String> {
+        let call = self.0.fetch_add(1, Ordering::SeqCst);
+        let tool_calls = if call < 2 {
+            vec![NativeAgentToolCall {
+                id: format!("form-{call}"), name: "request_user_input".into(),
+                arguments_json: json!({"title":format!("Question {call}"), "fields":[{"name":"answer", "type":"text", "label":"Answer", "required":true}]}).to_string(),
+                result: Value::Null,
+            }]
+        } else {
+            let messages = context.messages.to_provider_messages().unwrap();
+            assert_eq!(messages.iter().filter(|m| m["role"] == "tool").count(), 2);
+            vec![]
+        };
+        Ok(NativeAgentProviderResponse {
+            final_content: if tool_calls.is_empty() {
+                "Both answers received".into()
+            } else {
+                String::new()
+            },
+            reasoning_delta: None,
+            usage: None,
+            response_items: vec![],
+            tool_calls,
+        })
+    }
+}
+
+#[test]
+fn regression_second_form_keeps_live_identity_after_durable_resume() {
+    use crate::agent::bridge::{
+        execute_thread_turn_with_services, submit_thread_form_with_services, SubmitThreadFormInput,
+        SubmitThreadTurnInput,
+    };
+    let f = Fixture::new();
+    let threads = f.threads();
+    let thread = crate::rpc::call_rust_state_service(
+        &threads,
+        f.config(),
+        crate::protocol::WorkerRequest::new(
+            "create-forms-thread",
+            "trace-forms",
+            "thread.create",
+            json!({"title":"Two questions"}),
+        ),
+        "Create form test thread",
+    )
+    .unwrap();
+    let thread_id = thread["threadId"].as_str().unwrap().to_string();
+    let events = Arc::new(LiveFormEvents::default());
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(TwoFormsProvider(AtomicUsize::new(0))),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(threads.clone());
+    let first = tauri::async_runtime::block_on(execute_thread_turn_with_services(
+        services.clone(),
+        SubmitThreadTurnInput {
+            thread_id: Some(thread_id.clone()),
+            input: json!({"content":"Ask two questions"}),
+            spec: json!({"runtime":"rust", "stream":true, "turnId":"two-forms"}),
+        },
+        f.root.clone(),
+        f.config(),
+        Some(events.clone()),
+    ))
+    .unwrap();
+    assert_eq!(first.result.stop_reason, AgentStopReason::AwaitingForm);
+    for index in 0..2 {
+        let result = tauri::async_runtime::block_on(submit_thread_form_with_services(
+            services.clone(),
+            SubmitThreadFormInput {
+                command_id: format!("submit-{index}"),
+                thread_id: thread_id.clone(),
+                form_id: format!("user-input:form-{index}"),
+                source: json!({"control":"chat-form", "surface":"chat"}),
+                target: json!({"threadId":thread_id, "turnId":"two-forms"}),
+                values: json!({"answer":format!("Answer {index}")}),
+                action: Some("submit".into()),
+            },
+            f.root.clone(),
+            f.config(),
+            Some(events.clone()),
+        ))
+        .unwrap();
+        assert_eq!(result["formResult"]["statusCode"], 200);
+        let recorded = events.0.lock().unwrap();
+        let forms = recorded
+            .iter()
+            .filter(|e| e.event_name == "agent.awaiting_form")
+            .collect::<Vec<_>>();
+        assert_eq!(forms.len(), 2);
+        for (ordinal, event) in forms.iter().enumerate() {
+            assert_eq!(
+                event
+                    .trace_context
+                    .as_ref()
+                    .and_then(|t| t.thread_id.as_deref()),
+                Some(thread_id.as_str()),
+                "form {ordinal} must contain the thread identity required by the desktop renderer"
+            );
+        }
+        assert!(forms[1].sequence > forms[0].sequence);
+    }
+    assert!(threads
+        .latest_agent_checkpoint(&thread_id)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
