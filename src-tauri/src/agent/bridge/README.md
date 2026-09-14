@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:82a16e7e37b46db14a9f68682935b57bb30ecf3c66ccf8681966b2773fde56ae -->
+<!-- tinybot-module-fingerprint: sha256:6720e9958b92a210149841f18d648c4d52923d6301fa4656709058c1a842aa85 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -24,6 +24,10 @@ removed with the existing generic-MCP suppression rule. Graph discovery requires
 an explicit working directory and remains disabled for Graph node Turns.
 
 ## Responsibilities
+
+The bridge dispatches `create_automation` with application-owned storage,
+base model configuration, the current workspace, and canonical Thread identity.
+Creation failures retain tool-call correlation in diagnostics and return to the model.
 
 - Hydrate runtime history from the appropriate persistence surface.
 - Compose instructions using the effective workspace configuration.

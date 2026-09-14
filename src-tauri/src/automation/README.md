@@ -1,5 +1,5 @@
 # Automation
-<!-- tinybot-module-fingerprint: sha256:d77e1e9503c54ceb7646cff413cf3525ef463c48e85f031bdaffcee90f46bd8d -->
+<!-- tinybot-module-fingerprint: sha256:000382055d08e53db16663a59eccef0540ee645f2f4701162f134e0544df8850 -->
 
 `automation` manages work that runs outside an active foreground turn.
 
@@ -8,6 +8,21 @@
 - `tasks.rs` stores and manages automation tasks.
 
 ## Saved workspace automations
+
+The model-visible `create_automation` tool creates the same definitions as the
+Scheduled page. `agent_tool` accepts RFC 3339 start times with explicit offsets,
+resolves an omitted workspace from the current Turn, and resolves
+`execution.threadId: "current"` from the caller's canonical Thread. Omitting
+the conversation creates a new one per run; omitting model overrides inherits
+application defaults. Creation and the desktop save command share
+`execution::save` for workspace, conversation, and provider validation. Tool
+errors return to the model, and success returns the saved definition and a local
+`nextRunAt` timestamp. The Agent bridge dispatches this tool with application
+services; it is not a workspace RPC or the separate legacy cron job store.
+General chats without an explicit workspace use the application's default
+workspace for reuse validation, matching foreground execution. An explicit
+workspace on a conversation still requires a canonical path match; creating a
+task does not change the conversation's workspace metadata.
 
 `saved` owns reviewable definitions and immutable per-run definition/model
 snapshots in the application data directory's `automations/store.json`.

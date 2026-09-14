@@ -472,6 +472,18 @@ describe("ChatPage", () => {
     await waitFor(() => expect(document.body.textContent).toContain("Continuing the research with your answers."));
     await waitFor(() => expect(screen.getByRole("button", { name: /Stop/ }).hasAttribute("disabled")).toBe(false));
     expect(document.querySelector('.react-agent-command-status')).toBeNull();
+    canonical.turns[0].status = "awaiting_user";
+    await act(async () => handlers.get("agent:awaiting_form")!({ payload: {
+      formId: "user-input:call-3", traceContext: { threadId: "s1", turnId: "turn-1" },
+      form: { title: "Follow-up question", fields: [{ name: "format", type: "text", label: "Report format", required: true }] },
+    } }));
+    const followUp = await screen.findByRole("form", { name: "Follow-up question" });
+    expect(screen.queryByRole("form", { name: "Research requirements" })).toBeNull();
+    await user.type(within(followUp).getByLabelText("Report format"), "Markdown");
+    await user.click(within(followUp).getByRole("button", { name: "Submit" }));
+    expect(stores.chatStore.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: "form.submit", form: { formId: "user-input:call-3", values: { format: "Markdown" } },
+    }));
   });
 
   it("cancels active agent-ui forms through Thread command dispatch", async () => {

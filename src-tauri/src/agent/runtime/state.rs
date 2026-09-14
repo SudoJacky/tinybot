@@ -98,10 +98,9 @@ impl AgentTurnState {
         let mut state = Self::new(context, None)?;
         state.trace_committer = trace_committer;
         if !existing.is_empty() {
-            state.emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
+            state.emitter = AgentTurnEmitter::from_existing_events_with_trace_context(
                 &context.session_id,
-                &context.turn_id,
-                context.thread_id.clone(),
+                context.trace_context.clone(),
                 &existing,
             );
         }
@@ -115,10 +114,9 @@ impl AgentTurnState {
     ) -> Result<Self, AgentError> {
         let mut state = Self::new_for_continuation(context, trace_sink)?;
         if !existing_events.is_empty() {
-            state.emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
+            state.emitter = AgentTurnEmitter::from_existing_events_with_trace_context(
                 &context.session_id,
-                &context.turn_id,
-                context.thread_id.clone(),
+                context.trace_context.clone(),
                 existing_events,
             );
         }

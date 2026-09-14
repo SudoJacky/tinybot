@@ -21,7 +21,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:56c63fa31a905d885d037fac03793e2c65b8c5d26cb6ede1c6f0264036ee736a -->
+<!-- tinybot-doc-fingerprint: sha256:cecc88d790908431f9fed0b81bfea70a9a5b42eec5ce5f1c0d0f3ec2c9aef0ef -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -817,6 +817,9 @@ These commands are main-window only. The native Adapter is
 `execution` accepts `threadId?`, `provider?`, `profile?`, `model?`, and
 `reasoningEffort?` (`low`, `medium`, `high`, `xhigh`, `max`). A null Thread creates
 a new conversation; a selected Thread must be unarchived and in the same workspace.
+For a general chat without an explicit working directory, that workspace is the
+application's default workspace, matching foreground Turn execution. Saving shares
+validation with the Agent's `create_automation` tool.
 Provider and model must be selected together; unavailable/disabled choices reject.
 `schedule` contains `repeat` (`manual`, `once`, `daily`, `weekdays`, `weekly`) and
 `startAtMs` for non-manual schedules. Definitions expose `nextRunAtMs` and persist

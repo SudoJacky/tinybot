@@ -72,6 +72,7 @@ pub fn normalize_tool_effects(
     effects.mutates_session = tool.runtime_policy.mutates_session;
 
     match tool.method.as_str() {
+        "create_automation" => effects.mutates_background = true,
         "shell.execute" | "exec_command" => {
             effects =
                 shell_permission_effects(bool_argument(arguments, "tty", "tty").unwrap_or(false));
