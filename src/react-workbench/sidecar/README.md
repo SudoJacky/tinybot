@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:2ee671ccdf869d13faeb54375128add0e21f271008c64f9f9560a5f779b76327 -->
+<!-- tinybot-module-fingerprint: sha256:159f5242214f1099695a4d0a95a8a1b5965612dd74c3fbe96ae7050013836d1d -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
