@@ -17,6 +17,28 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("shows an externally created session while keeping the current blank chat open", async () => {
+    const stores = createStores();
+    let publishSessions: ((sessions: SessionSummary[]) => void) | undefined;
+    const unsubscribe = vi.fn();
+    stores.sessionStore.subscribe = vi.fn((listener) => {
+      publishSessions = listener;
+      return unsubscribe;
+    });
+    const view = render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} startInNewSession />);
+    await screen.findByRole("heading", { name: "New chat" });
+    const sessions = await stores.sessionStore.list();
+    act(() => publishSessions?.([
+      { id: "pet-quick-chat", chatId: "pet-quick-chat", title: "Pet quick chat", status: "idle", updatedAtMs: Date.now() },
+      ...sessions,
+    ]));
+    expect(await screen.findByRole("button", { name: "Pet quick chat" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(stores.chatStore.load).not.toHaveBeenCalled();
+    view.unmount();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
   it("keeps an imported workspace in place after leaving its untouched draft", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -862,6 +884,12 @@ describe("ChatPage", () => {
         },
       ],
     });
+    const loadTimeline = stores.chatStore.load;
+    stores.chatStore.load = vi.fn(async (id) => {
+      const timeline = await loadTimeline(id);
+      if (id === "s2") timeline.turns[timeline.turns.length - 1].status = "running";
+      return timeline;
+    });
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
@@ -873,6 +901,34 @@ describe("ChatPage", () => {
     expect(within(tablist).getAllByRole("tab")).toHaveLength(2);
     expect(within(tablist).getByRole("tab", { name: "Knowledge review, running" }).getAttribute("aria-selected")).toBe("true");
     await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
+  });
+
+  it("clears a completed pet quick chat's stale running indicator when opened in the main app", async () => {
+    const stores = createStores();
+    const quickChat: SessionSummary = {
+      id: "pet-quick-chat",
+      chatId: "pet-quick-chat",
+      title: "Can you see the image?",
+      status: "running",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+    };
+    const completedTimeline = await stores.chatStore.load(quickChat.id);
+    expect(completedTimeline.turns[completedTimeline.turns.length - 1]?.status).toBe("completed");
+    const loadTimeline = stores.chatStore.load;
+    stores.chatStore.load = vi.fn(async (id) => id === quickChat.id ? completedTimeline : loadTimeline(id));
+    stores.sessionStore.refresh = vi.fn(async () => [quickChat]);
+
+    render(<ChatPage
+      chatStore={stores.chatStore}
+      sessionStore={stores.sessionStore}
+      activateSessionRequest={{ sessionId: quickChat.id, signal: 1 }}
+    />);
+
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalledWith(quickChat.id));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: quickChat.title }).getAttribute("aria-selected")).toBe("true");
+      expect(screen.queryByRole("tab", { name: `${quickChat.title}, running` })).toBeNull();
+    });
   });
 
   it("clears the active workspace child running indicator from its completed timeline", async () => {
@@ -980,6 +1036,12 @@ describe("ChatPage", () => {
           status: "idle",
         },
       ],
+    });
+    const loadTimeline = stores.chatStore.load;
+    stores.chatStore.load = vi.fn(async (id) => {
+      const timeline = await loadTimeline(id);
+      if (id === "s1") timeline.turns[timeline.turns.length - 1].status = "running";
+      return timeline;
     });
     stores.chatStore.subscribe = vi.fn((sessionId, listener) => {
       listeners.set(sessionId, listener);

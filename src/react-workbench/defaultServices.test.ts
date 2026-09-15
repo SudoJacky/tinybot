@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createDesktopAppServices } from "./defaultServices";
+import { useChatSessions } from "./chat/useChatSessions";
 import type { ChatEvent } from "./services";
 import { createDesktopCompactCommand, createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import {
@@ -522,6 +524,43 @@ describe("desktop native app services", () => {
       expect.objectContaining({ id: "thread-workspace-child" }),
       expect.objectContaining({ id: "thread-1" }),
     ]);
+  });
+
+  test("updates the mounted session list for a pet quick chat without an open conversation", async () => {
+    const quickChat = { ...thread, threadId: "pet-quick-chat", sessionKey: "pet-quick-chat", title: "Pet quick chat" };
+    let created = false;
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") return { threads: created ? [quickChat, thread] : [thread] };
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      return {};
+    });
+    const services = createDesktopAppServices();
+    const onChange = vi.fn();
+    const { result, unmount } = renderHook(() => useChatSessions(services.sessionStore, Date.now, onChange));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    created = true;
+
+    await act(async () => {
+      await mocks.listeners.get("agent:timeline:patch")?.({ payload: {
+        schemaVersion: "tinybot.timeline_patch.v2",
+        sessionId: quickChat.threadId,
+        turnId: "pet-turn",
+        snapshotRevision: 1,
+      } });
+    });
+
+    expect(await services.sessionStore.list()).toEqual(expect.arrayContaining([expect.objectContaining({ id: quickChat.threadId })]));
+    await waitFor(() => expect(result.current.sessions).toEqual(expect.arrayContaining([expect.objectContaining({ id: quickChat.threadId })])));
+    quickChat.title = "Generated pet title";
+    const titleUpdated = mocks.listeners.get("thread:title:updated");
+    expect(titleUpdated).toBeTypeOf("function");
+    await act(async () => { await titleUpdated?.({ payload: { threadId: quickChat.threadId } }); });
+    expect(result.current.sessions[0].title).toBe(quickChat.title);
+    unmount();
+    onChange.mockClear();
+    await titleUpdated?.({ payload: { threadId: quickChat.threadId } });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   test("discovers a workspace child thread from its first live timeline patch", async () => {

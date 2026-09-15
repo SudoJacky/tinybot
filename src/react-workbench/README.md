@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:d0c61538dc683f737bb0eb04bc902a938c5ca2a583900d3b0c1d850e2c1f6dc6 -->
+<!-- tinybot-module-fingerprint: sha256:262f93c2f40b0e92a58ccb5a19afcc940bdb3c2a75bbb78e3f9777de7cab4445 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -19,6 +19,9 @@ renderer diagnostic overlay; render errors also remove the startup surface.
 `DesktopShell` owns the desktop chrome, and `defaultServices.ts` composes the
 renderer-facing stores including the native `WorkspaceRegistry` Adapter and
 the optional native pet and quick-chat hosts.
+The session store publishes cached summaries on native session discovery,
+generated titles, and turn completion independently of conversation listeners.
+An empty Chat route can therefore receive pet-created conversations immediately.
 The `MemoryStore` seam exposes load and revision-checked mutations through the
 native adapter. The lazy Memory route owns editing, scope selection, search,
 and batch deletion; SQLite ownership stays in Rust.

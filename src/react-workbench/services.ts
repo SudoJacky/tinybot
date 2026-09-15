@@ -116,6 +116,7 @@ export type ChatEvent = {
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
+  subscribe?(listener: (sessions: SessionSummary[]) => void): () => void;
   refresh?(): Promise<SessionSummary[]>;
   create(input?: {
     title?: string;

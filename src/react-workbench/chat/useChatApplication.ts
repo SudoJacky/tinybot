@@ -49,6 +49,14 @@ export function useChatApplication(options: Options) {
     unavailableThreadEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
   const timelineSummary = useChatTimelineSummary(runtime.timelineSource, options.contextUsageDefaults);
+  useEffect(() => {
+    const syncSessionStatus = () => {
+      const timeline = runtime.timelineSource.getSnapshot();
+      if (timeline) sessions.receiveTimeline(timeline.sessionId, timeline);
+    };
+    syncSessionStatus();
+    return runtime.timelineSource.subscribe(syncSessionStatus);
+  }, [runtime.timelineSource, sessions]);
   const { application: turns, ...turnState } = useChatTurnApplication({
     dispatch: chatStore.dispatch, submitTurn: submission.submitTurn, refreshSessions: sessions.refresh,
     reportError: runtime.actions.reportError, clearError: runtime.actions.clearError,
@@ -73,9 +81,11 @@ export function useChatApplication(options: Options) {
   }, [timelineSummary.activeTurnId, timelineSummary.activeTurnStatus, timelineSummary.formResolutionKey, persistedSessionId, chatStore, t]);
 
   function receiveTimeline(targetSessionId: string, snapshot: ChatTimelineSnapshot) {
-    sessions.receiveTimeline(targetSessionId, snapshot);
     submission.receiveTimeline(targetSessionId, snapshot);
-    if (targetSessionId !== persistedSessionId) turns.receiveTimeline(targetSessionId, snapshot);
+    if (targetSessionId !== persistedSessionId) {
+      sessions.receiveTimeline(targetSessionId, snapshot);
+      turns.receiveTimeline(targetSessionId, snapshot);
+    }
   }
 
   function receiveRuntimeEffect(effect: ChatSessionRuntimeEffect) {

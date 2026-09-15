@@ -42,6 +42,9 @@ export function createChatSessionApplication(store: SessionStore, now: () => num
   }
   async function refresh(preserveSession?: SessionSummary): Promise<SessionSummary[]> {
     const listedSessions = await store.list();
+    return reconcile(listedSessions, preserveSession);
+  }
+  function reconcile(listedSessions: SessionSummary[], preserveSession?: SessionSummary): SessionSummary[] {
     let titledSessions = listedSessions.map((session) => {
       if (!isDefaultSessionTitle(session.title)) { titles.delete(session.id); return session; }
       const title = titles.get(session.id);
@@ -87,7 +90,7 @@ export function createChatSessionApplication(store: SessionStore, now: () => num
     snapshot: () => state,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     onChange(listener: (event: ChatSessionChange) => void) { changes.add(listener); return () => { changes.delete(listener); }; },
-    load, refresh, accept,
+    load, refresh, reconcile, accept,
     preview(session: SessionSummary) { titles.set(session.id, session.title); updateSession(session.id, session); },
     createDraft(input: DraftSessionCreateInput): DraftSession {
       publish({ error: "" });
