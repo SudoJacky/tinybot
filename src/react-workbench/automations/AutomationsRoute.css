@@ -84,6 +84,7 @@
   .automation-task-run { opacity: 0; }
   .automation-task-row:hover .automation-task-run, .automation-task-row:focus-within .automation-task-run { opacity: 1; }
 }
+.automation-ui .automation-task-run[data-missed="true"] { opacity: 1; width: auto; white-space: nowrap; padding-inline: 10px; }
 @media (max-width: 700px) {
   .automation-page { padding: 20px 18px 32px; }
   .automation-page-header { margin: 0 0 20px; flex-wrap: wrap; }

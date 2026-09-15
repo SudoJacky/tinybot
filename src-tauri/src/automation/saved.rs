@@ -88,6 +88,8 @@ pub(crate) struct Run {
     pub status: String,
     pub error: Option<String>,
     pub started_at_ms: u64,
+    #[serde(default)]
+    pub scheduled_at_ms: Option<u64>,
     pub finished_at_ms: Option<u64>,
     pub stop_reason: Option<String>,
     pub process_id: String,
@@ -263,6 +265,7 @@ impl Store {
                 status: "running".into(),
                 error: None,
                 started_at_ms: now(),
+                scheduled_at_ms: None,
                 finished_at_ms: None,
                 stop_reason: None,
                 process_id: process().into(),
@@ -284,16 +287,23 @@ impl Store {
         })
     }
 
-    // Reserve runs and advance their cursors in one durable transaction. This
-    // prevents duplicate dispatch after a restart and coalesces missed repeats.
-    pub fn claim_due(&self, at: u64) -> Result<Vec<Run>, String> {
+    // Three polling intervals allow ordinary timer jitter. A longer wall-clock
+    // gap (including sleep) skips overdue occurrences instead of replaying them.
+    // The first tick has no previous time and skips the stopped-app backlog.
+    pub fn claim_due(&self, at: u64, previous_tick: Option<u64>) -> Result<Vec<Run>, String> {
+        let recovering =
+            previous_tick.map_or(true, |previous| at.saturating_sub(previous) > 15_000);
         self.transaction(|s| {
             let mut claimed = Vec::new();
             for definition in &mut s.definitions {
-                if !definition.next_run_at_ms.is_some_and(|next| next <= at) {
+                let Some(scheduled_at) = definition.next_run_at_ms.filter(|&next| next <= at) else {
                     continue;
-                }
-                if s.runs.iter().any(|r| {
+                };
+                // An occurrence already blocked before the gap keeps its existing
+                // waiting behavior; it was not missed because the scheduler stopped.
+                let missed = recovering && scheduled_at < at
+                    && previous_tick.map_or(true, |previous| scheduled_at > previous);
+                if !missed && s.runs.iter().any(|r| {
                     r.definition.id == definition.id
                         && matches!(r.status.as_str(), "running" | "waiting")
                 }) {
@@ -306,15 +316,20 @@ impl Store {
                     definition: snapshot,
                     effective_model: Value::Null,
                     thread_id: None,
-                    status: "running".into(),
+                    status: if missed { "missed" } else { "running" }.into(),
                     error: None,
                     started_at_ms: at,
-                    finished_at_ms: None,
-                    stop_reason: None,
+                    scheduled_at_ms: Some(scheduled_at),
+                    finished_at_ms: missed.then_some(at),
+                    stop_reason: missed.then(|| "scheduler_unavailable".into()),
                     process_id: process().into(),
                 };
                 s.runs.insert(0, run.clone());
-                claimed.push(run);
+                if missed {
+                    eprintln!("automation_schedule_missed automation_id={} run_id={} scheduled_at_ms={scheduled_at} detected_at_ms={at}", definition.id, run.id);
+                } else {
+                    claimed.push(run);
+                }
             }
             Ok(claimed)
         })

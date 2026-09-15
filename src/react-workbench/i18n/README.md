@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:16cf4cb31d9e630a6eb67a61694f709fe72e2df71ea267df75c1a7b20459d1cd -->
+<!-- tinybot-module-fingerprint: sha256:ca219732e065e4cf30f65b71ba24aa0923b47770a259b36fbb6a2828658deed3 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -141,3 +141,6 @@ and deletion/history guidance are localized in English and Chinese.
 
 The Chat sidebar automation shortcut is labeled Scheduled in English and
 定时任务 in Chinese.
+
+Missed automation states, skipped scheduled times, and manual-run guidance are
+localized in both languages. The schedule hint explicitly rules out auto replay.

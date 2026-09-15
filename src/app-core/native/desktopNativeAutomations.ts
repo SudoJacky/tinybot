@@ -25,9 +25,10 @@ export type AutomationRun = {
   definition: SavedAutomation;
   effectiveModel: ({ model: string; provider: string; apiMode: string } & Record<string, unknown>) | null;
   threadId: string | null;
-  status: "running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted";
+  status: "running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted" | "missed";
   error: string | null;
   startedAtMs: number;
+  scheduledAtMs?: number | null;
   finishedAtMs: number | null;
   stopReason: string | null;
 };

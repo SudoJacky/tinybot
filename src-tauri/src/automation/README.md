@@ -1,5 +1,5 @@
 # Automation
-<!-- tinybot-module-fingerprint: sha256:001680be1b0edcfcf166d071db84720c93619593fcace2316ad378a667467314 -->
+<!-- tinybot-module-fingerprint: sha256:26c1be94ff7af07a444172b1e41a9f488dc1f979d554311ae795f958021f3d49 -->
 
 `automation` manages work that runs outside an active foreground turn.
 
@@ -66,7 +66,13 @@ panics, persistence errors, and restart recovery have correlated run-ID logs.
 timezone. On DST gaps it skips nonexistent occurrences; repeated local times
 use the first occurrence. The desktop scheduler polls every five seconds after
 runtime startup recovery. Closing a page or hiding the window does not stop it;
-exiting the application does. Missed occurrences coalesce into one run on resume.
+exiting the application does. On startup, overdue occurrences are skipped. A gap
+longer than 15 seconds between successful checks also skips occurrences due
+during the gap. Each affected definition gets one durable `missed` history entry
+with the earliest `scheduledAtMs`; no Thread is dispatched. The next-run cursor
+advances in the same transaction. `Run now` creates a new invocation and retains
+the missed history. Occurrences already blocked by active work before a gap
+keep their delayed-dispatch behavior.
 `Store::claim_due` atomically advances the next-run cursor and reserves the run;
 subsequent preflight failures become visible failed history entries. Unchanged
 schedules retain their cursor when edited, so a completed once-only task does not

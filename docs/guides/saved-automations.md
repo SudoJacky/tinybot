@@ -39,8 +39,17 @@ start a new run. Deleting a definition does not stop an already running invocati
 
 The desktop backend checks schedules every five seconds while Tinybot is running.
 Closing a page or hiding the window keeps schedules active; exiting Tinybot stops
-them. Times follow this computer's local clock. Missed occurrences are combined
-into one invocation on resume; an already running/waiting task will not overlap.
+them. Times follow this computer's local clock. On startup, overdue occurrences
+are skipped. A gap longer than 15 seconds between successful scheduler checks
+(including sleep) also skips occurrences that became due during the gap. Shorter
+delays are treated as normal timer jitter. Each recovery records one **Missed**
+history entry per affected task, with the earliest skipped scheduled time, and
+advances recurring schedules to a future occurrence. A missed once-only task
+has no next occurrence. Nothing is automatically replayed. Use **Run now** on
+the task or its missed history entry to start a new invocation; the missed record
+remains in history. The **Needs attention** filter includes tasks whose latest
+entry is missed. An already running/waiting task will not overlap; an occurrence
+already blocked by that work retains its existing delayed-dispatch behavior.
 On daylight-saving gaps, nonexistent occurrences are skipped; repeated local
 times use the first occurrence. Switch to manual frequency to stop future triggers.
 Ordinary edits preserve the next-run cursor; change the schedule/start time to
@@ -55,3 +64,15 @@ tool execution path; it does not consume a user's live model quota:
 cargo test --manifest-path src-tauri/Cargo.toml --lib automation::saved_tests
 npx vitest run src/react-workbench/automations/AutomationsRoute.test.tsx
 ```
+
+Missed-run walkthrough:
+
+1. Save a once-only task a minute in the future, then exit Tinybot before it is due.
+2. Restart after that time. Confirm the task shows **Missed**, its original scheduled
+   time, no generated conversation, and a visible **Run now** button.
+3. Restart again. Confirm the same history entry remains and no execution starts.
+4. Choose **Run now** and verify the report is generated in a new normal run.
+   The missed history entry must remain inspectable.
+5. Repeat with a weekly task, checking that its next occurrence is in the future
+   and stays unchanged by Run now. Repeat by sleeping the machine across the due
+   time for more than 15 seconds while Tinybot is running.

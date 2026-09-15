@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import type { AppServices } from "../services";
@@ -11,8 +11,8 @@ async function choose(user: ReturnType<typeof userEvent.setup>, label: string, o
   await user.click(await screen.findByRole("button", { name: new RegExp(`^${label}:`) }));
   await user.click(screen.getByRole("menuitemradio", { name: option }));
 }
-function fixture() {
-  let snapshot: AutomationSnapshot = { definitions: [], runs: [] };
+function fixture(initial: AutomationSnapshot = { definitions: [], runs: [] }) {
+  let snapshot = initial;
   const services = {
     automationStore: {
       list: vi.fn(async () => snapshot),
@@ -23,7 +23,7 @@ function fixture() {
       delete: vi.fn(async () => { snapshot = { ...snapshot, definitions: [] }; }),
       run: vi.fn(async () => {
         const run = { id: "run-1", definition: snapshot.definitions[0], effectiveModel: { model: "model-a", provider: "provider-a", apiMode: "responses" }, threadId: "thread-1", status: "completed" as const, error: null, startedAtMs: 1, finishedAtMs: 2, stopReason: "final_response" };
-        snapshot = { ...snapshot, runs: [run] }; return run;
+        snapshot = { ...snapshot, runs: [run, ...snapshot.runs] }; return run;
       }),
       output: vi.fn(async () => "[Report](report.md)"),
     },
@@ -153,4 +153,43 @@ it("closes a settings menu with Escape while keeping the editor and draft open",
   expect(screen.getByRole("dialog")).toBeTruthy();
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Project weekly review");
+});
+
+function missedSnapshot(): AutomationSnapshot {
+  const definition: SavedAutomation = { id: "weekly", name: "Weekly report", instructions: "Write report.md", workspacePath: "D:/project", revision: 1, modelPolicy: "inherit_default", updatedAtMs: 1,
+    schedule: { repeat: "weekly", startAtMs: 1_800_000_000_000 }, nextRunAtMs: 1_800_604_800_000 };
+  return { definitions: [definition], runs: [{ id: "missed-1", definition, status: "missed", effectiveModel: null, threadId: null,
+    startedAtMs: 1_800_000_060_000, scheduledAtMs: 1_800_000_000_000, finishedAtMs: 1_800_000_060_000, error: null, stopReason: "scheduler_unavailable" }] };
+}
+
+it("shows a missed occurrence, runs manually, and retains the missed history", async () => {
+  const { services, appServices } = fixture(missedSnapshot()); const user = userEvent.setup();
+  render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+  expect(await screen.findByText(/Missed schedule from/)).toBeTruthy();
+  expect(screen.getByText(/Next:/)).toBeTruthy();
+  expect(services.automationStore.run).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Needs attention" }));
+  await user.click(screen.getByRole("button", { name: "Run now" }));
+  await waitFor(() => expect(services.automationStore.run).toHaveBeenCalledWith("weekly"));
+  expect(await screen.findByText("Completed")).toBeTruthy();
+  expect(screen.getByText("Missed")).toBeTruthy();
+  expect(screen.getByText(/Overdue occurrences were skipped/)).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Open conversation and report" })).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Back to tasks" }));
+  // The new execution replaces the attention state, while history retains the miss.
+  expect(screen.queryByText(/Missed schedule from/)).toBeNull();
+  expect(screen.getByText("No tasks match this search or filter.")).toBeTruthy();
+});
+
+it("disables Run now in both task and missed history while older work is active", async () => {
+  const snapshot = missedSnapshot();
+  snapshot.runs.push({ ...snapshot.runs[0], id: "active-1", status: "waiting", threadId: "thread-1", scheduledAtMs: null, finishedAtMs: null });
+  const { services, appServices } = fixture(snapshot); const user = userEvent.setup();
+  render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+  const run = await screen.findByRole("button", { name: "Run now" });
+  expect((run as HTMLButtonElement).disabled).toBe(true);
+  await user.click(run);
+  await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Run history" }));
+  expect((screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(services.automationStore.run).not.toHaveBeenCalled();
 });

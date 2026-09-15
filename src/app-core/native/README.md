@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:ddb971cbf84fbbcc33de36bc7a4f9c548d252ad00b549e0237b5c1cd11b108d6 -->
+<!-- tinybot-module-fingerprint: sha256:b9cf1e32a91a2e2897396c3b693e3ef11e91ff20500ffffaa6cd77a356ac4797 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -166,3 +166,7 @@ priorities, and removal of changes when the user returns to the original value.
 conversation/provider/profile/model/effort options, recurrence and next-run
 timestamps, run history, asynchronous dispatch, and canonical report output. Failures remain
 rejected native promises; storage and run ownership stay in Rust.
+
+Saved automation history includes a terminal `missed` status and optional
+`scheduledAtMs`. Missed entries have no Thread or effective model; Run now uses
+the existing manual command to create a separate invocation.

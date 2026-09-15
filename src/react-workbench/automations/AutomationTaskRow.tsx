@@ -3,18 +3,19 @@ import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { AutomationRun, SavedAutomation } from "../../app-core/native/desktopNativeAutomations";
 
-export function AutomationTaskRow({ definition, latestRun, workspaceName, busy, onEdit, onRun, onHistory }: {
+export function AutomationTaskRow({ definition, latestRun, workspaceName, busy, active, onEdit, onRun, onHistory }: {
   definition: SavedAutomation;
   latestRun?: AutomationRun;
   workspaceName: string;
   busy: boolean;
+  active: boolean;
   onEdit: () => void;
   onRun: () => void;
   onHistory: () => void;
 }) {
   const { t } = useTranslation("common");
   const menu = useRef<HTMLDetailsElement>(null);
-  const active = latestRun?.status === "running" || latestRun?.status === "waiting";
+  const missed = latestRun?.status === "missed";
   const Icon = latestRun?.status === "completed" ? CheckCircle2
     : latestRun?.status === "running" ? LoaderCircle
     : latestRun && latestRun.status !== "cancelled" ? CircleAlert : Circle;
@@ -25,10 +26,11 @@ export function AutomationTaskRow({ definition, latestRun, workspaceName, busy, 
         <span className="automation-task-name">{definition.name}</span>
         <span className="automation-task-description">{t(`automations.repeats.${definition.schedule?.repeat ?? "manual"}`)} · {workspaceName}{latestRun ? ` · ${t(`automations.status.${latestRun.status}`)}` : ""}
           {definition.nextRunAtMs && <> · {t("automations.nextRun", { time: new Date(definition.nextRunAtMs).toLocaleString() })}</>}</span>
+        {missed && latestRun.scheduledAtMs != null && <span className="automation-task-description">{t("automations.missedSince", { time: new Date(latestRun.scheduledAtMs).toLocaleString() })}</span>}
       </span>
     </button>
     <div className="automation-task-actions">
-      <button className="automation-icon-button automation-task-run" type="button" aria-label={t("automations.run")} title={t("automations.run")} disabled={busy || active} onClick={onRun}><Play size={17} /></button>
+      <button className="automation-icon-button automation-task-run" data-missed={missed} type="button" aria-label={t("automations.run")} title={t("automations.run")} disabled={busy || active} onClick={onRun}><Play size={17} />{missed && t("automations.run")}</button>
       <details className="automation-task-menu" ref={menu} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }} onKeyDown={(event) => {
         if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); event.stopPropagation(); }
       }}>

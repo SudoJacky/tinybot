@@ -1,5 +1,5 @@
 # Automations
-<!-- tinybot-module-fingerprint: sha256:0a25a6632269fade2f1a77fb286bda56c50954a87c9f825f1ee3aad933854e55 -->
+<!-- tinybot-module-fingerprint: sha256:8cf28c0457897a3872a0067d3bbc0213d2cf9f5275b29cfbf73dc03a92733547 -->
 
 The lazy Automations route owns definition forms, run selection, and report
 presentation. Native storage and execution belong to
@@ -18,7 +18,10 @@ The form saves name, instructions, workspace identity, optional conversation,
 provider/profile/model and reasoning effort, schedule, and revision preconditions.
 Frequency choices are manual, once, daily, weekdays, and weekly, with a local
 start datetime. Scheduling remains in the desktop backend; the UI only displays
-the persisted next-run cursor. Provider/session catalogs load before saving;
+the persisted next-run cursor and missed history entries. A missed task shows
+its earliest skipped time and a visible Run now action, also available in history.
+Manual execution preserves the missed record. Run buttons check all active runs
+so a newer missed entry cannot hide running or waiting work. Provider/session catalogs load before saving;
 unavailable paths, catalogs and native failures remain visible.
 No draft or canonical execution state is stored in browser local storage.
 

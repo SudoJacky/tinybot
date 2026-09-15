@@ -144,9 +144,9 @@ fn agent_creation_tool_saves_desktop_tasks_and_resolves_current_conversation() {
         .unwrap()
         .timestamp_millis() as u64;
     assert_eq!(new.next_run_at_ms, Some(at));
-    assert!(f.store.claim_due(at - 1).unwrap().is_empty());
+    assert!(f.store.claim_due(at - 1, Some(at - 1)).unwrap().is_empty());
     assert_eq!(
-        f.store.claim_due(at).unwrap().len(),
+        f.store.claim_due(at, Some(at)).unwrap().len(),
         2,
         "the existing scheduler must claim agent-created tasks"
     );
@@ -654,7 +654,7 @@ fn provider_failure_is_persisted_with_owning_thread_and_allows_next_run() {
 }
 
 #[test]
-fn schedule_claim_is_durable_coalesces_missed_runs_and_preserves_active_ownership() {
+fn schedule_claim_is_durable_and_preserves_active_ownership() {
     use super::schedule::{Repeat, Schedule};
     let f = Fixture::new();
     let d = f.save();
@@ -668,23 +668,23 @@ fn schedule_claim_is_durable_coalesces_missed_runs_and_preserves_active_ownershi
         execution: ExecutionOptions::default(),
         schedule: Schedule {
             repeat: Repeat::Daily,
-            start_at_ms: Some(at - 3 * 86_400_000),
+            start_at_ms: Some(at),
         },
     };
     let d = f.store.save(input.clone()).unwrap();
-    assert_eq!(f.store.claim_due(at).unwrap().len(), 1);
-    assert!(f.store.claim_due(at).unwrap().is_empty());
+    assert_eq!(f.store.claim_due(at, Some(at)).unwrap().len(), 1);
+    assert!(f.store.claim_due(at, Some(at)).unwrap().is_empty());
     let next = f.store.snapshot().unwrap().definitions[0]
         .next_run_at_ms
         .unwrap();
     assert!(next > at);
-    assert!(f.store.claim_due(next).unwrap().is_empty());
+    assert!(f.store.claim_due(next, Some(next)).unwrap().is_empty());
     let run = f.store.snapshot().unwrap().runs[0].clone();
     f.store
         .fail(&run.id, "Visible dispatch error".into())
         .unwrap();
     let reopened = Store::new(&f.root.join("data"));
-    assert!(reopened.claim_due(at).unwrap().is_empty());
+    assert!(reopened.claim_due(at, Some(at)).unwrap().is_empty());
     let updated = reopened
         .save(SaveDefinition {
             expected_revision: Some(d.revision),
@@ -693,7 +693,7 @@ fn schedule_claim_is_durable_coalesces_missed_runs_and_preserves_active_ownershi
         })
         .unwrap();
     assert_eq!(updated.next_run_at_ms, Some(next));
-    assert_eq!(reopened.claim_due(next).unwrap().len(), 1);
+    assert_eq!(reopened.claim_due(next, Some(next)).unwrap().len(), 1);
     assert_eq!(reopened.snapshot().unwrap().runs.len(), 2);
 }
 
@@ -716,8 +716,12 @@ fn once_schedule_does_not_rearm_on_edit_and_manual_disables_future_dispatch() {
         },
     };
     let saved = f.store.save(input.clone()).unwrap();
-    assert!(f.store.claim_due(at).unwrap().is_empty());
-    let run = f.store.claim_due(at + 60_000).unwrap().remove(0);
+    assert!(f.store.claim_due(at, Some(at)).unwrap().is_empty());
+    let run = f
+        .store
+        .claim_due(at + 60_000, Some(at + 60_000))
+        .unwrap()
+        .remove(0);
     f.store.fail(&run.id, "No provider".into()).unwrap();
     let saved = f
         .store
@@ -727,7 +731,11 @@ fn once_schedule_does_not_rearm_on_edit_and_manual_disables_future_dispatch() {
         })
         .unwrap();
     assert_eq!(saved.next_run_at_ms, None);
-    assert!(f.store.claim_due(at + 120_000).unwrap().is_empty());
+    assert!(f
+        .store
+        .claim_due(at + 120_000, Some(at + 120_000))
+        .unwrap()
+        .is_empty());
     let saved = f
         .store
         .save(SaveDefinition {
@@ -775,6 +783,185 @@ fn recurrence_uses_local_clock_and_skips_weekends() {
     }
     .first()
     .is_err());
+}
+
+#[test]
+fn missed_schedules_survive_restart_and_run_now_preserves_future_occurrences() {
+    use super::schedule::{Repeat, Schedule};
+    // Explicit clock inputs cover startup, sleep, and multiple missed weeks.
+    let start = 1_800_000_000_000;
+    let resumed = start + 22 * 86_400_000;
+    for previous in [None, Some(start - 5_000)] {
+        let f = Fixture::new();
+        let d = f
+            .store
+            .save(SaveDefinition {
+                schedule: Schedule {
+                    repeat: Repeat::Weekly,
+                    start_at_ms: Some(start),
+                },
+                id: None,
+                expected_revision: None,
+                name: "Weekly report".into(),
+                instructions: "Write report.md".into(),
+                workspace_path: f.workspace.to_string_lossy().into(),
+                execution: Default::default(),
+            })
+            .unwrap();
+        assert!(f.store.claim_due(resumed, previous).unwrap().is_empty());
+        let reopened = Store::new(&f.root.join("data"));
+        let snapshot = reopened.snapshot().unwrap();
+        assert_eq!(
+            snapshot.runs.len(),
+            1,
+            "coalesce the backlog into one missed entry"
+        );
+        let missed = snapshot.runs[0].clone();
+        assert_eq!(missed.status, "missed");
+        assert_eq!(missed.scheduled_at_ms, Some(start));
+        assert_eq!(missed.finished_at_ms, Some(resumed));
+        assert!(missed.thread_id.is_none());
+        assert!(missed.effective_model.is_null());
+        let next = snapshot.definitions[0].next_run_at_ms.unwrap();
+        assert!(next > resumed);
+        assert!(reopened
+            .claim_due(resumed + 5_000, None)
+            .unwrap()
+            .is_empty());
+        assert_eq!(reopened.snapshot().unwrap().runs.len(), 1);
+
+        let run = execution::prepare(&reopened, &d.id, &f.config()).unwrap();
+        assert_ne!(run.id, missed.id);
+        assert_eq!(run.scheduled_at_ms, None);
+        assert!(execution::prepare(&reopened, &d.id, &f.config()).is_err());
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(ReportProvider {
+                calls: AtomicUsize::new(0),
+                workspace: f.workspace.clone(),
+                fail: false,
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(f.threads());
+        tauri::async_runtime::block_on(execution::execute(
+            reopened.clone(),
+            run.clone(),
+            services,
+            f.root.clone(),
+            f.config(),
+            None,
+        ))
+        .unwrap();
+        let snapshot = reopened.snapshot().unwrap();
+        assert_eq!(snapshot.runs[0].status, "completed");
+        assert!(snapshot.runs[0].thread_id.is_some());
+        assert!(f.workspace.join("report.md").exists());
+        assert_eq!(snapshot.runs[1], missed);
+        assert_eq!(snapshot.definitions[0].next_run_at_ms, Some(next));
+        assert_eq!(
+            reopened
+                .claim_due(next + 3_000, Some(next - 2_000))
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(reopened
+            .claim_due(next + 8_000, Some(next + 3_000))
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[test]
+fn sleep_skips_once_schedule_even_with_active_work_and_keeps_manual_non_overlap() {
+    use super::schedule::{Repeat, Schedule};
+    let f = Fixture::new();
+    let start = 1_800_000_000_000;
+    let d = f
+        .store
+        .save(SaveDefinition {
+            id: None,
+            expected_revision: None,
+            name: "Once".into(),
+            instructions: "Write report.md".into(),
+            workspace_path: f.workspace.to_string_lossy().into(),
+            execution: Default::default(),
+            schedule: Schedule {
+                repeat: Repeat::Once,
+                start_at_ms: Some(start),
+            },
+        })
+        .unwrap();
+    let mut active = execution::prepare(&f.store, &d.id, &f.config()).unwrap();
+    active.status = "waiting".into();
+    f.store.update(&active).unwrap();
+    assert!(f
+        .store
+        .claim_due(start + 20_000, Some(start - 5_000))
+        .unwrap()
+        .is_empty());
+    let snapshot = f.store.snapshot().unwrap();
+    assert_eq!(snapshot.runs[0].status, "missed");
+    assert_eq!(snapshot.runs[1].status, "waiting");
+    assert_eq!(snapshot.definitions[0].next_run_at_ms, None);
+    assert!(execution::prepare(&f.store, &d.id, &f.config()).is_err());
+    f.store
+        .fail(&active.id, "Finished active work".into())
+        .unwrap();
+    assert!(f
+        .store
+        .claim_due(start + 25_000, Some(start + 20_000))
+        .unwrap()
+        .is_empty());
+    assert!(execution::prepare(&f.store, &d.id, &f.config()).is_ok());
+}
+
+#[test]
+fn ordinary_poll_delay_and_busy_occurrences_are_not_missed() {
+    use super::schedule::{Repeat, Schedule};
+    let f = Fixture::new();
+    let start = 1_800_000_000_000;
+    let d = f
+        .store
+        .save(SaveDefinition {
+            id: None,
+            expected_revision: None,
+            name: "Once".into(),
+            instructions: "Write report.md".into(),
+            workspace_path: f.workspace.to_string_lossy().into(),
+            execution: Default::default(),
+            schedule: Schedule {
+                repeat: Repeat::Once,
+                start_at_ms: Some(start),
+            },
+        })
+        .unwrap();
+    let active = execution::prepare(&f.store, &d.id, &f.config()).unwrap();
+    assert!(f
+        .store
+        .claim_due(start + 5_000, Some(start - 5_000))
+        .unwrap()
+        .is_empty());
+    assert_eq!(f.store.snapshot().unwrap().runs.len(), 1);
+    // A sleep after this occurrence was already blocked does not reclassify it.
+    assert!(f
+        .store
+        .claim_due(start + 60_000, Some(start + 5_000))
+        .unwrap()
+        .is_empty());
+    f.store
+        .fail(&active.id, "Finished active work".into())
+        .unwrap();
+    let runs = f
+        .store
+        .claim_due(start + 65_000, Some(start + 60_000))
+        .unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, "running");
+    assert_eq!(runs[0].scheduled_at_ms, Some(start));
+    assert_eq!(f.store.snapshot().unwrap().runs.len(), 2);
 }
 
 struct ConfiguredProvider {
@@ -889,7 +1076,7 @@ fn scheduled_execution_reuses_conversation_with_selected_profile_model_and_reaso
             },
         })
         .unwrap();
-    let mut next = f.store.claim_due(at).unwrap().remove(0);
+    let mut next = f.store.claim_due(at, Some(at)).unwrap().remove(0);
     next.effective_model = execution::effective_model(
         &next.definition.execution,
         &next.definition.workspace_path,

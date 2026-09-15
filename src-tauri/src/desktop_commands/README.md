@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:70d4f5042414dbc5f5e6f99e357ef57d174df2d7dc0ab9ff3dd69455e662c4b6 -->
+<!-- tinybot-module-fingerprint: sha256:28ac5d66abb2002f62e916f80d1096fe386a5fee3ac6fe5b675a50214f630a22 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -87,3 +87,7 @@ Saving uses the same `execution::save` validation as `create_automation`, includ
 the default workspace for general chats without an explicit working directory.
 The startup scheduler reserves due tasks every five seconds and uses the same
 dispatch path. Scheduled preflight failures persist as failed runs with logs.
+
+The scheduler passes the previous successful wall-clock check into the saved
+automation store. Startup and gaps exceeding 15 seconds record overdue
+occurrences as missed instead of dispatching them.

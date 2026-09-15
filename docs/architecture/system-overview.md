@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:454f80acb32e80d3ec55cdb8e31dad7ead205113e5886a829ae8cb078b14140c -->
+<!-- tinybot-doc-fingerprint: sha256:7ceddacbd3950baa0e75a2186338e62bce63ded153adffe5bc7808710f0597b5 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -127,6 +127,10 @@ Desktop Commands / Desktop Host
 
 ## Authority map
 
+- Saved automation definitions, execution snapshots, and missed schedule records:
+  the application-owned automation store. Missed occurrences advance the schedule
+  without creating a Thread; Run now creates a separate canonical invocation.
+  Renderer adapters expose this history without owning dispatch or recovery.
 - Canonical conversation history: Rollouts under the Tinybot application data
   root. Startup index, Thread projection, and Turn recovery readers reuse a
   bounded Rollout-head-keyed cache; an append invalidates the matching cached
