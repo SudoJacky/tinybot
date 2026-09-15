@@ -202,9 +202,7 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
         WorkerCapability::ProviderSecretRead => "provider://runtime",
         WorkerCapability::FormRequest => "agent-ui://current",
         WorkerCapability::TaskRead | WorkerCapability::TaskWrite => "task://plans",
-        WorkerCapability::CronRead | WorkerCapability::CronWrite | WorkerCapability::CronRun => {
-            "cron://jobs"
-        }
+        WorkerCapability::AutomationWrite => "automation://definitions",
         WorkerCapability::BackgroundRead | WorkerCapability::BackgroundWrite => {
             "background://registry"
         }

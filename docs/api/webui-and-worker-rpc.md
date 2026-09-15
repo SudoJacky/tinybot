@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:6ce949fd643031c81d0e5e8d1d4452847a4eda9ed9fc606863bc720f9d6377bb -->
+<!-- tinybot-doc-fingerprint: sha256:2daca8c8cb8e2e7deadad9f17ec92f52d8b934a3273f805c6bebe8c6816740a3 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -92,6 +92,12 @@ The `mcp.config.write` capability belongs to the native Agent's restricted
 the generic `config.apply_operations` method, which continues to require
 `config.write`.
 
+The workspace `cron.job.*` methods are retired and return unknown-method errors.
+Saved automation creation uses the application-owned `create_automation` tool
+with `automation.write` and `session.metadata.read`, or desktop automation
+commands. Existing workspace cron files are left untouched and are not imported
+or executed.
+
 ### Supported Worker RPC Methods
 
 | Namespace | Methods |
@@ -101,7 +107,6 @@ the generic `config.apply_operations` method, which continues to require
 | `background.trace` | `append`, `get_artifact`, `get_delegate_trace`, `list` |
 | `channel.connector` | `login`, `send_delta`, `send_text`, `send_usage`, `start`, `stop`, `transcribe_audio` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
-| `cron.job` | `add`, `due`, `list`, `record_runs`, `remove` |
 | `diagnostics` | `append` |
 | `form` | `request` |
 | `mcp` | `call_tool`, `capability_catalog`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |

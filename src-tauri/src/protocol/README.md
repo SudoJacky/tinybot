@@ -1,5 +1,5 @@
 # Worker Protocol
-<!-- tinybot-module-fingerprint: sha256:9f474631d6f99c55fdbb83164c55058b1181c13c3b1b698947ef5fe021ff9b91 -->
+<!-- tinybot-module-fingerprint: sha256:23877545ecb5116439fed11074dbb6f6b04beb56f1b04677ccb998aef918d646 -->
 
 `protocol` defines the versioned request, response, and error envelopes used by
 the in-process RPC router.
@@ -11,3 +11,6 @@ defining parallel wire formats.
 The `mcp.config.write` capability is intentionally distinct from generic
 `config.write`: it authorizes only registered MCP domain tools, not arbitrary
 application configuration mutation.
+
+`automation.write` authorizes saved automation creation. Desktop policies grant
+it explicitly; it replaces the retired workspace cron capabilities.

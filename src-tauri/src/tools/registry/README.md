@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:ebaac6ba0fba49f76d30c23e7e8680b0660db4e78566dea955118b5a474982aa -->
+<!-- tinybot-module-fingerprint: sha256:7567f3ab6f3b493360130170431b05158eba762ddd5039959c2c69cfe1723460 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -8,7 +8,7 @@ behavior, and mutation policy.
 The built-in `create_automation` tool is model-visible and routes to the native
 Agent bridge. Its schema describes supported schedules, RFC 3339 start times,
 workspace and conversation selection, and optional model overrides. It requires
-`CronWrite` and `SessionMetadataRead`, executes exclusively, and forbids detachment.
+`AutomationWrite` and `SessionMetadataRead`, executes exclusively, and forbids detachment.
 
 Contributors add built-in, web, workspace, MCP, runtime-control, Agent Graph,
 and project-group workspace-Thread tools to a single searchable registry.

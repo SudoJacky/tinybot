@@ -11,9 +11,7 @@ fn default_worker_policy_denies_sensitive_capabilities() {
     assert!(!policy.allows(&WorkerCapability::FormRequest));
     assert!(!policy.allows(&WorkerCapability::TaskRead));
     assert!(!policy.allows(&WorkerCapability::TaskWrite));
-    assert!(!policy.allows(&WorkerCapability::CronRead));
-    assert!(!policy.allows(&WorkerCapability::CronWrite));
-    assert!(!policy.allows(&WorkerCapability::CronRun));
+    assert!(!policy.allows(&WorkerCapability::AutomationWrite));
     assert!(!policy.allows(&WorkerCapability::BackgroundRead));
     assert!(!policy.allows(&WorkerCapability::BackgroundWrite));
     assert!(!policy.allows(&WorkerCapability::McpCall));
@@ -62,9 +60,7 @@ fn capability_names_serialize_as_protocol_strings() {
         (WorkerCapability::FormRequest, "form.request"),
         (WorkerCapability::TaskRead, "task.read"),
         (WorkerCapability::TaskWrite, "task.write"),
-        (WorkerCapability::CronRead, "cron.read"),
-        (WorkerCapability::CronWrite, "cron.write"),
-        (WorkerCapability::CronRun, "cron.run"),
+        (WorkerCapability::AutomationWrite, "automation.write"),
         (WorkerCapability::BackgroundRead, "background.read"),
         (WorkerCapability::BackgroundWrite, "background.write"),
         (WorkerCapability::McpCall, "mcp.call"),

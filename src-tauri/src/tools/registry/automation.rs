@@ -9,7 +9,7 @@ pub(super) fn create_tool() -> ToolRegistryEntry {
         ToolExposure::Model,
         false,
         runtime_policy(false, ToolCancellationMode::DetachForbidden, false, false),
-        vec![WorkerCapability::CronWrite, WorkerCapability::SessionMetadataRead],
+        vec![WorkerCapability::AutomationWrite, WorkerCapability::SessionMetadataRead],
         json!({
             "type": "object",
             "additionalProperties": false,

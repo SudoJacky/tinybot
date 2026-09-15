@@ -32,6 +32,16 @@ fn list_runs_reads_existing_background_registry_fixture() {
                     "result": null,
                     "error": null,
                     "metadata": { "source": "pre-storage-refactor" }
+                },
+                {
+                    "id": "historical-cron-run",
+                    "kind": "cron",
+                    "source": "cron",
+                    "status": "completed",
+                    "cronJobId": "retired-job",
+                    "startedAtMs": 1710000000000i64,
+                    "updatedAtMs": 1710000005000i64,
+                    "completedAtMs": 1710000005000i64
                 }
             ]
         }))
@@ -47,11 +57,16 @@ fn list_runs_reads_existing_background_registry_fixture() {
         .list_runs()
         .expect("existing background registry should load");
 
-    assert_eq!(result.runs.len(), 1);
+    assert_eq!(result.runs.len(), 2);
     let run = &result.runs[0];
     assert_eq!(run.id, "run-existing");
     assert_eq!(run.status, BackgroundRunStatus::Running);
     assert_eq!(run.metadata["source"], "pre-storage-refactor");
+    let historical = &result.runs[1];
+    assert_eq!(historical.kind, BackgroundRunKind::Cron);
+    assert!(matches!(historical.source, BackgroundRunSource::Cron));
+    assert_eq!(historical.cron_job_id.as_deref(), Some("retired-job"));
+    assert_eq!(historical.status, BackgroundRunStatus::Completed);
 }
 
 #[test]

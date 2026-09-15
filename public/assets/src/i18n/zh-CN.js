@@ -70,7 +70,6 @@ export default {
     "tool.display.writeFile": "写入文件",
     "tool.display.exec": "执行命令",
     "tool.display.spawn": "后台任务",
-    "tool.display.cron": "定时任务",
     "tool.risk.modifyFiles": "可能修改电脑文件，关键操作会确认",
     "tool.risk.background": "会在后台运行，注意执行范围",
 
@@ -529,7 +528,6 @@ export default {
     "docs.toolExec": "Shell 命令执行",
     "docs.toolWebSearch": "网络搜索（DuckDuckGo/Brave/Tavily等）",
     "docs.toolBrowser": "浏览器自动化（通过 OpenCLI）",
-    "docs.toolCron": "定时任务管理",
     "docs.toolMcp": "MCP 协议工具集成",
     "docs.cliCommands": "CLI 交互命令",
     "docs.cmdConfig": "打开配置编辑器",

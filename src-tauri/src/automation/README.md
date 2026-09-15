@@ -1,11 +1,16 @@
 # Automation
-<!-- tinybot-module-fingerprint: sha256:000382055d08e53db16663a59eccef0540ee645f2f4701162f134e0544df8850 -->
+<!-- tinybot-module-fingerprint: sha256:001680be1b0edcfcf166d071db84720c93619593fcace2316ad378a667467314 -->
 
 `automation` manages work that runs outside an active foreground turn.
 
 - `background.rs` tracks background jobs and their events.
-- `cron.rs` handles recurring schedules.
+- `schedule.rs` computes occurrences for saved workspace automations.
 - `tasks.rs` stores and manages automation tasks.
+
+The workspace cron RPC and job store are retired. Existing `cron/jobs.json`
+files are left untouched and are not consumed by saved automations. Background
+history retains its serialized cron kinds, sources, and job IDs so old registry
+records remain readable; those values do not dispatch work.
 
 ## Saved workspace automations
 
@@ -18,7 +23,7 @@ application defaults. Creation and the desktop save command share
 `execution::save` for workspace, conversation, and provider validation. Tool
 errors return to the model, and success returns the saved definition and a local
 `nextRunAt` timestamp. The Agent bridge dispatches this tool with application
-services; it is not a workspace RPC or the separate legacy cron job store.
+services; it is not a workspace RPC.
 General chats without an explicit workspace use the application's default
 workspace for reuse validation, matching foreground execution. An explicit
 workspace on a conversation still requires a canonical path match; creating a

@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a2df79837084be68e6c37053845c7a242dbe753f1aa1862b9a003d41024abde1 -->
+<!-- tinybot-doc-fingerprint: sha256:6b604d98f5d5bda79766539c654ef96c79fdca27acf33333104db5d7d18e251c -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -75,7 +75,7 @@ Next provider iteration
 ## Registry Interface
 
 `create_automation` is a model-visible built-in with a native bridge execution
-target. It requires `CronWrite` and `SessionMetadataRead`, runs in an exclusive
+target. It requires `AutomationWrite` and `SessionMetadataRead`, runs in an exclusive
 wave, and forbids detachment. The bridge supplies the application Thread store,
 data root, current workspace, and canonical caller identity to shared automation
 validation. Generic Worker RPC cannot execute this target.

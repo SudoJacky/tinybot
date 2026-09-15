@@ -81,3 +81,54 @@ fn registered_shell_tool_is_allowed_when_capability_is_granted() {
 
     assert_eq!(evaluation.decision, PermissionDecision::Allow);
 }
+
+#[test]
+fn saved_automation_creation_requires_its_own_write_capability() {
+    let policy = crate::protocol::capability::default_desktop_capability_policy();
+    let tool = WorkerToolRegistryRpc::new(policy.clone())
+        .get_tool("create_automation")
+        .unwrap();
+    for granted in [true, false] {
+        let profile = WorkerPermissionProfileRpc::new(CapabilityPolicy::new(
+            policy
+                .granted_capabilities()
+                .into_iter()
+                .filter(|capability| granted || capability != &WorkerCapability::AutomationWrite),
+        ));
+        let evaluation = profile
+            .evaluate_tool(
+                &tool,
+                PermissionEvaluateToolRequest {
+                    tool_id: tool.tool_id.clone(),
+                    arguments: json!({}),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            evaluation.decision,
+            if granted {
+                PermissionDecision::Allow
+            } else {
+                PermissionDecision::Deny
+            }
+        );
+        assert_eq!(
+            evaluation.missing_capabilities,
+            if granted {
+                vec![]
+            } else {
+                vec![WorkerCapability::AutomationWrite]
+            }
+        );
+        assert!(evaluation.effects.mutates_background);
+        if granted {
+            let snapshot = profile.current_profile(vec![tool.clone()]);
+            let capability = snapshot
+                .capabilities
+                .iter()
+                .find(|state| state.capability == WorkerCapability::AutomationWrite)
+                .unwrap();
+            assert_eq!(capability.scope, "automation://definitions");
+        }
+    }
+}
