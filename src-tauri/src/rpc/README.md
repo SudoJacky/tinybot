@@ -3,7 +3,7 @@
 Turn-persistence dispatch adapts wire parameters to the typed workspace store
 service. Internal Agent persistence calls that service directly, sharing its
 lifecycle lock, canonical writes, projection synchronization, and recovery.
-<!-- tinybot-module-fingerprint: sha256:22f44c6f8dc5b79bcbeee957b8edb48f79abef3508dfee399eab011ed94957b0 -->
+<!-- tinybot-module-fingerprint: sha256:c9cefa893b0b07cace35fcdbf93c0e6fb863a3ab95379feea7f54a73b57fc6b7 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -67,6 +67,9 @@ tools/MCP/permissions, and runtime operations.
 
 `runtime.restart` is unsupported and returns the standard unknown-method error.
 Runtime lifecycle changes belong to the application lifecycle owner.
+The retired `cron.job.*` methods also return unknown-method errors. Saved
+automations are application-owned and use desktop commands or the native Agent
+bridge rather than this workspace router.
 
 ## Adding a method
 

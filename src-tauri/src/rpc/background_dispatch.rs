@@ -25,25 +25,6 @@ impl WorkerRpcRouter {
                 let params: TaskPlanIdParams = parse_params(request)?;
                 serde_json::to_value(self.task.delete_plan(params)?).map_err(serialization_error)
             }
-            "cron.job.add" => {
-                let params: CronJobAddParams = parse_params(request)?;
-                serde_json::to_value(self.cron.add_job(params)?).map_err(serialization_error)
-            }
-            "cron.job.list" => {
-                serde_json::to_value(self.cron.list_jobs()?).map_err(serialization_error)
-            }
-            "cron.job.due" => {
-                let params: CronJobDueParams = parse_params(request)?;
-                serde_json::to_value(self.cron.due_jobs(params)?).map_err(serialization_error)
-            }
-            "cron.job.record_runs" => {
-                let params: CronJobRecordRunsParams = parse_params(request)?;
-                serde_json::to_value(self.cron.record_runs(params)?).map_err(serialization_error)
-            }
-            "cron.job.remove" => {
-                let params: CronJobRemoveParams = parse_params(request)?;
-                serde_json::to_value(self.cron.remove_job(params)?).map_err(serialization_error)
-            }
             "background.run.list" => {
                 serde_json::to_value(self.background.list_runs()?).map_err(serialization_error)
             }

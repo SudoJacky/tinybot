@@ -401,6 +401,7 @@ pub struct BackgroundRun {
     pub session_key: Option<String>,
     pub plan_id: Option<String>,
     pub subtask_id: Option<String>,
+    // Retained for historical registry records; saved automations own their run IDs.
     pub cron_job_id: Option<String>,
     pub started_at_ms: i64,
     pub updated_at_ms: i64,
@@ -415,6 +416,7 @@ pub struct BackgroundRun {
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundRunKind {
     Subagent,
+    // Historical serialized value from the retired workspace cron service.
     Cron,
     Task,
 }
@@ -424,6 +426,7 @@ pub enum BackgroundRunKind {
 pub enum BackgroundRunSource {
     Task,
     Subagent,
+    // Historical serialized value from the retired workspace cron service.
     Cron,
     File,
     Provider,

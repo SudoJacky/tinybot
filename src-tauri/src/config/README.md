@@ -1,5 +1,5 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:c24c3a8e4db2853e5c2d316de3a0e9fb62f5f8829760925e93be6407f0794180 -->
+<!-- tinybot-module-fingerprint: sha256:07f5d606c3502578db8e702bd064cc184a78ff8ed489cec4d13bd6e2a47d25f8 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 
@@ -27,3 +27,6 @@ collection as profile-scoped JSON.
 Long-term Memory may optionally set `memory.activeProfile` and `memory.model`
 as one Provider/model override. Removing both fields restores the global Agent
 defaults; changing or clearing either field refreshes Provider runtime state.
+
+The retired `automations.cron_enabled` setting is no longer exposed. Saved
+automation scheduling is owned by the desktop automation lifecycle.

@@ -1,5 +1,5 @@
 # RPC Tests
-<!-- tinybot-module-fingerprint: sha256:d8dbf77361a87fef334e9bdca49777c66ce124b1fa4f1e34b514df915feb8aa7 -->
+<!-- tinybot-module-fingerprint: sha256:3de049c976d8611019040e3af84e3d5b91644c32ab984e6b8d4c57076aac3eb5 -->
 
 This directory groups end-to-end router tests by service family. The suites
 cover request validation and dispatch for automation, collaboration, threads,

@@ -27,12 +27,8 @@ pub enum WorkerCapability {
     TaskRead,
     #[serde(rename = "task.write")]
     TaskWrite,
-    #[serde(rename = "cron.read")]
-    CronRead,
-    #[serde(rename = "cron.write")]
-    CronWrite,
-    #[serde(rename = "cron.run")]
-    CronRun,
+    #[serde(rename = "automation.write")]
+    AutomationWrite,
     #[serde(rename = "background.read")]
     BackgroundRead,
     #[serde(rename = "background.write")]
@@ -81,9 +77,7 @@ pub fn default_desktop_capability_policy() -> CapabilityPolicy {
         WorkerCapability::ShellExecute,
         WorkerCapability::DiagnosticsWrite,
         WorkerCapability::FormRequest,
-        WorkerCapability::CronRead,
-        WorkerCapability::CronWrite,
-        WorkerCapability::CronRun,
+        WorkerCapability::AutomationWrite,
         WorkerCapability::BackgroundRead,
         WorkerCapability::BackgroundWrite,
         WorkerCapability::TaskRead,

@@ -70,7 +70,6 @@ export default {
     "tool.display.writeFile": "Write file",
     "tool.display.exec": "Run command",
     "tool.display.spawn": "Background task",
-    "tool.display.cron": "Scheduled task",
     "tool.risk.modifyFiles": "May modify files; key actions require confirmation",
     "tool.risk.background": "Runs in the background; check scope first",
 
@@ -517,7 +516,6 @@ export default {
     "docs.toolExec": "Shell command execution",
     "docs.toolWebSearch": "Web search (DuckDuckGo/Brave/Tavily etc.)",
     "docs.toolBrowser": "Browser automation (via OpenCLI)",
-    "docs.toolCron": "Scheduled task management",
     "docs.toolMcp": "MCP protocol tool integration",
     "docs.cliCommands": "CLI Interactive Commands",
     "docs.cmdConfig": "Open configuration editor",

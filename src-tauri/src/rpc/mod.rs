@@ -4,9 +4,6 @@ use crate::automation::background::{
     BackgroundTraceGetDelegateTraceParams, BackgroundTraceListFilter, BackgroundTraceListParams,
     WorkerBackgroundRpc,
 };
-use crate::automation::cron::{
-    CronJobAddParams, CronJobDueParams, CronJobRecordRunsParams, CronJobRemoveParams, WorkerCronRpc,
-};
 use crate::automation::tasks::{
     TaskPlanIdParams, TaskPlanListParams, TaskPlanSaveParams, WorkerTaskRpc,
 };
@@ -85,7 +82,6 @@ pub struct WorkerRpcRouter {
     shell: WorkerShellRpc,
     form: WorkerFormRpc,
     task: WorkerTaskRpc,
-    cron: WorkerCronRpc,
     background: WorkerBackgroundRpc,
     mcp: WorkerMcpRpc,
     channel_connector: WorkerChannelConnectorRpc,
@@ -129,7 +125,6 @@ impl WorkerRpcRouter {
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
-            cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
             tool_registry: WorkerToolRegistryRpc::new_with_config(
@@ -247,11 +242,7 @@ impl WorkerRpcRouter {
             {
                 self.dispatch_interaction_method(request)
             }
-            method
-                if method.starts_with("task.")
-                    || method.starts_with("cron.")
-                    || method.starts_with("background.") =>
-            {
+            method if method.starts_with("task.") || method.starts_with("background.") => {
                 self.dispatch_background_method(request)
             }
             method if method.starts_with("subagent.") => self.dispatch_subagent_method(request),

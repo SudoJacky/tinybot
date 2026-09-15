@@ -19,7 +19,7 @@ fn automation_creation_is_model_visible_and_requires_write_permission() {
             .mutates_background
     );
     for capability in [
-        WorkerCapability::CronWrite,
+        WorkerCapability::AutomationWrite,
         WorkerCapability::SessionMetadataRead,
     ] {
         let policy = CapabilityPolicy::new(

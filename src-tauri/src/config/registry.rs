@@ -354,15 +354,6 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                     get_path(config, &["automations", "enabled"]),
                 ),
                 config_field(
-                    "cron-enabled",
-                    "Cron enabled",
-                    "automations.cron_enabled",
-                    SettingScope::Global,
-                    SettingValueType::Boolean,
-                    true,
-                    get_path(config, &["automations", "cron_enabled"]),
-                ),
-                config_field(
                     "max-concurrent-jobs",
                     "Max concurrent jobs",
                     "automations.max_concurrent_jobs",
