@@ -25,10 +25,18 @@ describe("code artifact preview", () => {
     document.head.append(style);
     const text = "def hello(name):\n    return 'Hello ' + name";
     const { container } = render(<CodeArtifactPreview text={text} language="python" />);
-    await waitFor(() => expect(container.querySelector('pre span[style*="--sdm-c"]')).not.toBeNull());
+    await waitFor(() => {
+      // Streamdown initially renders unhighlighted tokens with an inherited color.
+      const colorProperty = theme === "dark" ? "--shiki-dark" : "--sdm-c";
+      const token = Array.from(container.querySelectorAll<HTMLElement>('pre span[style*="--sdm-c"]'))
+        .find((span) => {
+          const color = span.style.getPropertyValue(colorProperty);
+          return color && color !== "inherit";
+        });
+      expect(token).toBeDefined();
+      expect(getComputedStyle(token!).color).toBe(token!.style.getPropertyValue(colorProperty));
+    });
     expect(renderedSource(container)).toBe(text);
-    const token = container.querySelector<HTMLElement>('pre span[style*="--sdm-c"]')!;
-    expect(getComputedStyle(token).color).toBe(token.style.getPropertyValue(theme === "dark" ? "--shiki-dark" : "--sdm-c"));
     fireEvent.click(screen.getByRole("button", { name: "Wrap code lines" }));
     expect(container.querySelector(".react-markdown-code")?.getAttribute("data-wrap")).toBe("true");
     expect(renderedSource(container)).toBe(text);

@@ -61,7 +61,7 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
           const bytes = await readBytes({ path: path!, threadId: threadId!, expectedRevision: file.revision });
           if (disposed) return;
           if (imageMimeType) {
-            const url = URL.createObjectURL(new Blob([bytes], { type: imageMimeType }));
+            const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: imageMimeType }));
             if (imageUrl) URL.revokeObjectURL(imageUrl);
             imageUrl = url;
             next = { loading: false, detail: { id, title, mimeType: imageMimeType, imageDataUrl: url }, revision: file.revision };

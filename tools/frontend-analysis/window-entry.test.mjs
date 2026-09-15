@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
-import ts from "typescript";
 import { build } from "vite";
 
 test("production bootstrap loads each window with its own CSS before importing it", async (context) => {
@@ -37,7 +36,7 @@ test("production bootstrap loads each window with its own CSS before importing i
         throw new Error(`Unexpected bootstrap dependency: ${id}`);
       },
     }],
-    build: { write: false, minify: "esbuild" },
+    build: { write: false },
   });
   const output = result.output;
   const entryChunk = output.find((item) => item.type === "chunk" && item.isEntry);
@@ -48,11 +47,8 @@ test("production bootstrap loads each window with its own CSS before importing i
       const loads = [];
       const imports = [];
       const documentEvents = new EventTarget();
-      const script = ts.transpileModule(entryChunk.code, {
-        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-      }).outputText;
-      vm.runInNewContext(script, {
-        exports: {},
+      const sandbox = vm.createContext({
+        URL,
         URLSearchParams,
         window: { location: { search: `?surface=${surface}` } },
         document: {
@@ -65,15 +61,32 @@ test("production bootstrap loads each window with its own CSS before importing i
           getElementsByTagName: () => [],
           head: { appendChild(link) { if (link.rel === "stylesheet") styles.push(link.href); } },
         },
-        require(id) { imports.push(id); return {}; },
       });
+      const entryModule = new vm.SourceTextModule(entryChunk.code, {
+        context: sandbox,
+        identifier: `https://tinybot.test/${entryChunk.fileName}`,
+        initializeImportMeta(meta, module) {
+          meta.url = module.identifier;
+          meta.resolve = (specifier) => new URL(specifier, module.identifier).href;
+        },
+        async importModuleDynamically(specifier) {
+          imports.push(specifier);
+          const renderer = new vm.SyntheticModule([], () => {}, { context: sandbox });
+          await renderer.link(() => { throw new Error("Unexpected renderer import"); });
+          await renderer.evaluate();
+          return renderer;
+        },
+      });
+      await entryModule.link((specifier) => { throw new Error(`Unexpected bootstrap import: ${specifier}`); });
+      await entryModule.evaluate();
       const contextMenu = new Event("contextmenu", { cancelable: true });
       documentEvents.dispatchEvent(contextMenu);
       assert.equal(contextMenu.defaultPrevented, true, "production windows must suppress the browser context menu");
       await new Promise(setImmediate);
       assert.deepEqual(imports, [], "entry must wait for its stylesheets");
       assert.equal(styles.length, 1);
-      const css = output.find((item) => item.fileName === styles[0].slice(1));
+      const cssPath = new URL(styles[0], entryModule.identifier).pathname.slice(1);
+      const css = output.find((item) => item.fileName === cssPath);
       assert.ok(css && css.type === "asset");
       assert.match(String(css.source), new RegExp(`--entry:\\s*${entry}[;}]`), `wrong stylesheet loaded for ${surface}`);
       for (const complete of loads) complete();
