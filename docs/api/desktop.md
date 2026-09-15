@@ -21,7 +21,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:cecc88d790908431f9fed0b81bfea70a9a5b42eec5ce5f1c0d0f3ec2c9aef0ef -->
+<!-- tinybot-doc-fingerprint: sha256:c2d8e160496dea52b698a982da7a4b81a3135a9db4a85cf21d337d8a0f06f303 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -831,8 +831,15 @@ runs. First access after process restart marks abandoned running records
 interrupted without replay. Waiting-run completion is reconciled from the owning
 canonical Turn. Output absence and missing Threads reject explicitly.
 The desktop scheduler runs every five seconds while Tinybot is running, follows
-the local wall clock, and coalesces missed triggers. It reserves the run and
-advances its cursor atomically. Scheduled preflight failures persist with a null
+the local wall clock, and skips overdue occurrences on startup or after a gap
+longer than 15 seconds between successful checks. Occurrences already blocked by
+active work before a gap keep their delayed-dispatch behavior. Each affected
+definition receives one terminal `missed` history entry with the earliest
+`scheduledAtMs`, null `threadId` and `effectiveModel`, and detection timestamps.
+The missed record and future cursor are persisted atomically. `worker_automation_run`
+creates a new manual invocation without deleting missed history or moving the
+future cursor. Normal scheduled claims likewise reserve the run and advance the
+cursor atomically. Scheduled preflight failures persist with a null
 `effectiveModel`, failed status, and an error; manual preflight still rejects.
 
 See the [automation module contract](../../src-tauri/src/automation/README.md)

@@ -214,7 +214,10 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
     let tested =
         tauri::async_runtime::block_on(test_managed_hook(&data_root, &workspace_root, &id))
             .expect("trusted managed script should run with sample input");
-    assert_eq!(tested.decision, "continue");
+    assert_eq!(
+        tested.decision, "continue",
+        "managed hook result: {tested:?}"
+    );
     assert!(tested.failure.is_none());
 
     fs::write(&managed.script_path, "# user-owned script")

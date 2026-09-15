@@ -5,8 +5,14 @@ export const en = {
       pageTitle: "Scheduled tasks",
       reasoning: "Reasoning effort", frequency: "Frequency", repeat: "Repeat", startsAt: "Starts at",
       unavailableConversation: "Conversation unavailable", nextRun: "Next: {{time}}",
+      missedNotice: "Scheduled task “{{name}}” was missed. You can run it now.",
+      missedNotices: "{{count}} scheduled tasks were missed. You can run them from Scheduled tasks.",
+      viewTasks: "View tasks",
+      noticeFailed: "Could not check missed tasks: {{error}}",
+      missedSince: "Missed schedule from {{time}}.",
+      missedHint: "Overdue occurrences were skipped while scheduling was unavailable. Choose Run now to start a new run; future schedules continue normally.",
       conversationHint: "Choose an existing conversation in this workspace, or start a new one each run.",
-      scheduleHint: "Uses this computer's local time. Tinybot must be running. Missed occurrences are combined into one run when the app resumes.",
+      scheduleHint: "Uses this computer's local time. Tinybot must be running. Missed occurrences are skipped. Choose Run now to start a new run.",
       repeats: { manual: "Manually", once: "Once", daily: "Every day", weekdays: "Weekdays", weekly: "Every week" },
       savedTask: "Task settings", closeEditor: "Close task settings",
       namePlaceholder: "Name your task", instructionsPlaceholder: "What should Tinybot do? Include where to save the result.",
@@ -56,7 +62,8 @@ export const en = {
             "completed": "Completed",
             "failed": "Failed",
             "cancelled": "Cancelled",
-            "interrupted": "Interrupted"
+            "interrupted": "Interrupted",
+            "missed": "Missed"
       }
 },
     routes: {

@@ -79,11 +79,12 @@ export default function AutomationsRoute({ services, onOpenThread }: {
     void action(async () => { await services.automationStore.run(id); openHistory(id); });
   }
   const search = query.trim().toLocaleLowerCase();
+  const activeIds = new Set(snapshot.runs.filter((r) => r.status === "running" || r.status === "waiting").map((r) => r.definition.id));
   const definitions = snapshot.definitions.filter((definition) => {
     const latest = snapshot.runs.find((r) => r.definition.id === definition.id);
-    const statusMatch = filter === "all" || (filter === "running" && latest?.status === "running")
+    const statusMatch = filter === "all" || (filter === "running" && activeIds.has(definition.id))
       || (filter === "completed" && latest?.status === "completed")
-      || (filter === "attention" && latest && ["waiting", "failed", "interrupted"].includes(latest.status));
+      || (filter === "attention" && latest && ["waiting", "failed", "interrupted", "missed"].includes(latest.status));
     return statusMatch && `${definition.name} ${definition.instructions} ${definition.workspacePath}`.toLocaleLowerCase().includes(search);
   });
   const runs = snapshot.runs.filter((r) => !selected || r.definition.id === selected);
@@ -113,7 +114,7 @@ export default function AutomationsRoute({ services, onOpenThread }: {
         {definitions.map((definition) => <AutomationTaskRow key={definition.id} definition={definition}
           latestRun={snapshot.runs.find((r) => r.definition.id === definition.id)}
           workspaceName={workspaces.find((w) => w.path === definition.workspacePath)?.name ?? definition.workspacePath}
-          busy={busy} onEdit={() => edit(definition)} onRun={() => run(definition.id)} onHistory={() => openHistory(definition.id)} />)}
+          busy={busy} active={activeIds.has(definition.id)} onEdit={() => edit(definition)} onRun={() => run(definition.id)} onHistory={() => openHistory(definition.id)} />)}
         {loaded && definitions.length === 0 && <p className="automation-empty">{snapshot.definitions.length === 0 ? t("automations.empty") : t("automations.noMatches")}</p>}
       </section>
       <section className="automation-suggestions" aria-labelledby="automation-suggestions-title">
@@ -129,9 +130,11 @@ export default function AutomationsRoute({ services, onOpenThread }: {
       {runs.map((item) => <article key={item.id} className="automation-card">
         <div className="automation-heading"><h3>{item.definition.name}</h3><span className="automation-run-status" data-status={item.status} role="status">{t(`automations.status.${item.status}`)}</span></div>
         <p className="automation-history-meta"><time dateTime={new Date(item.startedAtMs).toISOString()}>{new Date(item.startedAtMs).toLocaleString()}</time>{item.effectiveModel && <> · {item.effectiveModel.provider} / {item.effectiveModel.model}</>}</p>
+        {item.status === "missed" && <p>{item.scheduledAtMs != null && t("automations.missedSince", { time: new Date(item.scheduledAtMs).toLocaleString() })} {t("automations.missedHint")}</p>}
         {item.error && <p className="automation-error">{item.error}</p>}
         <details><summary>{t("automations.runDetails")}</summary><p className="automation-path">{item.definition.workspacePath}</p><pre>{item.definition.instructions}</pre><pre>{JSON.stringify(item.effectiveModel, null, 2)}</pre><small>{item.id} · {item.stopReason}</small></details>
         <div className="automation-actions">
+          {item.status === "missed" && snapshot.definitions.some((d) => d.id === item.definition.id) && <button type="button" disabled={busy || activeIds.has(item.definition.id)} onClick={() => run(item.definition.id)}>{t("automations.run")}</button>}
           {item.threadId && <button type="button" disabled={busy} onClick={() => { void action(() => onOpenThread(item.threadId!)); }}>{t("automations.openThread")}</button>}
           {snapshot.definitions.some((d) => d.id === item.definition.id) && <button type="button" disabled={busy} onClick={() => edit(snapshot.definitions.find((d) => d.id === item.definition.id)!)}>{t("automations.edit")}</button>}
         </div>

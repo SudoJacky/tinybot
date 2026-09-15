@@ -109,27 +109,34 @@ pub(crate) fn start_scheduler(app: AppHandle, state: SharedNativeRuntime) {
     tauri::async_runtime::spawn(async move {
         let mut timer = tokio::time::interval(std::time::Duration::from_secs(5));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut previous_tick = None;
         loop {
             timer.tick().await;
             if !lock_runtime(&state).lifecycle_status.startup_reconciled {
                 continue;
             }
-            let result = schedule_tick(&app, &state);
-            if let Err(error) = result {
-                crate::desktop::state::push_log(
+            let at = crate::automation::saved::now();
+            match schedule_tick(&app, &state, at, previous_tick) {
+                Ok(()) => previous_tick = Some(at),
+                Err(error) => crate::desktop::state::push_log(
                     &state,
                     &format!("automation_scheduler_failed error={error}"),
-                );
+                ),
             }
         }
     });
 }
 
-fn schedule_tick(app: &AppHandle, state: &SharedNativeRuntime) -> Result<(), String> {
+fn schedule_tick(
+    app: &AppHandle,
+    state: &SharedNativeRuntime,
+    at: u64,
+    previous_tick: Option<u64>,
+) -> Result<(), String> {
     let store = store(state);
     let threads = lock_runtime(state).thread_store.clone();
     execution::snapshot(&store, &threads)?;
-    for mut run in store.claim_due(crate::automation::saved::now())? {
+    for mut run in store.claim_due(at, previous_tick)? {
         let config = native_runtime_config_snapshot();
         let prepared = execution::validate_thread(
             &run.definition.execution,

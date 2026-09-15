@@ -1,4 +1,5 @@
 import { AppToastViewport } from "../lib/AppToast";
+import { useMissedAutomationNotice } from "../automations/useMissedAutomationNotice";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { TFunction } from "i18next";
@@ -339,6 +340,9 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       };
     });
   }, []);
+
+  const openMissedAutomationTasks = useCallback(() => navigateToRoute("automations"), [navigateToRoute]);
+  useMissedAutomationNotice(services.automationStore, openMissedAutomationTasks);
 
   useEffect(() => {
     if (!desktopPetQuickChatHost) return;

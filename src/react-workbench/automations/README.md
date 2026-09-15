@@ -1,5 +1,5 @@
 # Automations
-<!-- tinybot-module-fingerprint: sha256:0a25a6632269fade2f1a77fb286bda56c50954a87c9f825f1ee3aad933854e55 -->
+<!-- tinybot-module-fingerprint: sha256:ce74947a79ac2ad6dd7ac6b031968a2f78dcb7be0673d644bd09b262eec1fef4 -->
 
 The lazy Automations route owns definition forms, run selection, and report
 presentation. Native storage and execution belong to
@@ -18,7 +18,10 @@ The form saves name, instructions, workspace identity, optional conversation,
 provider/profile/model and reasoning effort, schedule, and revision preconditions.
 Frequency choices are manual, once, daily, weekdays, and weekly, with a local
 start datetime. Scheduling remains in the desktop backend; the UI only displays
-the persisted next-run cursor. Provider/session catalogs load before saving;
+the persisted next-run cursor and missed history entries. A missed task shows
+its earliest skipped time and a visible Run now action, also available in history.
+Manual execution preserves the missed record. Run buttons check all active runs
+so a newer missed entry cannot hide running or waiting work. Provider/session catalogs load before saving;
 unavailable paths, catalogs and native failures remain visible.
 No draft or canonical execution state is stored in browser local storage.
 
@@ -37,3 +40,12 @@ with history retention, search/status filtering, suggestion drafts, and preservi
 the draft and revision after a native failure, and all execution/schedule choices.
 
 Editor choices reuse `SettingsChoiceList`, including keyboard navigation, selected indicators and disabled items. Its fixed menu placement avoids clipping within the scrollable dialog. Buttons and text inputs reuse `lib/FormControls.css`; an unavailable workspace disables saving.
+
+`useMissedAutomationNotice` runs at the main-window shell, independent of the
+current route. While visible, it checks the native store every ten seconds and
+on window focus. New unresolved misses are grouped into one warning with a
+View tasks action. The last notified run ID per definition is renderer-only
+local storage, so returning to a route or restarting does not repeat the notice.
+A newer manual/scheduled run suppresses reminders for older misses, and deleted
+definitions are excluded. Read/storage failures log and show an error; polling
+stops until the window is focused again. Canonical history stays in native storage.

@@ -1,5 +1,5 @@
 # Command Hooks
-<!-- tinybot-module-fingerprint: sha256:f8c458082e41ef8d288903ab246726d6bb39ba9f46df82871a05ab6b031e6f7e -->
+<!-- tinybot-module-fingerprint: sha256:de4a2aa77ed121e7b7d57870c23f090e42b90199f227e6c6884da1c4eed5b6d2 -->
 
 `command_hooks` discovers, validates, reviews, and runs user-defined lifecycle
 commands. Tinybot loads `hooks.json` from the global data directory and the

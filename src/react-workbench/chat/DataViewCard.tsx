@@ -66,7 +66,7 @@ export function DataViewCard({
           <button aria-label={t("dataView.download", { title: document.title })} title={t("dataView.downloadAction")} type="button" onClick={() => {
             try {
               const fileName = downloadCsv(document);
-              showAppToast(t("dataView.downloadStarted", { fileName }));
+              showAppToast(t("dataView.downloadStarted", { fileName }), "success");
             } catch (error) {
               console.error("CSV download could not be started", error);
               showAppToast(t("dataView.downloadFailed", { error: error instanceof Error ? error.message : String(error) }), "error");

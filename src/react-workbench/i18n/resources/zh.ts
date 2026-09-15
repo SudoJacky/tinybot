@@ -7,8 +7,14 @@ export const zh = {
       pageTitle: "定时任务",
       reasoning: "推理强度", frequency: "频率", repeat: "重复", startsAt: "开始时间",
       unavailableConversation: "会话不可用", nextRun: "下次：{{time}}",
+      missedNotice: "定时任务「{{name}}」已错过，可手动补跑。",
+      missedNotices: "有 {{count}} 个定时任务已错过，可前往任务列表手动补跑。",
+      viewTasks: "查看任务",
+      noticeFailed: "无法检查漏跑任务：{{error}}",
+      missedSince: "自 {{time}} 起有计划执行被错过。",
+      missedHint: "调度不可用期间的过期执行已跳过。可选择立即运行来发起新任务，后续计划仍会正常执行。",
       conversationHint: "可以沿用当前工作区中的已有会话，或每次新建会话。",
-      scheduleHint: "按此电脑的本地时间执行，需要保持 Tinybot 运行。恢复运行时，错过的多次触发合并补跑一次。",
+      scheduleHint: "按此电脑的本地时间执行，需要保持 Tinybot 运行。错过的执行将跳过，可选择立即运行来发起新任务。",
       repeats: { manual: "手动运行", once: "仅一次", daily: "每天", weekdays: "工作日", weekly: "每周" },
       savedTask: "任务配置", closeEditor: "关闭任务配置",
       namePlaceholder: "给任务起个名字", instructionsPlaceholder: "希望 Tinybot 做什么？可以指定结果的保存位置。",
@@ -58,7 +64,8 @@ export const zh = {
             "completed": "已完成",
             "failed": "失败",
             "cancelled": "已取消",
-            "interrupted": "已中断"
+            "interrupted": "已中断",
+            "missed": "已错过"
       }
 },
     routes: {

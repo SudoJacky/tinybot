@@ -8,12 +8,12 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { cleanup(); dismissAppToast(); vi.useRealTimers(); });
 
 describe("app notifications", () => {
-  it("portals above the app and exits after five seconds", () => {
+  it("portals above the app and exits after three seconds", () => {
     const { container } = render(<AppToastViewport />);
     act(() => showAppToast("Download requested"));
     expect(container.textContent).toBe("");
     expect(screen.getByRole("status").textContent).toBe("Download requested");
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(3000));
     expect(screen.getByRole("status").parentElement?.dataset.exiting).toBe("true");
     act(() => vi.advanceTimersByTime(220));
     expect(screen.queryByRole("status")).toBeNull();
@@ -37,7 +37,7 @@ describe("app notifications", () => {
   it("replaces an exiting notification without its old timer clearing the new one", () => {
     render(<AppToastViewport />);
     act(() => showAppToast("First"));
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(3000));
     act(() => showAppToast("Second", "error"));
     act(() => vi.advanceTimersByTime(220));
     expect(screen.queryByText("First")).toBeNull();
@@ -46,4 +46,22 @@ describe("app notifications", () => {
     act(() => vi.advanceTimersByTime(220));
     expect(screen.queryByRole("alert")).toBeNull();
   });
+});
+
+it("keeps a warning visible for eight seconds and pauses while hidden", () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  render(<AppToastViewport />);
+  act(() => showAppToast("Missed task", "warning"));
+  act(() => vi.advanceTimersByTime(3000));
+  expect(screen.getByRole("status").parentElement?.dataset.exiting).toBeUndefined();
+  hidden.mockReturnValue(true);
+  fireEvent(document, new Event("visibilitychange"));
+  act(() => vi.advanceTimersByTime(10000));
+  expect(screen.getByRole("status").parentElement?.dataset.exiting).toBeUndefined();
+  hidden.mockReturnValue(false);
+  fireEvent(document, new Event("visibilitychange"));
+  act(() => vi.advanceTimersByTime(8000));
+  act(() => vi.advanceTimersByTime(220));
+  expect(screen.queryByRole("status")).toBeNull();
+  hidden.mockRestore();
 });
