@@ -76,3 +76,10 @@ Missed-run walkthrough:
 5. Repeat with a weekly task, checking that its next occurrence is in the future
    and stays unchanged by Run now. Repeat by sleeping the machine across the due
    time for more than 15 seconds while Tinybot is running.
+
+The main window also shows a short warning when newly missed tasks are found,
+even while viewing Chat. Multiple tasks are grouped into one message; **View
+tasks** opens Scheduled tasks, where **Run now** remains available. A reminder
+lasts eight seconds and pauses while hovered, focused or the window is hidden.
+The same missed record is not announced again after navigation or restart.
+Window-local notification acknowledgments do not remove native run history.

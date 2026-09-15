@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { dismissAppToast } from "../lib/AppToast";
 import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
@@ -35,7 +36,7 @@ beforeEach(() => {
   vi.mocked(pickDesktopPluginMigrationDirectory).mockReset();
   vi.mocked(openUrl).mockClear();
 });
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); dismissAppToast(); });
 
 function createServices(options: { messages?: ReactChatMessage[]; sessions?: SessionSummary[] } = {}): AppServices & {
   memoryStore: {
@@ -1456,3 +1457,16 @@ function unsupportedMemorySnapshot() {
     collectionErrors: [],
   };
 }
+
+it("opens scheduled tasks from a missed reminder while viewing Chat", async () => {
+  const services = createServices();
+  localStorage.setItem("tinybot.quick-start.v1", "dismissed");
+  const definition = { id: "weekly", name: "Weekly report", instructions: "Write report.md", workspacePath: "D:/project", revision: 1, modelPolicy: "inherit_default" as const, updatedAtMs: 1 };
+  services.automationStore.list = vi.fn(async () => ({ definitions: [definition], runs: [{ id: "missed", definition, status: "missed" as const, effectiveModel: null, threadId: null, error: null, startedAtMs: 100, scheduledAtMs: 50, finishedAtMs: 100, stopReason: "scheduler_unavailable" }] }));
+  render(<DesktopShell services={services} />);
+  const viewTasks = await screen.findByRole("button", { name: "View tasks" });
+  expect(screen.queryByRole("heading", { name: "Scheduled tasks" })).toBeNull();
+  fireEvent.click(viewTasks);
+  expect(await screen.findByRole("heading", { name: "Scheduled tasks" })).toBeTruthy();
+  expect(services.automationStore.run).not.toHaveBeenCalled();
+});

@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7ceddacbd3950baa0e75a2186338e62bce63ded153adffe5bc7808710f0597b5 -->
+<!-- tinybot-doc-fingerprint: sha256:ef46630e0625c9ab83af60805cc92f4b8b896b3c6c1e1a19d71f0b2bb59b5339 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -163,7 +163,10 @@ Desktop Commands / Desktop Host
   `agent::runtime`.
 - Tool metadata and exposure: the backend tool registry.
 - Renderer product state: route stores composed through the React workbench
-  interfaces.
+  interfaces. Missed-automation reminder acknowledgments are window-local
+  presentation preferences, keyed by definition and missed run ID. The main shell
+  reads native history across routes and offers navigation in a transient message;
+  dismissing a notice never changes scheduling or canonical run history.
 - Imported workspace catalog: `~/.tinybot/workspaces.json`, owned by the Rust
   `WorkspaceRegistry`. Register, rename, and forget are the only catalog write
   operations. Register canonicalizes an existing directory and removes Windows

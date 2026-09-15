@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:21980e6554963a9d6d80249cf21a48e7377c80f1c3d025d638ac262cb7f1f122 -->
+<!-- tinybot-module-fingerprint: sha256:009b3af9559ac4f5f63cb6687e532e5ea7ee40c55af3a617cdc669ccddd01c3a -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -105,3 +105,7 @@ run conversation refreshes the session catalog before the shell activates Chat.
 
 Chat also exposes Scheduled below the sidebar title. RouteSurface forwards
 that action into the same Automations route used by the Resources menu.
+
+The main shell hosts missed-automation notices across all routes. The hook lives
+in `automations/`; the shell supplies navigation for its View tasks action.
+The pet quick-chat window keeps its message host without polling for misses.

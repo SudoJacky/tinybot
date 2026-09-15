@@ -1,5 +1,5 @@
 # Automations
-<!-- tinybot-module-fingerprint: sha256:8cf28c0457897a3872a0067d3bbc0213d2cf9f5275b29cfbf73dc03a92733547 -->
+<!-- tinybot-module-fingerprint: sha256:ce74947a79ac2ad6dd7ac6b031968a2f78dcb7be0673d644bd09b262eec1fef4 -->
 
 The lazy Automations route owns definition forms, run selection, and report
 presentation. Native storage and execution belong to
@@ -40,3 +40,12 @@ with history retention, search/status filtering, suggestion drafts, and preservi
 the draft and revision after a native failure, and all execution/schedule choices.
 
 Editor choices reuse `SettingsChoiceList`, including keyboard navigation, selected indicators and disabled items. Its fixed menu placement avoids clipping within the scrollable dialog. Buttons and text inputs reuse `lib/FormControls.css`; an unavailable workspace disables saving.
+
+`useMissedAutomationNotice` runs at the main-window shell, independent of the
+current route. While visible, it checks the native store every ten seconds and
+on window focus. New unresolved misses are grouped into one warning with a
+View tasks action. The last notified run ID per definition is renderer-only
+local storage, so returning to a route or restarting does not repeat the notice.
+A newer manual/scheduled run suppresses reminders for older misses, and deleted
+definitions are excluded. Read/storage failures log and show an error; polling
+stops until the window is focused again. Canonical history stays in native storage.

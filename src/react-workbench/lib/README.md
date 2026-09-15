@@ -1,5 +1,5 @@
 # Renderer Library
-<!-- tinybot-module-fingerprint: sha256:e5b221b25e0c9a94bd823c9466db87544f33e86a9e22cb69f705f75a787a2245 -->
+<!-- tinybot-module-fingerprint: sha256:2f0c4685b210132a197936108ac18cad8942a552180ebbffc4c1e6b4e0e9360d -->
 
 `lib` contains small, renderer-only presentation helpers shared by frontend
 modules. Formatting helpers are pure; presentation hooks do not own route state.
@@ -17,9 +17,11 @@ their owning `app-core` or adapter modules rather than in a general utility
 folder.
 
 `AppToast` provides a window-level transient notification host shared by the main
-shell and pet quick chat. New notices replace old ones; ordinary/error messages
-remain for five/eight seconds, pause while hovered or focused, and fade out over
-220 ms. Portals avoid route clipping, reduced-motion removes movement, and timers
+shell and pet quick chat. Message-style notices sit at the top center with
+compact padding, an 8px radius, status icons and a lightweight shadow. New notices
+replace old ones; info/success messages remain for three seconds and warnings/errors
+for eight seconds. Timers pause while hovered, focused or hidden, then fade out
+over 220 ms. An optional action button can open the relevant route. Portals avoid route clipping, reduced-motion removes movement, and timers
 are cleaned up when messages are replaced.
 
 SplitFlapText adapts React Bits' split-flap renderer with its upstream license

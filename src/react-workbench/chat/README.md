@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:25a0680161c23c53ce2574f872603cac230dbadf6705884516bd82b7ebbffe10 -->
+<!-- tinybot-module-fingerprint: sha256:527ab8e82c221a6844e6381e52326e54a8043176e3c2a25c700c5a174f416c6e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -497,7 +497,8 @@ restore native control before dispatching the Agent Turn. Failure preserves the
 composer draft and prevents dispatch.
 
 CSV export reports the requested filename and Downloads/save-location guidance
-through the shared top-of-window notification. It reports initiation failures and does not claim completion,
+through the shared Message-style top-of-window notification with a success icon
+for an accepted download request. It reports initiation failures and does not claim completion,
 since the WebView anchor download does not expose a completion callback.
 
 AgentResponseIndicator sits at the end of each pending or running turn, after its
