@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:7af10dbf832a66323f87f9f10538b469bdb02c9d190df70bbb92e9586118b78a -->
+<!-- tinybot-module-fingerprint: sha256:67cbab6391024f0571c3355670c287085182f9f41682006ffd9205fb8edfdb31 -->
 
 `teams` owns a shared task board and dependency scheduler for a fixed set of
 members working toward one goal. It is independent of Agent Graphs and the

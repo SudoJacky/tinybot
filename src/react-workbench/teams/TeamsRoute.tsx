@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { TeamMember } from "../../app-core/native/desktopNativeTeams";
 import type { AppServices, WorkspaceRegistryEntry } from "../services";
-import type { AppRoute } from "../shell/RouteSurface";
+import type { AppRoute } from "../shell/appRoutes";
 import { TeamDetail } from "./TeamDetail";
 import { useTeamRuns } from "./useTeamRuns";
 import { TeamRunningIndicator } from "./TeamTaskStatus";

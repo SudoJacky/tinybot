@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:c73fdca9f5e324ac2c106b553a6c16a6ed2814a299c262e77feab26394f6e0eb -->
+<!-- tinybot-module-fingerprint: sha256:e4d1269206543e5fda72eccde25b6db79b452fc025af58fcde8f1d3f38cd2d9f -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain

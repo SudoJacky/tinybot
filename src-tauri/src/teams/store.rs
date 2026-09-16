@@ -49,13 +49,24 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
         .map_err(|error| format!("Parse Team run {}: {error}", path.display()))?;
     let migrated = value["schemaVersion"] == 1;
     if migrated {
-        for member in value["spec"]["members"].as_array_mut().ok_or("Invalid legacy Team members")? {
+        for member in value["spec"]["members"]
+            .as_array_mut()
+            .ok_or("Invalid legacy Team members")?
+        {
             let member = member.as_object_mut().ok_or("Invalid legacy Team member")?;
-            let id = member.get("id").ok_or("Missing legacy Team member ID")?.clone();
+            let id = member
+                .get("id")
+                .ok_or("Missing legacy Team member ID")?
+                .clone();
             member.insert("displayName".into(), id);
         }
-        for record in value["tasks"].as_array_mut().ok_or("Invalid legacy Team tasks")? {
-            let task = record.get_mut("task").and_then(serde_json::Value::as_object_mut)
+        for record in value["tasks"]
+            .as_array_mut()
+            .ok_or("Invalid legacy Team tasks")?
+        {
+            let task = record
+                .get_mut("task")
+                .and_then(serde_json::Value::as_object_mut)
                 .ok_or("Invalid legacy Team task")?;
             let id = task.get("id").ok_or("Missing legacy Team task ID")?.clone();
             task.insert("title".into(), id);

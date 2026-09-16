@@ -47,7 +47,8 @@ import {
   type DesktopPetPosition,
   type DesktopPetPreferences,
 } from "../../app-core/desktop-pet/desktopPetState";
-import { RouteSurface, type AppRoute, type SettingsNavigationRequest } from "./RouteSurface";
+import { RouteSurface, type SettingsNavigationRequest } from "./RouteSurface";
+import type { AppRoute } from "./appRoutes";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 
 type RouteHistory = {

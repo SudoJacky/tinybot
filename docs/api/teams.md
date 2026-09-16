@@ -7,7 +7,7 @@ src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:43df1b44fee41b3003a8081909841f149fd2b4f8bbd0b8874ff64992003073ca -->
+<!-- tinybot-doc-fingerprint: sha256:2b82ba34a3a5a6069f80a5bea442f452d42d315f0902ba84f34d17d9ff5e16a6 -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
 object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,

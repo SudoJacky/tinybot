@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:92cbb83d2768200c5aeb593b26715dbd94f3a1290e9f678094fde2e6f52a0ef7 -->
+<!-- tinybot-module-fingerprint: sha256:002c59886c8fd005acd9bd8e940585779b8f4a7ca93370c3a26ce83c570696db -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -13,6 +13,8 @@ selection, deferred route loading, and update dialogs.
 `DesktopShell.tsx` coordinates shell state, while `RouteSurface.tsx` selects
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
+`appRoutes.ts` defines route names independently of their renderer, allowing
+route modules to type navigation callbacks without importing `RouteSurface`.
 After its first visit, Team stays mounted in a hidden route container. Shell
 navigation and execution-record round trips preserve its draft, pending request,
 selection and scroll. Hidden Team content is excluded from focus and accessibility

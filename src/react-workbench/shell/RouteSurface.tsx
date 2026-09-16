@@ -6,8 +6,7 @@ import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices } from "../services";
 import type { SettingsModuleId } from "../settings/SettingsRoute";
 import { DeferredSurface } from "./DeferredSurface";
-
-export type AppRoute = "chat" | "teams" | "automations" | "graphs" | "memory" | "tools" | "settings" | "performanceTrace";
+import type { AppRoute } from "./appRoutes";
 
 export type SettingsNavigationRequest = {
   moduleId: SettingsModuleId;

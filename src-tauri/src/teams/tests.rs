@@ -512,7 +512,10 @@ fn requires_display_fields_and_migrates_legacy_records_once() {
     plan.tasks[0].title = " ".into();
     assert!(prepare(&f.root, f.spec(), plan).is_err());
     let original = f.prepare();
-    let path = f.root.join("team-runs").join(format!("{}.json", original.id));
+    let path = f
+        .root
+        .join("team-runs")
+        .join(format!("{}.json", original.id));
     let mut legacy = serde_json::to_value(&original).unwrap();
     legacy["schemaVersion"] = json!(1);
     for member in legacy["spec"]["members"].as_array_mut().unwrap() {
@@ -527,12 +530,17 @@ fn requires_display_fields_and_migrates_legacy_records_once() {
     assert_eq!(migrated.revision, original.revision + 1);
     assert_eq!(migrated.spec.members[0].display_name, "research");
     assert_eq!(migrated.tasks[0].task.title, "a");
-    assert_eq!(get(&f.root, &original.id).unwrap().revision, migrated.revision);
+    assert_eq!(
+        get(&f.root, &original.id).unwrap().revision,
+        migrated.revision
+    );
     legacy["schemaVersion"] = json!(2);
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     assert!(get(&f.root, &original.id).is_err());
     legacy["schemaVersion"] = json!(1);
     legacy["tasks"][0]["task"] = json!(42);
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-    assert!(get(&f.root, &original.id).unwrap_err().contains("Invalid legacy Team task"));
+    assert!(get(&f.root, &original.id)
+        .unwrap_err()
+        .contains("Invalid legacy Team task"));
 }
