@@ -1,10 +1,14 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:c53240244b9abad5debc22784901b31fc5fb6dba0ea5d3ca76b95b711081c476 -->
+<!-- tinybot-module-fingerprint: sha256:31027873499602595a8ef8ef937c5c101a878d0bd5019b405ca47eeac0a443eb -->
 
 The sidebar title aligns with workspace folder icons. Its workspace menu anchors to the title row and fits the available width. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+The default primary-action foreground is dark for readable text on the fallback
+accent. The appearance provider continues to choose foreground contrast from the
+user's configured accent at runtime.
 
 Update notes and upgrade notices use 13px body text, matching Chat. Their
 Markdown selectors reach through the viewport wrapper, keeping compact headings

@@ -4,10 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
-  Circle,
   Folder,
-  LockKeyhole,
   Pause,
   Play,
   Square,
@@ -20,6 +17,7 @@ import type {
 } from "../../app-core/native/desktopNativeTeams";
 import { AssistantMarkdown } from "../chat/AssistantMarkdown";
 import { canExecute, orderedTasks, taskState } from "./teamPresentation";
+import { TeamElapsedTime, TeamTaskStatus } from "./TeamTaskStatus";
 
 type Props = {
   run: TeamRun;
@@ -47,35 +45,48 @@ export function TeamDetail({
   onOpenThread,
 }: Props) {
   const { t } = useTranslation("common");
-  const [selected, setSelected] = useState(run.finalTaskId);
+  const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState("tasks");
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const tasks = orderedTasks(run.tasks);
+  const runningTasks = tasks.filter((r) => r.status === "running");
+  const completedCount = tasks.filter((r) => r.status === "succeeded").length;
+  const final = run.tasks.find((r) => r.task.id === run.finalTaskId);
+  // Follow active work until the user explicitly chooses a task to inspect.
+  const record = run.tasks.find((r) => r.task.id === selected) ?? runningTasks[0] ?? final ?? tasks[0];
+  const latestAttempt = record.attempts.slice(-1)[0];
   const inspectorRef = useRef<HTMLElement>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
   const backToTasksRef = useRef<HTMLButtonElement>(null);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (inspectorRef.current) inspectorRef.current.scrollTop = 0;
     // Only move keyboard focus when the compact layout hides the task list.
     if (inspectorOpen && backToTasksRef.current?.getClientRects().length) {
       backToTasksRef.current.focus({ preventScroll: true });
     }
-  }, [selected, inspectorOpen]);
+  }, [record.task.id, inspectorOpen]);
   function selectTask(id: string) {
+    setTab("tasks");
     setSelected(id);
     setInspectorOpen(true);
+    requestAnimationFrame(() => selectedRowRef.current?.scrollIntoView({ block: "nearest" }));
   }
   const [draft, setDraft] = useState<{
     plan: TeamPlan;
     revision: number;
   } | null>(null);
+  const editing = Boolean(draft);
+  function closeEditor() {
+    setDraft(null);
+    setError(null);
+    requestAnimationFrame(() => editButtonRef.current?.focus({ preventScroll: true }));
+  }
   useEffect(() => {
-    onEditingChange?.(!!draft);
+    onEditingChange?.(editing);
     return () => onEditingChange?.(false);
-  }, [!!draft, onEditingChange]);
+  }, [editing, onEditingChange]);
   const [error, setError] = useState<string | null>(null);
-  const tasks = orderedTasks(run.tasks);
-  const record = run.tasks.find((r) => r.task.id === selected) ?? run.tasks[0];
-  const final = run.tasks.find((r) => r.task.id === run.finalTaskId);
   const result =
     final?.status === "succeeded" ? final.attempts.slice(-1)[0]?.output : null;
   const editable =
@@ -98,7 +109,13 @@ export function TeamDetail({
   }
   return (
     <>
-      <header className="team-run-header">
+      <p className="react-sr-only" role="status" aria-atomic="true">
+        {t("teams.progressAnnouncement", {
+          status: t(`teams.status.${run.status}`), done: completedCount,
+          total: tasks.length, running: runningTasks.length,
+        })}
+      </p>
+      <header className="team-run-header" data-editing={editing}>
         <div className="team-breadcrumb">
           <button disabled={busy || !!draft} onClick={onBack}>
             <ArrowLeft size={15} />
@@ -113,6 +130,7 @@ export function TeamDetail({
           <h1 title={run.spec.goal}>{run.spec.goal}</h1>
           <div>
             <span className={`team-status is-${run.status}`}>
+              {run.status === "running" && <span className="team-state-dot" aria-hidden="true" />}
               {t(`teams.status.${run.status}`)}
             </span>
             {run.status === "running" ? (
@@ -174,26 +192,32 @@ export function TeamDetail({
           </p>
         )}
       </header>
-      <section className="team-members" aria-label={t("teams.members")}>
-        {run.spec.members.map((m) => (
-          <div key={m.id}>
-            <span className="team-avatar">
-              <UserRound size={22} />
-            </span>
-            <div>
-              <strong title={m.displayName}>{m.displayName}</strong>
-              <p>
-                {run.tasks.find(
-                  (r) => r.status === "running" && r.task.memberId === m.id,
-                )?.task.title ??
-                  (run.status === "running"
-                    ? t("teams.waiting")
-                    : t(`teams.status.${run.status}`))}
-              </p>
-            </div>
-          </div>
-        ))}
-      </section>
+      {!editing && <section className="team-members" aria-label={t("teams.members")}>
+        {run.spec.members.map((m) => {
+          const active = runningTasks.find((r) => r.task.memberId === m.id);
+          return (
+            <button
+              key={m.id}
+              className={`team-member ${active ? "is-running" : ""}`}
+              disabled={!active || !!draft}
+              aria-label={active ? t("teams.viewMemberTask", { member: m.displayName, task: active.task.title }) : undefined}
+              onClick={() => active && selectTask(active.task.id)}
+            >
+              <span className="team-avatar">
+                <UserRound size={22} />
+                {active && <span className="team-member-dot" />}
+              </span>
+              <span className="team-member-copy">
+                <strong title={m.displayName}>{m.displayName}</strong>
+                <span title={active?.task.title}>
+                  {active?.task.title ?? (run.status === "running" ? t("teams.waiting") : t(`teams.status.${run.status}`))}
+                </span>
+              </span>
+              {active && <ArrowRight size={15} className="team-member-arrow" aria-hidden="true" />}
+            </button>
+          );
+        })}
+      </section>}
       <div
         className="team-workspace"
         data-view={tab === "result" ? "result" : draft ? "editor" : inspectorOpen ? "detail" : "tasks"}
@@ -204,6 +228,7 @@ export function TeamDetail({
               role="tablist"
               aria-label={t("teams.details")}
               onKeyDown={(event) => {
+                if (editing) return;
                 if (
                   !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
                     event.key,
@@ -240,6 +265,7 @@ export function TeamDetail({
               <button
                 role="tab"
                 id="team-result-tab"
+                disabled={editing}
                 tabIndex={tab === "result" ? 0 : -1}
                 aria-controls="team-result-panel"
                 aria-selected={tab === "result"}
@@ -248,12 +274,39 @@ export function TeamDetail({
                 {t("teams.result")}
               </button>
             </div>
-            <span>
+            <div className="team-task-progress">
+              {runningTasks.length > 0 && (
+                <button
+                  className="team-locate-running"
+                  onClick={() => {
+                    const index = runningTasks.findIndex((r) => r.task.id === record.task.id);
+                    selectTask(runningTasks[(index + 1) % runningTasks.length].task.id);
+                  }}
+                  title={t("teams.locateRunning")}
+                >
+                  <span className="team-state-dot" aria-hidden="true" />
+                  {t("teams.runningCount", { count: runningTasks.length })}
+                </button>
+              )}
+              <span>
               {t("teams.completedCount", {
-                done: tasks.filter((r) => r.status === "succeeded").length,
+                done: completedCount,
                 total: tasks.length,
               })}
-            </span>
+              </span>
+            </div>
+          </div>
+          {editing && <p className="team-editing-notice" role="status">{t("teams.editingHint")}</p>}
+          <div
+            className="team-completion-track"
+            role="progressbar"
+            aria-label={t("teams.progress")}
+            aria-valuemin={0}
+            aria-valuemax={tasks.length}
+            aria-valuenow={completedCount}
+            aria-valuetext={t("teams.completedCount", { done: completedCount, total: tasks.length })}
+          >
+            <span style={{ transform: `scaleX(${completedCount / tasks.length})` }} />
           </div>
           {tab === "result" ? (
             <section
@@ -294,15 +347,11 @@ export function TeamDetail({
                     }
                     void onRevise(draft.plan).then((value) => {
                       if (value) {
-                        setDraft(null);
-                        setError(null);
+                        closeEditor();
                       }
                     });
                   }}
-                  onDiscard={() => {
-                    setDraft(null);
-                    setError(null);
-                  }}
+                  onDiscard={closeEditor}
                 />
               ) : (
                 <>
@@ -310,7 +359,7 @@ export function TeamDetail({
                     <button
                       key={r.task.id}
                       ref={record.task.id === r.task.id ? selectedRowRef : undefined}
-                      className={`team-task-row ${record.task.id === r.task.id ? "is-selected" : ""}`}
+                      className={`team-task-row is-${r.status} ${record.task.id === r.task.id ? "is-selected" : ""}`}
                       aria-pressed={record.task.id === r.task.id}
                       onClick={() => selectTask(r.task.id)}
                     >
@@ -323,7 +372,9 @@ export function TeamDetail({
                           <small>{t("teams.final")}</small>
                         )}
                         <span>
-                          {r.task.dependencies.length
+                          {r.status === "running"
+                            ? run.spec.members.find((m) => m.id === r.task.memberId)!.displayName
+                            : r.task.dependencies.length
                             ? r.task.dependencies
                                 .map(
                                   (id) =>
@@ -335,28 +386,25 @@ export function TeamDetail({
                             : t("teams.noDependencies")}
                         </span>
                       </span>
-                      <span className="team-owner" title={run.spec.members.find((m) => m.id === r.task.memberId)!.displayName}>
+                      {r.status !== "running" && <span className="team-owner" title={run.spec.members.find((m) => m.id === r.task.memberId)!.displayName}>
                         {
                           run.spec.members.find(
                             (m) => m.id === r.task.memberId,
                           )!.displayName
                         }
-                      </span>
-                      <span className={`team-status is-${r.status}`}>
-                        {r.status === "succeeded" ? (
-                          <Check size={18} />
-                        ) : taskState(run, r) === "blocked" ? (
-                          <LockKeyhole size={17} />
-                        ) : (
-                          <Circle size={16} />
+                      </span>}
+                      <span className="team-task-state">
+                        <TeamTaskStatus run={run} record={r} />
+                        {r.status === "running" && r.attempts.slice(-1)[0] && (
+                          <TeamElapsedTime key={r.attempts.slice(-1)[0]!.threadId} attempt={r.attempts.slice(-1)[0]!} />
                         )}
-                        {status(r)}
                       </span>
                     </button>
                   ))}
                   {editable && (
                     <button
                       className="team-edit-button"
+                      ref={editButtonRef}
                       disabled={busy}
                       onClick={() => {
                         setDraft({
@@ -397,8 +445,22 @@ export function TeamDetail({
               <span className="team-inspector-owner" title={run.spec.members.find((m) => m.id === record.task.memberId)!.displayName}>
                 {run.spec.members.find((m) => m.id === record.task.memberId)!.displayName}
               </span>
-              <span>{status(record)}</span>
+              <TeamTaskStatus run={run} record={record} animate={false} />
             </p>
+            {record.status === "running" && (
+              <div className="team-live-task">
+                <div>
+                  <strong>{t("teams.workingNow")}</strong>
+                  {latestAttempt && <TeamElapsedTime key={latestAttempt.threadId} attempt={latestAttempt} />}
+                </div>
+                <p>{t("teams.runningHint")}</p>
+                {latestAttempt && (
+                  <button onClick={() => void openRecord(latestAttempt.threadId)}>
+                    {t("teams.viewLiveRecord")}<ArrowRight size={15} />
+                  </button>
+                )}
+              </div>
+            )}
             <section>
               <h3>{t("teams.instructions")}</h3>
               <p>{record.task.instructions}</p>
@@ -435,7 +497,7 @@ export function TeamDetail({
                   }
                 />
               ) : (
-                <p>{t("teams.noOutput")}</p>
+                <p>{t(record.status === "running" ? "teams.runningOutput" : "teams.noOutput")}</p>
               )}
             </section>
             {!!record.attempts.length && (
@@ -446,7 +508,7 @@ export function TeamDetail({
                     <button onClick={() => void openRecord(attempt.threadId)}>
                       {i + 1} · {t(`teams.status.${attempt.status}`)}
                       <ArrowRight size={16} />
-                      <span className="sr-only">{t("teams.openRecord")}</span>
+                      <span className="react-sr-only">{t("teams.openRecord")}</span>
                     </button>
                     {attempt.error && (
                       <p className="team-error">{attempt.error}</p>

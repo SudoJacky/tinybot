@@ -1,5 +1,6 @@
 @import "../lib/FormControls.css";
 .team-layout {
+  --team-success-ink: color-mix(in srgb, var(--color-success) 45%, var(--color-ink));
   display: flex;
   height: 100%;
   min-height: 0;
@@ -81,7 +82,7 @@
   margin-top: 8px;
 }
 .team-composer-area {
-  margin: 48px auto 0;
+  margin: 32px auto 0;
   max-width: 820px;
 }
 .team-composer-area > h2 {
@@ -91,7 +92,7 @@
 }
 .team-composer-area > p {
   text-align: center;
-  margin: 16px 0 28px;
+  margin: 12px 0 24px;
   font-size: 14px;
 }
 .team-composer .react-form-input {
@@ -103,36 +104,58 @@
 .team-composer textarea::placeholder {
   color: var(--color-muted);
 }
-.team-composer > div {
+.team-composer-submit {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+  align-items: center;
+  gap: 16px;
 }
 .team-composer-options {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
   gap: 16px;
   padding-block: 16px;
 }
-.team-composer-options summary {
-  display: flex;
-  gap: 10px;
-  cursor: pointer;
-  align-items: center;
-  padding: 4px;
+.team-roster-control {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
 }
-.team-composer-options summary::after {
-  content: "⌄";
-  margin-left: 6px;
+.team-roster-control > button {
+  justify-content: flex-start;
+}
+.team-roster-control > button > span {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.team-roster-control > button > svg {
+  flex-shrink: 0;
+}
+.team-roster-control > button[aria-expanded="true"] > svg:last-child {
+  transform: rotate(180deg);
 }
 .team-member-editor {
-  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: 16px;
+  margin-top: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
-  padding: 18px;
+  padding: 16px;
   background: var(--color-panel);
-  max-width: 560px;
+}
+.team-member-editor > p {
+  grid-column: 1 / -1;
+}
+.team-member-editor fieldset {
+  margin: 0;
+  padding: 12px;
+}
+.team-layout .react-form-input {
+  font-weight: 400;
 }
 .team-layout fieldset {
   border: 1px solid var(--color-hairline);
@@ -150,7 +173,7 @@
   line-height: 1.6;
 }
 .team-recent {
-  margin: 48px auto 0;
+  margin: 32px auto 0;
   max-width: 820px;
 }
 .team-section-heading {
@@ -178,11 +201,23 @@
   text-align: left;
 }
 .team-recent-row strong {
-  flex: 1;
+  display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-weight: 500;
+}
+.team-recent-copy {
+  flex: 1;
+  min-width: 0;
+}
+.team-recent-copy small {
+  display: block;
+  color: var(--color-muted);
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .team-recent-row .team-status {
   min-width: 88px;
@@ -199,7 +234,15 @@
   color: var(--color-primary-active);
 }
 .team-status:is(.is-succeeded, .is-completed) {
-  color: var(--color-success);
+  color: var(--team-success-ink);
+}
+.team-state-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 .team-status:is(.is-failed, .is-interrupted) {
   color: var(--color-error);
@@ -265,12 +308,55 @@
   margin-top: 0;
   padding-block: 10px;
 }
-.team-members > div {
+.team-layout .team-member {
   flex: 1;
   min-width: 160px;
   display: flex;
   gap: 14px;
   align-items: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  text-align: left;
+  background: transparent;
+  color: var(--color-ink);
+}
+.team-layout .team-member:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.team-layout .team-member.is-running {
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+.team-member-copy {
+  flex: 1;
+  min-width: 0;
+}
+.team-member-copy > span {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--color-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.team-member-arrow {
+  flex-shrink: 0;
+  color: var(--color-primary-active);
+}
+.team-avatar {
+  position: relative;
+}
+.team-member-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--color-panel);
+  border-radius: 50%;
+  background: var(--color-primary);
 }
 .team-members p {
   font-size: 12px;
@@ -294,6 +380,7 @@
   grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr);
 }
 .team-task-pane {
+  container: team-tasks / inline-size;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -340,9 +427,110 @@
   min-height: 72px;
   padding: 16px 6px;
 }
-.team-task-row.is-selected {
+.team-layout .team-task-row.is-selected {
   border-left-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+.team-running-indicator {
+  flex-shrink: 0;
+  animation: team-running-spin 1s linear infinite;
+}
+@keyframes team-running-spin {
+  to { transform: rotate(360deg); }
+}
+.team-task-row.is-running .team-number {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  color: var(--color-primary-active);
+}
+.team-task-row.is-succeeded .team-number {
+  color: var(--team-success-ink);
+}
+.team-task-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.team-task-state .is-running {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+}
+.team-elapsed {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-muted);
+}
+.team-task-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.team-task-toolbar .team-locate-running {
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--color-primary-active);
+  font-size: 12px;
+}
+.team-completion-track {
+  height: 2px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--color-surface-soft);
+}
+.team-completion-track > span {
+  display: block;
+  height: 100%;
+  background: var(--color-success);
+  transform-origin: left;
+  transition: transform 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.team-live-task {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+.team-live-task > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.team-live-task strong {
+  font-size: 12px;
+  color: var(--color-primary-active);
+}
+.team-live-task p {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.team-live-task button {
+  margin-top: 12px;
+  font-size: 12px;
+  width: 100%;
+  justify-content: space-between;
+}
+.team-layout :is(.team-member, .team-task-row, .team-locate-running):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .team-layout .team-member.is-running:hover,
+  .team-layout .team-task-row:hover {
+    background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+  }
 }
 .team-number {
   display: flex;
@@ -489,6 +677,12 @@
   border-top: 1px solid var(--color-hairline);
 }
 @media (prefers-reduced-motion: reduce) {
+  .team-running-indicator {
+    animation: none;
+  }
+  .team-completion-track > span {
+    transition: none;
+  }
   .team-layout * {
     scroll-behavior: auto !important;
   }
@@ -506,7 +700,7 @@
   width: calc(100% - 16px);
   margin-inline: 8px;
 }
-.team-sidebar [aria-current="page"] {
+.team-sidebar [aria-current] {
   background: var(--color-surface-soft);
   color: var(--color-primary-active);
 }
@@ -531,11 +725,7 @@
   justify-content: center;
 }
 .team-composer-options > .react-settings-choice {
-  width: 280px;
-  max-width: 100%;
-}
-.team-composer-options > details {
-  min-width: 0;
+  width: 100%;
   max-width: 100%;
 }
 .team-plan-editor .react-settings-choice {
@@ -557,6 +747,21 @@
   flex-shrink: 0;
   max-height: 38%;
   overflow: auto;
+}
+.team-run-header[data-editing="true"] .team-breadcrumb,
+.team-run-header[data-editing="true"] .team-heading-actions > div,
+.team-run-header[data-editing="true"] .team-goal-details,
+.team-run-header[data-editing="true"] > p:not(.team-error) {
+  display: none;
+}
+.team-run-header[data-editing="true"] h1 {
+  -webkit-line-clamp: 1;
+  font-size: 15px;
+}
+.team-editing-notice {
+  padding: 8px 0;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 .team-page > .team-error {
   max-height: 90px;
@@ -667,6 +872,39 @@
     display: none;
   }
 }
+@container team-tasks (max-width: 460px) {
+  .team-layout .team-task-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 8px 12px;
+    padding: 12px 8px;
+  }
+  .team-task-row .team-number {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    align-self: start;
+  }
+  .team-task-title {
+    grid-column: 2;
+  }
+  .team-task-state {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .team-task-row .team-owner {
+    display: none;
+  }
+  .team-task-title > span {
+    margin-top: 3px;
+  }
+  .team-task-state .is-running {
+    padding: 0;
+    background: transparent;
+  }
+}
 @container team-main (max-width: 680px) {
   .team-workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -697,6 +935,11 @@
   }
   .team-layout .team-recent-row {
     gap: 10px;
+  }
+}
+@container team-main (max-width: 560px) {
+  .team-composer-options {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-height: 650px) {

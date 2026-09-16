@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   TeamRun,
   TeamStore,
@@ -21,7 +21,7 @@ export function useTeamRuns(store: TeamStore) {
   const snapshots = useRef<TeamRun[]>([]);
   const executions = useRef(new Set<string>());
 
-  function accept(run: TeamRun) {
+  const accept = useCallback((run: TeamRun) => {
     if (!mounted.current) return;
     if (
       snapshots.current.some(
@@ -42,11 +42,12 @@ export function useTeamRuns(store: TeamStore) {
       delete next[run.id];
       return next;
     });
-  }
-  function fail(e: unknown) {
+  }, []);
+  const fail = useCallback((e: unknown) => {
+    console.error("[teams] Request failed", e);
     if (mounted.current) setError(String(e));
-  }
-  async function refresh() {
+  }, []);
+  const refresh = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
@@ -60,27 +61,28 @@ export function useTeamRuns(store: TeamStore) {
         setRefreshEpoch((value) => value + 1);
       }
     }
-  }
+  }, [store, accept, fail]);
   useEffect(() => {
     mounted.current = true;
     void refresh();
     return () => {
       mounted.current = false;
     };
-  }, [store]);
+  }, [refresh]);
   const run = runs.find((value) => value.id === selectedId) ?? null;
-  const polling =
-    run?.status === "running" ||
-    (selectedId !== null && pending[selectedId] === "start");
+  const pollingIds = JSON.stringify(runs.filter(
+    (value) => value.status === "running" || pending[value.id] === "start",
+  ).map((value) => value.id).sort());
   useEffect(() => {
-    if (!selectedId || !polling) return;
+    const ids = JSON.parse(pollingIds) as string[];
+    if (!ids.length) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
-        const value = await store.get(selectedId!);
+        const values = await Promise.all(ids.map((id) => store.get(id)));
         if (active) {
-          accept(value);
+          values.forEach(accept);
           timer = setTimeout(() => void poll(), 1500);
         }
       } catch (e) {
@@ -92,7 +94,7 @@ export function useTeamRuns(store: TeamStore) {
       active = false;
       clearTimeout(timer);
     };
-  }, [selectedId, polling, store, refreshEpoch]);
+  }, [pollingIds, store, refreshEpoch, accept, fail]);
   async function action(work: () => Promise<TeamRun>, select = false) {
     if (lock.current) return;
     lock.current = true;

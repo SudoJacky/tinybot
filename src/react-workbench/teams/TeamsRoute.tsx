@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
   ChevronLeft,
+  ChevronDown,
   PanelLeftOpen,
   Clock,
   Folder,
@@ -19,6 +20,7 @@ import type { AppServices, WorkspaceRegistryEntry } from "../services";
 import type { AppRoute } from "../shell/RouteSurface";
 import { TeamDetail } from "./TeamDetail";
 import { useTeamRuns } from "./useTeamRuns";
+import { TeamRunningIndicator } from "./TeamTaskStatus";
 import "./teams.css";
 
 export default function TeamsRoute({
@@ -34,6 +36,7 @@ export default function TeamsRoute({
   const state = useTeamRuns(services.teamStore);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [workspaceEpoch, setWorkspaceEpoch] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceRegistryEntry[]>([]);
   const [workspace, setWorkspace] = useState("");
@@ -81,6 +84,7 @@ export default function TeamsRoute({
   function home() {
     state.setSelectedId(null);
   }
+  const visibleRuns = state.runs.filter((run) => !workspace || run.spec.workspacePath === workspace);
   return (
     <div className="team-layout">
       <aside
@@ -149,6 +153,7 @@ export default function TeamsRoute({
               key={w.path}
               disabled={!w.exists || state.busy || editing}
               title={w.path}
+              aria-current={(state.run?.spec.workspacePath ?? workspace) === w.path ? "true" : undefined}
               onClick={() => {
                 setWorkspace(w.path);
                 home();
@@ -256,23 +261,6 @@ export default function TeamsRoute({
                     onChange={(e) => setGoal(e.target.value)}
                     disabled={state.busy}
                   />
-                  <div>
-                    <button
-                      className="react-form-primary"
-                      disabled={
-                        state.busy ||
-                        !goal.trim() ||
-                        !workspace ||
-                        members.some(
-                          (m) =>
-                            !m.displayName.trim() || !m.instructions.trim(),
-                        )
-                      }
-                    >
-                      {state.busy ? t("teams.generating") : t("teams.generate")}
-                      <ArrowRight size={18} />
-                    </button>
-                  </div>
                 </div>
                 <div className="team-composer-options">
                   <SettingsChoiceList
@@ -294,12 +282,22 @@ export default function TeamsRoute({
                       })),
                     ]}
                   />
-                  <details>
-                    <summary>
-                      <Users size={18} />
-                      {t("teams.members")} · {members.length}
-                    </summary>
-                    <div className="team-member-editor">
+                  <div className="team-roster-control">
+                    <span className="react-settings-choice__label">{t("teams.members")}</span>
+                    <button
+                      type="button"
+                      aria-expanded={membersOpen}
+                      aria-controls="team-member-editor"
+                      disabled={state.busy}
+                      onClick={() => setMembersOpen(!membersOpen)}
+                    >
+                      <Users size={18} aria-hidden="true" />
+                      <span>{t("teams.configureMembers")} · {members.length}</span>
+                      <ChevronDown size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+                {membersOpen && <div id="team-member-editor" className="team-member-editor">
                       <p>{t("teams.defaultModel")}</p>
                       {members.map((member, index) => (
                         <fieldset key={member.id} disabled={state.busy}>
@@ -340,8 +338,16 @@ export default function TeamsRoute({
                           </label>
                         </fieldset>
                       ))}
-                    </div>
-                  </details>
+                </div>}
+                <div className="team-composer-submit">
+                  <p role="status">{state.busy ? t("teams.generating") : ""}</p>
+                  <button
+                    className="react-form-primary"
+                    disabled={state.busy || !goal.trim() || !workspace || members.some((m) => !m.displayName.trim() || !m.instructions.trim())}
+                  >
+                    {state.busy ? <TeamRunningIndicator /> : <ArrowRight size={18} />}
+                    {state.busy ? t("teams.generating") : t("teams.generate")}
+                  </button>
                 </div>
               </form>
               <section className="team-recent">
@@ -355,10 +361,10 @@ export default function TeamsRoute({
                   </button>
                 </div>
                 {state.loading && <p role="status">{t("teams.loading")}</p>}
-                {!state.loading && !state.runs.length && (
-                  <p>{t("teams.empty")}</p>
+                {!state.loading && !visibleRuns.length && (
+                  <p>{t(workspace ? "teams.workspaceEmpty" : "teams.empty")}</p>
                 )}
-                {state.runs.map((run) => (
+                {visibleRuns.map((run) => (
                   <button
                     className="team-recent-row"
                     key={run.id}
@@ -369,7 +375,10 @@ export default function TeamsRoute({
                     }}
                   >
                     <FileText size={21} />
-                    <strong title={run.spec.goal}>{run.spec.goal}</strong>
+                    <span className="team-recent-copy">
+                      <strong title={run.spec.goal}>{run.spec.goal}</strong>
+                      <small title={run.spec.workspacePath}>{run.spec.workspacePath.split(/[\\/]/).filter(Boolean).slice(-1)[0]}</small>
+                    </span>
                     <span className={`team-status is-${run.status}`}>
                       {t(`teams.status.${run.status}`)}
                     </span>

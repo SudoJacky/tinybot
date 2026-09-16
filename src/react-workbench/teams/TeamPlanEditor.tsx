@@ -1,5 +1,6 @@
 import { SettingsChoiceList } from "../settings/SettingsChoiceList";
 import { useTranslation } from "react-i18next";
+import { useEffect, useRef } from "react";
 import type {
   TeamPlan,
   TeamRun,
@@ -22,6 +23,10 @@ export function TeamPlanEditor({
   onDiscard(): void;
 }) {
   const { t } = useTranslation("common");
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    formRef.current?.querySelector<HTMLInputElement>("input:not(:disabled)")?.focus();
+  }, []);
   function updateTask(id: string, patch: Partial<TeamTask>) {
     onChange({
       ...plan,
@@ -33,6 +38,7 @@ export function TeamPlanEditor({
   return (
     <form
       className="team-plan-editor"
+      ref={formRef}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();

@@ -7,6 +7,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
@@ -22,6 +23,7 @@ import {
 } from "./teamPresentation";
 import { useTeamRuns } from "./useTeamRuns";
 import { TeamDetail } from "./TeamDetail";
+import { TeamElapsedTime } from "./TeamTaskStatus";
 import TeamsRoute from "./TeamsRoute";
 vi.mock("../chat/AssistantMarkdown", () => ({
   AssistantMarkdown: ({ text }: { text: string }) => <div>{text}</div>,
@@ -97,6 +99,120 @@ it("orders dependency rows stably and projects pending tasks in the run context"
   expect(acceptRevision([{ ...run, revision: 3 }], run)[0].revision).toBe(3);
   run.tasks[1].task.dependencies = ["final"];
   expect(() => orderedTasks(run.tasks)).toThrow("dependency graph");
+});
+it("navigates active work without overriding manual selection when tasks finish", async () => {
+  const run = fixture();
+  run.status = "running";
+  run.tasks[1].status = "running";
+  run.tasks[1].attempts = [{
+    threadId: "active-thread", turnId: "turn", status: "running",
+    startedAt: new Date().toISOString(), finishedAt: null, output: null, error: null,
+  }];
+  const props = {
+    run, busy: false, onBack: vi.fn(), onExecute: vi.fn(), onControl: vi.fn(),
+    onRevise: vi.fn(), onOpenThread: vi.fn(),
+  };
+  const user = userEvent.setup();
+  const view = render(<TeamDetail {...props} run={fixture()} />);
+  const inspector = () => within(screen.getByRole("complementary", { name: "Task details" }));
+  expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
+  view.rerender(<TeamDetail {...props} />);
+  expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Collect sources");
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  await user.click(inspector().getByRole("button", { name: "View live activity" }));
+  expect(props.onOpenThread).toHaveBeenCalledWith("active-thread");
+  await user.click(screen.getByRole("button", { name: /02 Synthesize/ }));
+  expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
+  view.rerender(<TeamDetail {...props} run={{ ...run, revision: 2 }} />);
+  expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
+  await user.click(screen.getByRole("tab", { name: "Result" }));
+  await user.click(screen.getByRole("button", { name: "View Researcher's task: Collect sources" }));
+  expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Collect sources");
+  const paused: TeamRun = {
+    ...run, status: "paused", revision: 3,
+    tasks: run.tasks.map((r) => r.task.id !== "source" ? r : {
+      ...r, status: "succeeded", attempts: [{ ...r.attempts[0], status: "succeeded", finishedAt: new Date().toISOString(), output: "Sources gathered" }],
+    }),
+  };
+  view.rerender(<TeamDetail {...props} run={paused} />);
+  expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Collect sources");
+  expect(inspector().getByText("Sources gathered")).toBeVisible();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  expect(screen.queryByRole("button", { name: "View live activity" })).toBeNull();
+  expect(screen.queryByTitle("Locate next running task")).toBeNull();
+  expect(view.container.querySelector(".team-running-indicator")).toBeNull();
+});
+
+it("updates elapsed time only during execution and cleans up its timer", () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-09-16T12:01:00Z"));
+    const attempt = {
+      threadId: "thread", turnId: "turn", status: "running" as const,
+      startedAt: "2026-09-16T12:00:00Z", finishedAt: null, output: null, error: null,
+    };
+    const view = render(<TeamElapsedTime attempt={attempt} />);
+    expect(screen.getByText("Elapsed 1:00")).toBeVisible();
+    act(() => vi.advanceTimersByTime(2000));
+    expect(screen.getByText("Elapsed 1:02")).toBeVisible();
+    view.rerender(<TeamElapsedTime attempt={{ ...attempt, status: "succeeded", finishedAt: "2026-09-16T12:01:02Z" }} />);
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => vi.advanceTimersByTime(10000));
+    expect(screen.getByText("Elapsed 1:02")).toBeVisible();
+    view.rerender(<TeamElapsedTime attempt={attempt} />);
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps the editor controls available and hands keyboard focus back on discard", async () => {
+  const user = userEvent.setup();
+  render(<TeamDetail run={fixture()} busy={false} onBack={vi.fn()} onExecute={vi.fn()}
+    onControl={vi.fn()} onRevise={vi.fn()} onOpenThread={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: "Edit plan" }));
+  expect(screen.getAllByLabelText("Task title")[0]).toHaveFocus();
+  expect(screen.getByRole("tab", { name: "Result" })).toBeDisabled();
+  await user.click(screen.getByRole("tab", { name: "Tasks" }));
+  await user.keyboard("{ArrowRight}");
+  expect(screen.getByRole("button", { name: "Save plan" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Discard changes" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Edit plan" })).toHaveFocus());
+  expect(screen.getByRole("tab", { name: "Result" })).toBeEnabled();
+});
+
+it("polls active runs from the home page and stops once they finish", async () => {
+  const run = { ...fixture(), status: "running" as const };
+  const api = store(run);
+  api.get = vi.fn(async () => ({ ...run, revision: 2, status: "completed" as const }));
+  const { result } = renderHook(() => useTeamRuns(api));
+  await waitFor(() => expect(result.current.runs[0]?.status).toBe("completed"));
+  expect(result.current.selectedId).toBeNull();
+  expect(api.get).toHaveBeenCalledWith(run.id);
+  expect(api.get).toHaveBeenCalledTimes(1);
+});
+
+it("filters recent runs by workspace and clearly marks the selected project", async () => {
+  const run = fixture();
+  const other = { ...run, id: "other", spec: { ...run.spec, goal: "Other project work", workspacePath: "D:/other" } };
+  const api = store(run);
+  api.list = vi.fn(async () => [run, other]);
+  const registry = {
+    list: vi.fn(async () => [
+      { path: "D:/project", name: "Project", exists: true, addedAtMs: 0, updatedAtMs: 0 },
+      { path: "D:/other", name: "Other", exists: true, addedAtMs: 0, updatedAtMs: 0 },
+    ]), register: vi.fn(), rename: vi.fn(), forget: vi.fn(),
+  };
+  render(<TeamsRoute services={{ teamStore: api, workspaceRegistryStore: registry }} onOpenThread={vi.fn()} onNavigate={vi.fn()} />);
+  const user = userEvent.setup();
+  await screen.findByRole("button", { name: "Workspace: Project" });
+  expect(screen.getByRole("button", { name: "Project" })).toHaveAttribute("aria-current", "true");
+  expect(screen.queryByRole("button", { name: /Other project work/ })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Other" }));
+  expect(screen.getByRole("button", { name: /Other project work/ })).toBeVisible();
+  expect(screen.queryByRole("button", { name: /Research project Ready/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Other" })).toHaveAttribute("aria-current", "true");
 });
 it("keeps pause available while execute is unresolved and rejects stale polling responses", async () => {
   const run = fixture();

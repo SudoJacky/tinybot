@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:6bf6cd8aa9384363beb039ccf14bb2a68e80139625096870d972a900b9cd6b02 -->
+<!-- tinybot-doc-fingerprint: sha256:6655f6cd5c1e5056ccf0b6c3232e5df0090f8f25a5cd617722eca287fba5261e -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -323,3 +323,8 @@ The Teams workbench is an independent lazy route, with a goal composer and a
 shared plan/execution/result page. A typed native adapter supplies durable run
 revisions and attempt Threads. Renderer polling never owns the scheduler;
 explicit pause, cancel and retry requests remain backend decisions.
+After its first visit, the shell keeps Team mounted across route navigation for
+the app session. Unsaved plans, in-flight preparation, selected tasks and scroll
+positions survive execution-record round trips. Polling covers known running
+runs even on the Team home or while the route is hidden; durable state remains
+owned by the native Team store.

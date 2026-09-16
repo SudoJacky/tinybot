@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useEffect, useState, type ComponentProps } from "react";
 import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
 import { ChatPage } from "../chat/ChatPage";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
@@ -42,7 +43,31 @@ const loadPerformanceTraceRoute = () => import("../performance/PerformanceTraceR
 const loadSettingsRoute = () => import("../settings/SettingsRoute");
 const loadToolsRoute = () => import("../tools/ToolsRoute");
 
-export function RouteSurface({
+// Keep the Team workspace alive across shell navigation: drafts and the execution
+// promise belong to the workspace, not to the currently visible route.
+export function RouteSurface(props: ComponentProps<typeof CurrentRouteSurface>) {
+  const { t } = useTranslation("common");
+  const [visitedTeams, setVisitedTeams] = useState(props.route === "teams");
+  useEffect(() => {
+    if (props.route === "teams") setVisitedTeams(true);
+  }, [props.route]);
+  return (
+    <>
+      {(visitedTeams || props.route === "teams") && (
+        <div hidden={props.route !== "teams"} style={{ height: "100%", minHeight: 0 }}>
+          <DeferredSurface
+            load={loadTeamsRoute}
+            name={t("routes.teams")}
+            surfaceProps={{ services: props.services, onOpenThread: props.onOpenThread, onNavigate: props.onNavigate }}
+          />
+        </div>
+      )}
+      {props.route !== "teams" && <CurrentRouteSurface {...props} />}
+    </>
+  );
+}
+
+function CurrentRouteSurface({
   chat,
   desktopPet,
   onNavigate,
@@ -92,7 +117,7 @@ export function RouteSurface({
         />
       );
     case "teams":
-      return <DeferredSurface load={loadTeamsRoute} name={routeName} surfaceProps={{ services, onOpenThread, onNavigate }} />;
+      return null;
     case "automations":
       return <DeferredSurface load={loadAutomationsRoute} name={routeName} surfaceProps={{ services, onOpenThread }} />;
     case "graphs":

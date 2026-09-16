@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:645270774b2df4c3af0e2be610a0982453f3f70d99c0b892ac6ad1e05bd1e6df -->
+<!-- tinybot-module-fingerprint: sha256:92cbb83d2768200c5aeb593b26715dbd94f3a1290e9f678094fde2e6f52a0ef7 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -13,6 +13,11 @@ selection, deferred route loading, and update dialogs.
 `DesktopShell.tsx` coordinates shell state, while `RouteSurface.tsx` selects
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
+After its first visit, Team stays mounted in a hidden route container. Shell
+navigation and execution-record round trips preserve its draft, pending request,
+selection and scroll. Hidden Team content is excluded from focus and accessibility
+navigation while its running-run polling continues. This retention lasts for the
+app session; it does not persist unsaved drafts across reloads.
 The shell also marks only the first Chat mount in an app lifetime as a fresh,
 uncreated conversation. Once Chat finishes session hydration, later route
 remounts can restore the tabs opened during that same app lifetime.
