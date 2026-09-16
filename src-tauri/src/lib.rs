@@ -24,6 +24,7 @@ mod runtime;
 mod skills;
 mod storage;
 mod system_prompt;
+mod teams;
 mod threads;
 mod token_usage;
 mod tool_notes;

@@ -10,6 +10,7 @@ pub(crate) mod project_groups;
 pub(crate) mod retry;
 pub(crate) mod runtime;
 pub(crate) mod skills;
+pub(crate) mod teams;
 pub(crate) mod thread;
 pub(crate) mod token_usage;
 pub(crate) mod webui;

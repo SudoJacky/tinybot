@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:28ac5d66abb2002f62e916f80d1096fe386a5fee3ac6fe5b675a50214f630a22 -->
+<!-- tinybot-module-fingerprint: sha256:65b07520e4f8192ee23db4576ff8a40b7b92defd2fd9aa51f3239169a706fe20 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -58,6 +58,12 @@ revision conflicts stay out of the Tauri boundary.
 Graph Run commands pass history and start requests to `graph_runs`; the command
 layer requires the transient Run input and supplies the shared Agent services,
 application data root, and runtime configuration.
+
+Team commands delegate preparation, history/read, revision, execution, and
+pause/cancel/retry to `teams`. Preparation accepts an explicit plan or requests
+one from a tool-free model. Mutation inputs carry the expected run revision.
+Execution uses shared native services and an owned scheduler; get/list expose
+the durable board while it runs. See [Team API](../../../docs/api/teams.md).
 
 Hook commands resolve an existing workspace directory, return the additive
 global/workspace catalog, and mutate trust only after the backend confirms the
