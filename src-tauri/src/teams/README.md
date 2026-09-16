@@ -63,7 +63,7 @@ are no automatic quality scores, retries, member creation, or hidden replanning.
 ## Persistence and failure behavior
 
 Runs live at `<application data>/team-runs/<run-id>.json` using atomic replacement.
-The stored schema is version 1. State fields use snake case; object keys use
+The stored schema is version 2. State fields use snake case; object keys use
 camel case. Commands that mutate a board require its current numeric revision.
 Pause/cancel signals for active runs are process-local requests; only the
 scheduler writes their resulting state. They do not acknowledge durable completion.
