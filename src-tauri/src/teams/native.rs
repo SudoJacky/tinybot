@@ -27,7 +27,7 @@ impl NativeTeamExecutor {
                 request.trace_id("team-thread-create"),
                 "thread.create",
                 json!({
-                    "threadId": job.thread_id, "title": format!("Team · {} · {}", job.member.id, job.task.id),
+                    "threadId": job.thread_id, "title": format!("Team · {} · {}", job.member.display_name, job.task.title),
                     "source": "team", "metadata": { "workingDirectory": job.workspace_path, "extra": origin(job) }
                 }),
             ),

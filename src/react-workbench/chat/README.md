@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:59f1f4d5110e3355b4e69fffa8fa3472eeb8db26fcde3f520097b16ce2af417c -->
+<!-- tinybot-module-fingerprint: sha256:1d6407d63fc3c81d5d377dbaa5f6429fa1d359bd5a4d83e94aac691f7e25fa35 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -514,3 +514,7 @@ Local raster previews read revision-bound bytes and release object URLs on repla
 The sidebar header exposes a clock-icon Scheduled shortcut below Tinybot and
 keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
+
+The optional `onOpenTeams` sidebar action opens the independent Teams route in
+both expanded and collapsed layouts. Team preparation and scheduling do not
+share the Chat composer or session state.

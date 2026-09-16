@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:009b3af9559ac4f5f63cb6687e532e5ea7ee40c55af3a617cdc669ccddd01c3a -->
+<!-- tinybot-module-fingerprint: sha256:645270774b2df4c3af0e2be610a0982453f3f70d99c0b892ac6ad1e05bd1e6df -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -109,3 +109,7 @@ that action into the same Automations route used by the Resources menu.
 The main shell hosts missed-automation notices across all routes. The hook lives
 in `automations/`; the shell supplies navigation for its View tasks action.
 The pet quick-chat window keeps its message host without polling for misses.
+
+Resources > Teams and the Chat sidebar open a separate lazy Teams route. The
+shell passes the Team store, workspace registry, route navigation, and existing
+Thread-opening callback; orchestration and plan state stay in the Teams module.

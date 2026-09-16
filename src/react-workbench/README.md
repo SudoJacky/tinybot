@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:262f93c2f40b0e92a58ccb5a19afcc940bdb3c2a75bbb78e3f9777de7cab4445 -->
+<!-- tinybot-module-fingerprint: sha256:563f21da9e6cab5a589a29d23bb303247946da1a1d0c9616a84c83540a40914c -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -135,3 +135,8 @@ separate from canonical timeline patches and terminal errors.
 
 The `automationStore` service wraps native saved tasks and runs. The lazy
 [`automations/`](automations/README.md) route owns its forms and report previews.
+
+The independent [`teams/`](teams/README.md) route presents goal preparation,
+plan confirmation, dependency-ordered execution, attempt history, and final
+Markdown output. `teamStore` is composed separately from Chat initialization.
+Its production adapter requires the native runtime and never synthesizes runs.

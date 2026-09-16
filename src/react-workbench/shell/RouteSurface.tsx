@@ -6,7 +6,7 @@ import type { AppServices } from "../services";
 import type { SettingsModuleId } from "../settings/SettingsRoute";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "automations" | "graphs" | "memory" | "tools" | "settings" | "performanceTrace";
+export type AppRoute = "chat" | "teams" | "automations" | "graphs" | "memory" | "tools" | "settings" | "performanceTrace";
 
 export type SettingsNavigationRequest = {
   moduleId: SettingsModuleId;
@@ -34,6 +34,7 @@ type DesktopPetRouteProps = {
   onResetPosition: () => void;
 };
 
+const loadTeamsRoute = () => import("../teams/TeamsRoute");
 const loadAutomationsRoute = () => import("../automations/AutomationsRoute");
 const loadMemoryRoute = () => import("../memory/MemoryRoute");
 const loadAgentGraphsRoute = () => import("../agent-graph/AgentGraphsRoute");
@@ -83,12 +84,15 @@ export function RouteSurface({
           onActiveWorkspaceChange={chat.onActiveWorkspaceChange}
           onMascotMoodChange={chat.onMascotMoodChange}
           onSessionSidebarCollapsedChange={chat.onSessionSidebarCollapsedChange}
+          onOpenTeams={() => onNavigate("teams")}
           onOpenAutomations={() => onNavigate("automations")}
           onStartupSessionHydrated={chat.onStartupSessionHydrated}
           onStopGenerationTargetChange={chat.onStopGenerationTargetChange}
           startInNewSession={chat.startInNewSession}
         />
       );
+    case "teams":
+      return <DeferredSurface load={loadTeamsRoute} name={routeName} surfaceProps={{ services, onOpenThread, onNavigate }} />;
     case "automations":
       return <DeferredSurface load={loadAutomationsRoute} name={routeName} surfaceProps={{ services, onOpenThread }} />;
     case "graphs":

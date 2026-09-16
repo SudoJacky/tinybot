@@ -4,12 +4,14 @@ src-tauri/src/desktop_commands/teams.rs
 src-tauri/src/teams/model.rs
 src-tauri/src/teams/mod.rs
 src-tauri/src/teams/runtime.rs
+src-tauri/src/teams/store.rs
+src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:e886404fb67f5870f006ddfef853c12a7b283ab969ea61cb5e5b5c77f1fa9cb4 -->
+<!-- tinybot-doc-fingerprint: sha256:43df1b44fee41b3003a8081909841f149fd2b4f8bbd0b8874ff64992003073ca -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
-object or reject with an error string. This backend surface is ready for a future
-Team UI; no renderer workflow is added with this module.
+object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
+confirm assignments, execute work, and inspect results and attempt Threads.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
@@ -30,15 +32,15 @@ const run = await invoke("worker_team_prepare", {
       workspacePath: "D:/projects/example",
       maxConcurrency: 2,
       members: [
-        { id: "researcher", instructions: "Collect source-backed evidence" },
-        { id: "reviewer", instructions: "Check claims and synthesize tradeoffs" },
+        { id: "researcher", displayName: "Researcher", instructions: "Collect source-backed evidence" },
+        { id: "reviewer", displayName: "Reviewer", instructions: "Check claims and synthesize tradeoffs" },
       ],
     },
     plan: {
       tasks: [
-        { id: "option-a", memberId: "researcher", instructions: "Investigate option A", dependencies: [] },
-        { id: "option-b", memberId: "reviewer", instructions: "Investigate option B", dependencies: [] },
-        { id: "report", memberId: "reviewer", instructions: "Review both results and write the recommendation", dependencies: ["option-a", "option-b"] },
+        { id: "option-a", title: "Investigate option A", memberId: "researcher", instructions: "Investigate option A", dependencies: [] },
+        { id: "option-b", title: "Investigate option B", memberId: "reviewer", instructions: "Investigate option B", dependencies: [] },
+        { id: "report", title: "Write recommendation", memberId: "reviewer", instructions: "Review both results and write the recommendation", dependencies: ["option-a", "option-b"] },
       ],
       finalTaskId: "report",
     },
@@ -103,3 +105,8 @@ input is currently reported as a failed Team task; inspect and resolve its Threa
 before retrying. Automatic adoption of a human-resumed Turn, team messaging,
 workspace merge/isolation, live board events, and automatic replanning are outside
 this initial backend interface. Native Thread/tool events remain available.
+
+Schema version 2 requires a nonblank member `displayName` and task `title`.
+Reading a version 1 record explicitly migrates its IDs into those display fields,
+validates the complete record, and atomically saves one new revision. New input
+with missing display fields is rejected; unknown versions remain errors.

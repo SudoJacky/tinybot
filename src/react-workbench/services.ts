@@ -376,6 +376,7 @@ export type PerformanceStore = {
 };
 
 export type AppServices = {
+  teamStore: import("../app-core/native/desktopNativeTeams").TeamStore;
   automationStore: import("../app-core/native/desktopNativeAutomations").AutomationStore;
   agentGraphStore: AgentGraphStore;
   agentGraphRuntime: AgentGraphRuntime;

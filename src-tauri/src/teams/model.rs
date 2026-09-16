@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-pub(super) const SCHEMA_VERSION: u32 = 1;
+pub(super) const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -15,6 +15,7 @@ pub(crate) struct TeamModel {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TeamMember {
     pub id: String,
+    pub display_name: String,
     pub instructions: String,
     pub model: Option<TeamModel>,
 }
@@ -32,6 +33,7 @@ pub(crate) struct TeamSpec {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TeamTask {
     pub id: String,
+    pub title: String,
     pub member_id: String,
     pub instructions: String,
     pub dependencies: Vec<String>,
@@ -143,9 +145,12 @@ pub(super) fn validate_spec(spec: &TeamSpec) -> Result<(), String> {
     let mut members = HashSet::new();
     for member in &spec.members {
         identifier(&member.id)?;
-        if !members.insert(&member.id) || member.instructions.trim().is_empty() {
+        if !members.insert(&member.id)
+            || member.instructions.trim().is_empty()
+            || member.display_name.trim().is_empty()
+        {
             return Err(format!(
-                "Duplicate member or empty instructions: {}",
+                "Duplicate member or blank display name/instructions: {}",
                 member.id
             ));
         }
@@ -168,13 +173,14 @@ pub(super) fn validate_plan(spec: &TeamSpec, plan: &TeamPlan) -> Result<(), Stri
             return Err(format!("Duplicate Team task: {}", task.id));
         }
         if task.instructions.trim().is_empty()
+            || task.title.trim().is_empty()
             || !spec
                 .members
                 .iter()
                 .any(|member| member.id == task.member_id)
         {
             return Err(format!(
-                "Invalid instructions or member for task {}",
+                "Invalid title, instructions or member for task {}",
                 task.id
             ));
         }

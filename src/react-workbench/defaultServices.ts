@@ -1,3 +1,4 @@
+import { createDesktopNativeTeamsApi } from "../app-core/native/desktopNativeTeams";
 import { createDesktopChatCommands } from "./chat/desktopChatCommands";
 import { projectChatEventEffects } from "./chat/chatEventPolicy";
 import { createDesktopNativeAutomationsApi } from "../app-core/native/desktopNativeAutomations";
@@ -206,6 +207,10 @@ export function createDesktopAppServices(
   return {
     desktopPetHost,
     desktopPetQuickChatHost,
+    teamStore: createDesktopNativeTeamsApi({ invoke: async (command, args) => {
+      if (!nativeMode) throw new Error("Teams require the Tauri native runtime");
+      return invoke(command, args);
+    } }),
     automationStore: {
       async list() { await initialize(); return requireNative(nativeAutomations, "Automations").list(); },
       async save(input) { await initialize(); return requireNative(nativeAutomations, "Automations").save(input); },

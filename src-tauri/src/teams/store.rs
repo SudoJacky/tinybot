@@ -45,7 +45,24 @@ pub(super) fn path(dir: &Path, id: &str) -> Result<PathBuf, String> {
 pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> {
     let bytes =
         fs::read(path).map_err(|error| format!("Read Team run {}: {error}", path.display()))?;
-    let mut run: TeamRun = serde_json::from_slice(&bytes)
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Parse Team run {}: {error}", path.display()))?;
+    let migrated = value["schemaVersion"] == 1;
+    if migrated {
+        for member in value["spec"]["members"].as_array_mut().ok_or("Invalid legacy Team members")? {
+            let member = member.as_object_mut().ok_or("Invalid legacy Team member")?;
+            let id = member.get("id").ok_or("Missing legacy Team member ID")?.clone();
+            member.insert("displayName".into(), id);
+        }
+        for record in value["tasks"].as_array_mut().ok_or("Invalid legacy Team tasks")? {
+            let task = record.get_mut("task").and_then(serde_json::Value::as_object_mut)
+                .ok_or("Invalid legacy Team task")?;
+            let id = task.get("id").ok_or("Missing legacy Team task ID")?.clone();
+            task.insert("title".into(), id);
+        }
+        value["schemaVersion"] = SCHEMA_VERSION.into();
+    }
+    let mut run: TeamRun = serde_json::from_value(value)
         .map_err(|error| format!("Parse Team run {}: {error}", path.display()))?;
     if run.schema_version != SCHEMA_VERSION
         || path.file_stem().and_then(|s| s.to_str()) != Some(&run.id)
@@ -74,6 +91,10 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
                 record.task.id
             ));
         }
+    }
+    if migrated {
+        eprintln!("team_run_migrated run_id={} from=1 to=2", run.id);
+        save(path, &mut run)?;
     }
     if run.status == RunStatus::Running && !active.contains_key(path) {
         run.status = RunStatus::Interrupted;

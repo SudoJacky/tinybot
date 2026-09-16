@@ -87,6 +87,7 @@
 .react-settings-choice-trigger small,
 .react-settings-choice-item strong,
 .react-settings-choice-item small {
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

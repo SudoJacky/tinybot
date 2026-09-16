@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:f7d7099430017f166b8426e56b4a448ae6f6f6d4952de5d798335a33b39a53b0 -->
+<!-- tinybot-module-fingerprint: sha256:7af10dbf832a66323f87f9f10538b469bdb02c9d190df70bbb92e9586118b78a -->
 
 `teams` owns a shared task board and dependency scheduler for a fixed set of
 members working toward one goal. It is independent of Agent Graphs and the
@@ -88,3 +88,9 @@ limits, per-member exclusion, failure cleanup, explicit retry, pause/resume,
 revision conflicts, interruption recovery, dropped callers, and native Thread
 creation using the deterministic provider. No live provider credentials are needed.
 See [Team API](../../../docs/api/teams.md) for invocation examples.
+
+Schema version 2 requires human-readable member display names and task titles.
+The planner emits titles in the goal language; native Thread titles use both
+display fields. The store explicitly migrates version 1 snapshots once, using
+their IDs as initial labels, and logs the migration before persisting a revision.
+New inputs remain strict and reject missing or blank labels.

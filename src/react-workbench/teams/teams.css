@@ -1,0 +1,709 @@
+@import "../lib/FormControls.css";
+.team-layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  font-size: 13px;
+  min-width: 0;
+}
+.team-layout h1,
+.team-layout h2,
+.team-layout h3,
+.team-layout p {
+  margin: 0;
+}
+.team-layout p {
+  color: var(--color-muted);
+  line-height: 1.65;
+}
+.react-session-list.team-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 12px;
+  padding-block: 4px 12px;
+}
+.team-sidebar nav {
+  display: grid;
+  gap: 6px;
+}
+.team-projects {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 22px;
+}
+.team-projects p {
+  padding: 0 16px 12px;
+  font-size: 12px;
+}
+.team-projects button {
+  margin-bottom: 7px;
+}
+.team-projects button svg {
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.team-projects button span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.team-sidebar .team-settings {
+  margin-top: auto;
+}
+.team-main {
+  container: team-main / inline-size;
+  min-height: 0;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.team-tabbar {
+  border-bottom: 1px solid var(--color-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  flex-shrink: 0;
+  padding-right: 12px;
+}
+.react-workbench-page.team-page {
+  flex: 1;
+  display: block;
+  height: auto;
+}
+.team-home-heading p {
+  margin-top: 8px;
+}
+.team-composer-area {
+  margin: 48px auto 0;
+  max-width: 820px;
+}
+.team-composer-area > h2 {
+  text-align: center;
+  font-size: 24px;
+  letter-spacing: -0.7px;
+}
+.team-composer-area > p {
+  text-align: center;
+  margin: 16px 0 28px;
+  font-size: 14px;
+}
+.team-composer .react-form-input {
+  display: block;
+  width: 100%;
+  min-height: 114px;
+  resize: vertical;
+}
+.team-composer textarea::placeholder {
+  color: var(--color-muted);
+}
+.team-composer > div {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.team-composer-options {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-block: 16px;
+}
+.team-composer-options summary {
+  display: flex;
+  gap: 10px;
+  cursor: pointer;
+  align-items: center;
+  padding: 4px;
+}
+.team-composer-options summary::after {
+  content: "⌄";
+  margin-left: 6px;
+}
+.team-member-editor {
+  margin-top: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  padding: 18px;
+  background: var(--color-panel);
+  max-width: 560px;
+}
+.team-layout fieldset {
+  border: 1px solid var(--color-hairline);
+  padding: 14px;
+  margin: 14px 0;
+  min-width: 0;
+  border-radius: 8px;
+}
+.team-layout fieldset > label {
+  margin-bottom: 12px;
+}
+.team-layout fieldset textarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.team-recent {
+  margin: 48px auto 0;
+  max-width: 820px;
+}
+.team-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.team-section-heading h2 {
+  font-size: 14px;
+}
+.team-section-heading button {
+  border: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.team-layout .team-recent-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  padding: 21px 8px;
+  justify-content: flex-start;
+  gap: 20px;
+  text-align: left;
+}
+.team-recent-row strong {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.team-recent-row .team-status {
+  min-width: 88px;
+}
+.team-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.team-status.is-running {
+  color: var(--color-primary-active);
+}
+.team-status:is(.is-succeeded, .is-completed) {
+  color: var(--color-success);
+}
+.team-status:is(.is-failed, .is-interrupted) {
+  color: var(--color-error);
+}
+.team-error {
+  color: var(--color-error) !important;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, transparent);
+  border-radius: 8px;
+  margin-bottom: 14px !important;
+  font-size: 12px;
+}
+.team-error button {
+  margin-left: 12px;
+}
+.team-breadcrumb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.team-breadcrumb button {
+  min-height: 28px;
+  border: 0;
+  padding: 0;
+}
+.team-breadcrumb > span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.team-heading-actions {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.team-heading-actions h1 {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.team-heading-actions > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.team-run-header > p {
+  margin-top: 12px;
+}
+.team-members {
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-hairline);
+  overflow-x: auto;
+  margin-top: 0;
+  padding-block: 10px;
+}
+.team-members > div {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.team-members p {
+  font-size: 12px;
+  margin-top: 5px;
+}
+.team-avatar {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+}
+.team-workspace {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr);
+}
+.team-task-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  padding-right: 16px;
+}
+.team-task-toolbar {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+.team-task-toolbar > span {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.team-task-toolbar [role="tablist"] {
+  display: flex;
+}
+.team-task-toolbar button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 12px;
+}
+.team-task-toolbar button[aria-selected="true"] {
+  color: var(--color-primary-active);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+.team-layout .team-task-row {
+  display: flex;
+  width: 100%;
+  gap: 15px;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  min-height: 72px;
+  padding: 16px 6px;
+}
+.team-task-row.is-selected {
+  border-left-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+.team-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-hairline);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.team-task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.team-task-title strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.team-task-title > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-muted);
+  margin-top: 6px;
+  font-size: 12px;
+}
+.team-task-title small {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--color-primary-active);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 7px;
+}
+.team-owner {
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.team-inspector {
+  overflow: auto;
+  min-height: 0;
+  overflow-wrap: anywhere;
+  border-left: 1px solid var(--color-hairline);
+  min-width: 0;
+  padding: 20px 0 0 20px;
+}
+.team-inspector h2 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.team-inspector-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px !important;
+  font-size: 12px;
+}
+.team-inspector-meta > span:last-child {
+  white-space: nowrap;
+}
+.team-inspector-owner {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-inspector section {
+  border-bottom: 1px solid var(--color-hairline);
+  padding-block: 20px;
+}
+.team-inspector h3 {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.team-inspector section p {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.team-layout .team-dependency {
+  width: 100%;
+  justify-content: space-between;
+  margin: 4px 0;
+  padding: 12px;
+  font-size: 12px;
+  text-align: left;
+}
+.team-dependency > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.team-dependency > span:last-child {
+  color: var(--color-muted);
+}
+.team-attempt > button {
+  width: 100%;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.team-result {
+  padding: 26px 0;
+  overflow-wrap: anywhere;
+}
+.team-edit-button {
+  margin-top: 20px;
+}
+.team-plan-editor {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.team-plan-editor label.team-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 8px 0;
+}
+.team-editor-actions {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-hairline);
+}
+@media (prefers-reduced-motion: reduce) {
+  .team-layout * {
+    scroll-behavior: auto !important;
+  }
+}
+.react-session-list__header.team-sidebar-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.team-sidebar nav,
+.team-projects {
+  padding-inline: 8px;
+}
+.team-sidebar .team-settings {
+  width: calc(100% - 16px);
+  margin-inline: 8px;
+}
+.team-sidebar [aria-current="page"] {
+  background: var(--color-surface-soft);
+  color: var(--color-primary-active);
+}
+.team-sidebar[data-collapsed="true"] .team-projects {
+  display: none;
+}
+.team-sidebar[data-collapsed="true"] nav {
+  padding-inline: 0;
+}
+.team-sidebar[data-collapsed="true"] .react-session-list__scheduled {
+  padding-inline: 8px;
+}
+.team-sidebar[data-collapsed="true"] .react-session-list__scheduled span {
+  display: none;
+}
+.team-sidebar[data-collapsed="true"] .team-settings {
+  width: 100%;
+  margin-inline: 0;
+}
+.team-sidebar[data-collapsed="true"] .team-sidebar-heading {
+  padding: 0;
+  justify-content: center;
+}
+.team-composer-options > .react-settings-choice {
+  width: 280px;
+  max-width: 100%;
+}
+.team-composer-options > details {
+  min-width: 0;
+  max-width: 100%;
+}
+.team-plan-editor .react-settings-choice {
+  margin-bottom: 12px;
+}
+.team-layout fieldset .react-form-input {
+  width: 100%;
+}
+/* Detail is a desktop workspace: persistent controls and separately scrolling panes. */
+.react-workbench-page.team-page[data-detail="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding-block: 12px;
+}
+.team-page > .team-run-header {
+  display: block;
+  flex-shrink: 0;
+  max-height: 38%;
+  overflow: auto;
+}
+.team-page > .team-error {
+  max-height: 90px;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.team-breadcrumb {
+  margin-bottom: 6px;
+  gap: 16px;
+}
+.team-breadcrumb > button {
+  flex-shrink: 0;
+}
+.team-breadcrumb > span {
+  min-width: 0;
+}
+.team-breadcrumb > span > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-breadcrumb svg, .team-task-row > .team-status, .team-dependency > svg {
+  flex-shrink: 0;
+}
+.team-heading-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.team-heading-actions h1 {
+  flex: 1 1 280px;
+}
+.team-heading-actions > div {
+  flex-wrap: wrap;
+}
+.team-goal-details {
+  margin-top: 8px;
+}
+.team-goal-details summary {
+  cursor: pointer;
+  color: var(--color-muted);
+}
+.team-goal-details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.team-members {
+  flex-shrink: 0;
+}
+.team-members > div > div {
+  min-width: 0;
+}
+.team-members strong, .team-members p {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.team-task-pane > [role="tabpanel"] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+.team-task-pane > [role="tabpanel"]:has(.team-plan-editor) {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.team-workspace:is([data-view="result"], [data-view="editor"]) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.team-workspace:is([data-view="result"], [data-view="editor"]) .team-task-pane {
+  padding-right: 0;
+}
+.team-layout .team-inspector-back {
+  display: none;
+}
+.team-plan-fields {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px;
+}
+.team-plan-dependencies {
+  max-height: 180px;
+  overflow: auto;
+}
+.team-plan-editor legend, .team-check {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.team-check input {
+  flex-shrink: 0;
+}
+.team-sidebar-heading, .team-sidebar nav, .team-sidebar .team-settings {
+  flex-shrink: 0;
+}
+.team-tabbar > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.team-tabbar .react-session-tabs {
+  min-width: 0;
+}
+@container team-main (max-width: 900px) {
+  .team-owner {
+    display: none;
+  }
+}
+@container team-main (max-width: 680px) {
+  .team-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .team-task-pane {
+    padding-right: 0;
+  }
+  .team-workspace[data-view="detail"] .team-task-pane,
+  .team-workspace[data-view="tasks"] .team-inspector {
+    display: none;
+  }
+  .team-inspector {
+    border-left: 0;
+    padding: 12px 0;
+  }
+  .team-layout .team-inspector-back {
+    display: inline-flex;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin-bottom: 12px;
+  }
+  .team-members {
+    gap: 12px;
+  }
+  .team-recent-row .team-status {
+    min-width: 0;
+  }
+  .team-layout .team-recent-row {
+    gap: 10px;
+  }
+}
+@media (max-height: 650px) {
+  .team-members {
+    padding-block: 6px;
+  }
+  .team-composer-area, .team-recent {
+    margin-top: 24px;
+  }
+}
