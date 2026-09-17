@@ -73,10 +73,11 @@ impl ResponsesAdapter {
         if let Some(response_items) = response_items {
             return encode_native_response_history(legacy_messages, system_prompt, response_items);
         }
-        let provider_messages = legacy_messages
+        let mut provider_messages = legacy_messages
             .iter()
             .map(provider_message_with_user_context_and_images)
             .collect::<Result<Vec<_>, _>>()?;
+        super::patch_result::project_patch_history(&mut provider_messages);
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {
             history.items.insert(
@@ -276,7 +277,8 @@ fn encode_native_response_history(
             "content": system_prompt,
         }));
     }
-    let response_items = project_superseded_web_response_targets(response_items);
+    let mut response_items = project_superseded_web_response_targets(response_items);
+    super::patch_result::project_patch_history(&mut response_items);
     for (index, item) in response_items.iter().enumerate() {
         input.push(sanitize_replayed_item(item, index)?);
     }

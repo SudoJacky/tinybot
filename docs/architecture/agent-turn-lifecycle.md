@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:88c20f96c8e6d4758bd2d1aff0cf4e5454ad1f9f7962442ab12807574890a37a -->
+<!-- tinybot-doc-fingerprint: sha256:83f18291309bfa55ca5c69d771ae7cd6ec66cce18e606988865bef60dac13985 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -251,6 +251,13 @@ derives these figures from canonical Items on live updates and history reload.
 - A terminal Turn cannot be executed again under the same durable identity.
 
 ## Live and durable projection
+
+Patch tool receipts separate model context from review evidence. The model sees
+paths, operations, hunk counts, and added/removed line counts; complete available
+diffs remain in the raw tool result for live display and durable replay. Both
+provider adapters compact historical patch receipts without rewriting stored
+events. Fused follow-up command output and failure/continuation details remain
+visible so the model can continue without repeating an applied patch.
 
 Runtime events drive live desktop updates and canonical persistence. Live
 presentation may use bounded diagnostics, but model-visible messages, tool

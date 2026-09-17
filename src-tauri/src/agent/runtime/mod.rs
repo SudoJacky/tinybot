@@ -35,6 +35,9 @@ mod hooks;
 pub(crate) mod instructions;
 mod item_event_projection;
 mod items;
+mod patch_result;
+#[cfg(test)]
+mod patch_result_tests;
 mod provider;
 mod provider_adapter;
 mod provider_loop;

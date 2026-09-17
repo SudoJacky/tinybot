@@ -131,6 +131,13 @@ impl NativeToolResultEnvelope {
         tool_call: &NativeAgentToolCall,
         raw_content: Value,
     ) -> Self {
+        let compact = super::patch_result::compact_patch_content(&tool_call.name, &model_content);
+        let summary = if summary == model_content {
+            compact.clone().unwrap_or(summary)
+        } else {
+            summary
+        };
+        let model_content = compact.unwrap_or(model_content);
         Self {
             value: serde_json::json!({
                 "status": status,
@@ -217,7 +224,7 @@ impl NativeAgentToolResult {
             Value::String(message.clone()),
         );
         Self {
-            content: Value::String(message),
+            content: envelope["modelContent"].clone(),
             envelope,
         }
     }
@@ -231,11 +238,11 @@ impl NativeAgentToolResult {
         let envelope = NativeToolResultEnvelope::generic_success_with_model_content(
             tool_call,
             summary,
-            model_content.clone(),
+            model_content,
             raw_content,
         );
         Self {
-            content: Value::String(model_content),
+            content: envelope["modelContent"].clone(),
             envelope,
         }
     }

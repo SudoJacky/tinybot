@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:c1e5c6eb9df1ba303b6af19c81bef33c9444ceeb5aaca162d3c913835d822295 -->
+<!-- tinybot-module-fingerprint: sha256:b7472f80e2e082ae15655e1f5b3faabb3d76ea37b99485518388d6b8f3eaec46 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -33,6 +33,11 @@ and references survive entry normalization. Context compaction checkpoints carry
 typed history, window lineage, and installed/finalized stages. The committer calls
 the persistence service directly and retains structured commit failures.
 Configuration, extension metadata, and provider-native items remain dynamic.
+`patch_result.rs` removes patch diff bodies from model-visible receipts while
+retaining paths, operations, hunk counts, and added/removed line counts. Raw tool
+envelopes retain the full available diff for review and persistence. Both provider
+adapters apply the same projection to old history without rewriting canonical
+storage. Fused command output, errors, and patch completion status stay visible.
 `AgentError` preserves execution error categories and the
 complete service error (code, source, details, retryability) across task ownership,
 trace buffering, and bridge persistence. Multiple failures retain their individual
