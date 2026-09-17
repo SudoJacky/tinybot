@@ -11,7 +11,6 @@ use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::{
     run_native_agent_turn_with_workspace_and_instructions_async, NativeAgentTraceSink,
 };
-#[cfg(not(test))]
 use crate::agent::runtime::{AgentExecutionStatus, AgentStopReason};
 use crate::agent::runtime::{AgentResultError, AgentTurnResult};
 use std::path::PathBuf;
@@ -64,13 +63,11 @@ pub(super) async fn run_agent_with_services(
         &mut config_snapshot,
         &instructions.working_directory,
     )?;
-    #[cfg(not(test))]
     let memory_scope_root = instructions.working_directory.clone();
     preparation.next("turn_start_persistence");
     persist_native_agent_turn_start(&request, &instructions, &thread_store)?;
     preparation.next("history_hydration");
     hydrate_native_agent_history_for_runtime(&mut request.input, &thread_store)?;
-    #[cfg(not(test))]
     let memory_runtime = base_services.memory_runtime.clone();
     preparation.next("runtime_services");
     let services = base_services
@@ -128,7 +125,6 @@ pub(super) async fn run_agent_with_services(
     };
     persist_native_agent_turn_terminal_if_present(&trace_context, &mut result, &thread_store)?;
     persist_native_agent_checkpoint_if_present(&result, &thread_store)?;
-    #[cfg(not(test))]
     schedule_completed_turn_memory_extraction(
         &memory_runtime,
         &trace_context,
@@ -161,7 +157,6 @@ fn persist_failed_agent_turn(
     runtime_error
 }
 
-#[cfg(not(test))]
 fn schedule_completed_turn_memory_extraction(
     memory_runtime: &crate::memory::MemoryRuntime,
     trace_context: &crate::agent::runtime_protocol::AgentTraceContext,

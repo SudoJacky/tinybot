@@ -44,6 +44,8 @@ pub(crate) struct MemoryRuntime {
     state: Arc<Mutex<MemoryRuntimeState>>,
     model: Arc<dyn MemoryModel>,
     heartbeat_interval: Duration,
+    #[cfg(test)]
+    automatic_extraction_enabled: bool,
 }
 
 impl MemoryRuntime {
@@ -52,7 +54,16 @@ impl MemoryRuntime {
             state: Arc::new(Mutex::new(MemoryRuntimeState::default())),
             model,
             heartbeat_interval: MEMORY_HEARTBEAT_INTERVAL,
+            #[cfg(test)]
+            automatic_extraction_enabled: true,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn without_automatic_extraction_for_test() -> Self {
+        let mut runtime = Self::new(Arc::new(super::NativeMemoryModel));
+        runtime.automatic_extraction_enabled = false;
+        runtime
     }
 
     pub(crate) fn start(&self, threads: WorkspaceThreadStore, config: Value) -> Result<(), String> {
@@ -76,6 +87,14 @@ impl MemoryRuntime {
         turn_id: String,
         workspace_path: String,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        if !self.automatic_extraction_enabled {
+            return Ok(());
+        }
+        if is_team_thread(&threads, &thread_id)? {
+            report_origin_skip("schedule", &thread_id, &turn_id);
+            return Ok(());
+        }
         let mut state = self
             .state
             .lock()
@@ -258,6 +277,11 @@ impl WorkspaceMemoryRuntime {
             increment_metric("memory.phase1.stale_notification.skipped");
             return Ok(());
         }
+        if is_team_thread(&self.thread_store, &pending.thread_id)? {
+            self.store.skip_extraction(pending, "team_origin")?;
+            report_origin_skip("pending", &pending.thread_id, &pending.turn_id);
+            return Ok(());
+        }
         let evidence =
             persisted_turn_evidence(&self.thread_store, &pending.thread_id, &pending.turn_id)?;
         if evidence.user_messages.is_empty() && evidence.successful_tool_results.is_empty() {
@@ -320,6 +344,26 @@ impl WorkspaceMemoryRuntime {
     fn store_workspace_root(&self) -> &Path {
         self.thread_store.workspace_root()
     }
+}
+
+fn is_team_thread(threads: &WorkspaceThreadStore, thread_id: &str) -> Result<bool, String> {
+    let operation = threads
+        .begin_operation()
+        .map_err(|error| format!("failed to open memory extraction origin: {}", error.message))?;
+    let snapshot = operation
+        .thread()
+        .read_thread(crate::threads::domain::ReadThreadRequest {
+            thread_id: thread_id.into(),
+            limit: Some(0),
+            ..Default::default()
+        })
+        .map_err(|error| format!("failed to read memory extraction origin: {}", error.message))?;
+    Ok(snapshot.thread.source == "team")
+}
+
+fn report_origin_skip(stage: &str, thread_id: &str, turn_id: &str) {
+    increment_metric(&format!("memory.phase1.origin_ineligible.{stage}.skipped"));
+    eprintln!("memory_phase1_skipped reason=team_origin stage={stage} thread_id={thread_id} turn_id={turn_id}");
 }
 
 fn persisted_turn_evidence(

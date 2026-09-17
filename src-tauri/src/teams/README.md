@@ -25,6 +25,9 @@ services and exposes the module to the main desktop window.
 
 `TaskExecutor` is the execution seam. The native adapter creates a fresh Thread
 for each task attempt, then delegates to the existing Thread/Turn bridge.
+These Threads persist `source: team`. Their completed Turns do not generate
+automatic long-term memory extractions; they still read the workspace's normal
+creation-time memory snapshot. Old queued extractions are durably skipped.
 `runtime` alone decides readiness and changes task state. `model` validates the
 domain; `store` owns atomic snapshots, revision checks, and restart reconciliation.
 The test executor controls completion and cancellation without a model service.

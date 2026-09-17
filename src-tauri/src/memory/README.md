@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:a9d030deb88b10935b8103d27037ca4da13996a11030a6b48e3ad8ba799b03be -->
+<!-- tinybot-module-fingerprint: sha256:af80fdf9b1bcdfaf8e3a7ecb68d47ebbbc865a66ba2ecc98874e55393d1945db -->
 
 `memory` provides Tinybot's local long-term memory. Automatic maintenance uses
 two model-backed phases:
@@ -69,7 +69,19 @@ is outside the initial design.
 
 ## Phase 1: Turn extraction
 
-After each successfully persisted completed Turn, Tinybot asynchronously calls
+Threads with persisted `source: team` are ineligible for automatic extraction.
+The runtime checks this origin before enqueueing and again before processing
+durable pending work. Role text and Turn metadata cannot override the decision.
+Existing queued Team Turns finish atomically with `skip_reason: team_origin`
+and no fragments; their queue entries are removed. Previously processed records
+and existing memories are not rewritten. Team Threads still receive their normal
+immutable memory snapshot.
+
+Origin skips log the Thread/Turn IDs and stage (`schedule` or `pending`), and
+increment `memory.phase1.origin_ineligible.<stage>.skipped`. They are distinct
+from empty evidence, model failures, and completed extractions.
+
+After each eligible, successfully persisted completed Turn, Tinybot asynchronously calls
 the configured extraction model once when the Turn contains eligible evidence.
 A Turn with no eligible evidence is durably marked as processed with no
 fragments, avoiding both retry loops and an evidence-free model request. This

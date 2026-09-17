@@ -6,6 +6,8 @@ src-tauri/src/desktop_commands/thread.rs
 src-tauri/src/agent/runtime/provider_adapter.rs
 src-tauri/src/agent/runtime/provider_adapter_reference_tests.rs
 src-tauri/src/memory/model.rs
+src-tauri/src/memory/runtime.rs
+src-tauri/src/memory/store.rs
 src-tauri/src/threads/domain/types/events.rs
 src-tauri/src/threads/domain/types/items.rs
 src-tauri/src/threads/domain/types/records.rs
@@ -15,7 +17,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:4e2b070a100e233b41eb594456f5a4fbaab0b05335a9762420938d2266386fc2 -->
+<!-- tinybot-doc-fingerprint: sha256:43afa5d9cfa39e372cf895fe8e36895063bf88d7b7908afff3af59c055ed1eef -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -224,6 +226,11 @@ URLs remain inert text/metadata.
 Long-term memory combines backend extraction/consolidation with explicit desktop user management.
 The desktop exposes snapshot and mutation Tauri commands; there is no Worker RPC namespace,
 WebUI route, or agent-callable memory management tool.
+
+Threads whose persisted source is `team` read the normal immutable memory
+snapshot but never enqueue automatic extraction. Pending Team extractions from
+older versions are completed with `skip_reason: team_origin` and no new fragments.
+Existing memories and previously completed extraction records remain unchanged.
 
 Phase 1 extraction and Phase 2 consolidation use `memory.activeProfile` and `memory.model` when
 both are configured. If neither is configured, both phases dynamically follow

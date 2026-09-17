@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:b98130253a0469c44e7d01a95443832993719c63f6b344ed4bcfbfcc4d22b42b -->
+<!-- tinybot-module-fingerprint: sha256:4482c5b7cb8a1ef94ccdf29431a403ed9e0e4805d45689564bb91e741b48c614 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -88,7 +88,9 @@ Dynamic tool arguments and external tool RPC adapters retain their extension sch
    runtime execution or trace flush fails, persist a failed terminal with the
    original error before returning it to the caller.
 8. Schedule memory extraction through the application-owned `MemoryRuntime`
-   only after a completed turn is durably persisted.
+   only after a completed turn is durably persisted. MemoryRuntime excludes
+   persisted Team-origin Threads before enqueueing; memory snapshot reads remain
+   available. The same origin check protects queued work after restart.
 
 `command_hooks.rs` adapts the command engine to the core's asynchronous
 `AgentHook` interface. Loading invalid configuration fails Turn preparation;

@@ -75,6 +75,104 @@ impl Drop for MemoryFixture {
 }
 
 #[test]
+fn legacy_processed_turns_survive_skip_reason_migration() {
+    let fixture = MemoryFixture::new("skip-migration");
+    fixture.extract(
+        "old-team",
+        "old-turn",
+        vec![ExtractedMemory {
+            scope: MemoryScope::User,
+            content: "Previously extracted fact.".into(),
+        }],
+    );
+    let database_path = fixture.root.join(".tinybot/state/memory.sqlite");
+    let database = rusqlite::Connection::open(&database_path).unwrap();
+    database
+        .execute(
+            "ALTER TABLE processed_memory_turns DROP COLUMN skip_reason",
+            [],
+        )
+        .unwrap();
+    drop(database);
+
+    fixture.store.initialize().unwrap();
+    fixture
+        .store
+        .enqueue_turn(
+            &fixture.workspace_path,
+            "new-team",
+            "new-turn",
+            &fixture.workspace_path,
+        )
+        .unwrap();
+    let pending = fixture
+        .store
+        .pending_turns(&fixture.workspace_path, 10)
+        .unwrap()
+        .remove(0);
+    fixture
+        .store
+        .skip_extraction(&pending, "team_origin")
+        .unwrap();
+    fixture
+        .store
+        .skip_extraction(&pending, "team_origin")
+        .unwrap();
+    assert!(!fixture.store.is_turn_pending(&pending).unwrap());
+    assert_eq!(
+        fixture
+            .store
+            .phase2_input()
+            .unwrap()
+            .unwrap()
+            .fragments
+            .len(),
+        1
+    );
+    let database = rusqlite::Connection::open(&database_path).unwrap();
+    let previous: Option<String> = database
+        .query_row(
+            "SELECT skip_reason FROM processed_memory_turns WHERE thread_id='old-team'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(previous, None);
+    let skipped: String = database
+        .query_row(
+            "SELECT skip_reason FROM processed_memory_turns WHERE thread_id='new-team'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(skipped, "team_origin");
+    // Re-enqueuing a previously processed Turn must not rewrite its outcome.
+    fixture
+        .store
+        .enqueue_turn(
+            &fixture.workspace_path,
+            "old-team",
+            "old-turn",
+            &fixture.workspace_path,
+        )
+        .unwrap();
+    let old = fixture
+        .store
+        .pending_turns(&fixture.workspace_path, 10)
+        .unwrap()
+        .remove(0);
+    fixture.store.skip_extraction(&old, "team_origin").unwrap();
+    let previous: Option<String> = database
+        .query_row(
+            "SELECT skip_reason FROM processed_memory_turns WHERE thread_id='old-team'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(previous, None);
+}
+
+#[test]
 fn sqlite_pipeline_records_fragments_and_applies_selection_diff() {
     let fixture = MemoryFixture::new("pipeline");
     fixture.extract(

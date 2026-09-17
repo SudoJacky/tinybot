@@ -11,7 +11,6 @@ pub(crate) struct AgentApplicationServices {
     pub runtime: NativeAgentRuntimeServices,
     pub thread_store: WorkspaceThreadStore,
     pub mcp_runtime: McpRuntime,
-    #[cfg_attr(test, allow(dead_code))]
     pub memory_runtime: crate::memory::MemoryRuntime,
     pub shell_runtime: WorkerShellRuntime,
     pub subagent_manager: SubagentThreadManager,
@@ -65,9 +64,7 @@ impl TestApplicationServices for NativeAgentRuntimeServices {
             runtime: self,
             thread_store: store,
             mcp_runtime: McpRuntime::new(),
-            memory_runtime: crate::memory::MemoryRuntime::new(Arc::new(
-                crate::memory::NativeMemoryModel,
-            )),
+            memory_runtime: crate::memory::MemoryRuntime::without_automatic_extraction_for_test(),
             shell_runtime: WorkerShellRuntime::default(),
             subagent_manager: SubagentThreadManager::default(),
             browser_runtime: None,
