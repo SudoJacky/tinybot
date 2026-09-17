@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:af80fdf9b1bcdfaf8e3a7ecb68d47ebbbc865a66ba2ecc98874e55393d1945db -->
+<!-- tinybot-module-fingerprint: sha256:4602b46cb6c5030313441e1976135c50315d01c9ec58d2693697ce2fe372e24d -->
 
 `memory` provides Tinybot's local long-term memory. Automatic maintenance uses
 two model-backed phases:

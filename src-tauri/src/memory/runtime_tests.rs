@@ -374,17 +374,30 @@ impl crate::agent::runtime::test_support::BlockingTestProvider for SnapshotProvi
         &self,
         context: &crate::agent::runtime::AgentTurnContext,
     ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
-        if context.metadata.get("teamRunId").is_some() {
+        let tool_calls = if context.metadata.get("teamRunId").is_some() {
             assert!(context
                 .system_instruction_prompt()
                 .unwrap()
                 .contains("Workspace uses Rust."));
-        }
+            vec![crate::agent::runtime::NativeAgentToolCall {
+                id: "complete-memory-team-task".into(),
+                name: crate::tools::registry::TEAM_COMPLETE_TASK_METHOD.into(),
+                arguments_json: json!({"summary":"done","artifacts":[],"unresolved":""})
+                    .to_string(),
+                result: json!({}),
+            }]
+        } else {
+            vec![]
+        };
         Ok(crate::agent::runtime::NativeAgentProviderResponse {
-            final_content: "done".into(),
+            final_content: if tool_calls.is_empty() {
+                "done".into()
+            } else {
+                String::new()
+            },
             reasoning_delta: None,
             usage: None,
-            tool_calls: vec![],
+            tool_calls,
             response_items: vec![],
         })
     }
@@ -429,14 +442,14 @@ fn native_team_completion_reads_memory_without_extracting_and_user_turn_still_ex
             "tasks":[{"id":"task","title":"Research","memberId":"research","instructions":"Return evidence","dependencies":[]}],
             "finalTaskId":"task"
         })).unwrap();
-        let run = crate::teams::prepare(&fixture.root, spec, plan).unwrap();
+        let run = crate::teams::prepare(fixture.threads.data_root(), spec, plan).unwrap();
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         let before = metrics.snapshot()["counters"]
             ["memory.phase1.origin_ineligible.schedule.skipped"]
             .as_u64()
             .unwrap_or(0);
         let result = crate::teams::execute(
-            &fixture.root,
+            fixture.threads.data_root(),
             crate::teams::TeamRunInput {
                 run_id: run.id,
                 expected_revision: run.revision,
@@ -451,7 +464,9 @@ fn native_team_completion_reads_memory_without_extracting_and_user_turn_still_ex
         .unwrap();
         assert_eq!(
             serde_json::to_value(&result).unwrap()["status"],
-            "completed"
+            "completed",
+            "Team run failed: {:?}",
+            result.error
         );
         assert_eq!(model.calls.load(Ordering::SeqCst), 0);
         assert_eq!(fixture.pending(), 0);
