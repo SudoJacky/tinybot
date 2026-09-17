@@ -43,6 +43,7 @@ export function SettingsChoiceList({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>();
+  const [placement, setPlacement] = useState<"top" | "bottom">("bottom");
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const errorId = error ? `${id}-error` : undefined;
   const menuId = `${id}-menu`;
@@ -63,6 +64,7 @@ export function SettingsChoiceList({
     const below = window.innerHeight - rect.bottom - 16;
     const above = rect.top - 16;
     const upward = below < Math.min(menu.scrollHeight, 260) && above > below;
+    setPlacement(upward ? "top" : "bottom");
     const height = Math.max(0, Math.min(260, upward ? above : below));
     const width = Math.min(Math.max(rect.width, 240), window.innerWidth - 24);
     setMenuStyle({ position: "fixed", width, maxHeight: height, zIndex: 1100,
@@ -188,6 +190,7 @@ export function SettingsChoiceList({
           aria-label={optionsAriaLabel ?? t("choice.options", { label })}
           className="react-popover-surface react-settings-choice-popover"
           data-input-source={inputSource}
+          data-placement={placement}
           id={menuId}
           ref={menuRef}
           style={menuPosition === "fixed" ? menuStyle : undefined}

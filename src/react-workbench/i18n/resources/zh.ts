@@ -1,7 +1,9 @@
+import { teamZh } from "../../teams/teamTranslations";
 import type { en, TranslationResourceShape } from "./en";
 
 export const zh = {
   common: {
+    teams: teamZh,
     notifications: { dismiss: "关闭通知" },
     automations: {
       pageTitle: "定时任务",
@@ -69,6 +71,7 @@ export const zh = {
       }
 },
     routes: {
+      teams: "团队",
       automations: "自动化", chat: "聊天", graphs: "Agent Graph", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", openExternal: "在外部浏览器中打开 {{label}}",

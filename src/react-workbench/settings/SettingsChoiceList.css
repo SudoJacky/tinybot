@@ -87,6 +87,7 @@
 .react-settings-choice-trigger small,
 .react-settings-choice-item strong,
 .react-settings-choice-item small {
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -145,14 +146,27 @@
   }
 }
 
+.react-settings-choice-popover[data-placement="top"] {
+  transform-origin: bottom left;
+}
+@starting-style {
+  .react-settings-choice-popover[data-placement="top"][data-input-source="pointer"] {
+    transform: translateY(4px) scale(.98);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .react-settings-choice-trigger svg {
+    transition: color var(--motion-duration-fast) var(--motion-ease-standard);
+  }
   .react-settings-choice-popover {
     transform: none;
     transition: opacity 140ms var(--motion-ease-standard);
   }
 
   @starting-style {
-    .react-settings-choice-popover[data-input-source="pointer"] {
+    .react-settings-choice-popover[data-input-source="pointer"],
+    .react-settings-choice-popover[data-placement="top"][data-input-source="pointer"] {
       transform: none;
     }
   }

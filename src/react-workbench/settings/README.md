@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:dc2fe76484b73a45371677b0c5103a01b5c288da12a9654ae9d4246ce71dc21f -->
+<!-- tinybot-module-fingerprint: sha256:9a4a5c737e0d7e397c76b2767069deb8ba4c301adc70203ee38344c28a77c751 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -148,4 +148,7 @@ override per profile.
 Provider rows expose Models and Configure as direct actions for every connection
 status; model selection and connection credentials keep their separate sheets.
 
-`SettingsChoiceList` supports optional fixed menu placement for scrolling dialogs. It chooses space above or below the trigger and dismisses when its surrounding viewport scrolls or resizes. Escape restores trigger focus without closing the owning dialog.
+`SettingsChoiceList` supports optional fixed menu placement for scrolling dialogs. It chooses space above or below the trigger and dismisses when its surrounding viewport scrolls or resizes. Escape restores trigger focus without closing the owning dialog. Entrance motion originates from the trigger-facing edge, including upward menus. Reduced-motion preferences disable both menu movement and arrow rotation transitions.
+
+Shared choice labels constrain their grid width before applying ellipsis, so long
+workspace names and task titles cannot overflow their triggers or menu rows.

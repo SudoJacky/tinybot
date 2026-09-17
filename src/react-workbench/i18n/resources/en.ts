@@ -1,5 +1,7 @@
+import { teamEn } from "../../teams/teamTranslations";
 export const en = {
   common: {
+    teams: teamEn,
     notifications: { dismiss: "Dismiss notification" },
     automations: {
       pageTitle: "Scheduled tasks",
@@ -67,6 +69,7 @@ export const en = {
       }
 },
     routes: {
+      teams: "Teams",
       automations: "Automations",
       chat: "Chat",
       graphs: "Agent Graphs",

@@ -1,3 +1,4 @@
+import { createDesktopNativeTeamsApi } from "../../app-core/native/desktopNativeTeams";
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -72,6 +73,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 } {
   return {
+    teamStore: createDesktopNativeTeamsApi({ invoke: vi.fn(async () => []) }),
     automationStore: { list: vi.fn(async () => ({ definitions: [], runs: [] })), save: vi.fn(), delete: vi.fn(), run: vi.fn(), output: vi.fn() },
     agentGraphRuntime: {
       list: vi.fn(async () => []),
@@ -511,7 +513,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Agent Graphs", "Memory", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Teams", "Agent Graphs", "Memory", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).queryByRole("menuitem", { name: "GitHub" })).toBeNull();
@@ -1469,4 +1471,15 @@ it("opens scheduled tasks from a missed reminder while viewing Chat", async () =
   fireEvent.click(viewTasks);
   expect(await screen.findByRole("heading", { name: "Scheduled tasks" })).toBeTruthy();
   expect(services.automationStore.run).not.toHaveBeenCalled();
+});
+
+it("opens the independent Teams route from Chat and returns to Chat", async () => {
+  const services = createServices();
+  localStorage.setItem("tinybot.quick-start.v1", "dismissed");
+  render(<DesktopShell services={services} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Teams" }));
+  expect(await screen.findByRole("heading", { name: "Put your team to work" })).toBeTruthy();
+  expect(await screen.findByRole("textbox", { name: "Team goal" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "Put your team to work" })).toBeNull());
 });

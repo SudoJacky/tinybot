@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:b9cf1e32a91a2e2897396c3b693e3ef11e91ff20500ffffaa6cd77a356ac4797 -->
+<!-- tinybot-module-fingerprint: sha256:39b7a18683934877de5be60cc0420a2a07e03eaa64b38786f4f0bb980ae00a31 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -170,3 +170,8 @@ rejected native promises; storage and run ownership stay in Rust.
 Saved automation history includes a terminal `missed` status and optional
 `scheduledAtMs`. Missed entries have no Thread or effective model; Run now uses
 the existing manual command to create a separate invocation.
+
+`desktopNativeTeams` carries strict Team specifications, task dependencies, run
+revisions, and attempt history across the six Team commands. Execution resolves
+only when scheduling stops; the renderer polls and sends controls independently.
+Errors and revision conflicts are propagated unchanged.

@@ -16,7 +16,7 @@
   --color-scrollbar-thumb-active: color-mix(in srgb, var(--color-ink) 56%, transparent);
   --color-primary: #cc785c;
   --color-primary-active: #a9583e;
-  --color-on-primary: #fff;
+  --color-on-primary: #202521;
   --color-accent: var(--color-primary);
   --color-surface: var(--color-panel);
   --color-hairline: #d9dad7;

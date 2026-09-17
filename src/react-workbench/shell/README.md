@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:009b3af9559ac4f5f63cb6687e532e5ea7ee40c55af3a617cdc669ccddd01c3a -->
+<!-- tinybot-module-fingerprint: sha256:002c59886c8fd005acd9bd8e940585779b8f4a7ca93370c3a26ce83c570696db -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -13,6 +13,13 @@ selection, deferred route loading, and update dialogs.
 `DesktopShell.tsx` coordinates shell state, while `RouteSurface.tsx` selects
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
+`appRoutes.ts` defines route names independently of their renderer, allowing
+route modules to type navigation callbacks without importing `RouteSurface`.
+After its first visit, Team stays mounted in a hidden route container. Shell
+navigation and execution-record round trips preserve its draft, pending request,
+selection and scroll. Hidden Team content is excluded from focus and accessibility
+navigation while its running-run polling continues. This retention lasts for the
+app session; it does not persist unsaved drafts across reloads.
 The shell also marks only the first Chat mount in an app lifetime as a fresh,
 uncreated conversation. Once Chat finishes session hydration, later route
 remounts can restore the tabs opened during that same app lifetime.
@@ -109,3 +116,7 @@ that action into the same Automations route used by the Resources menu.
 The main shell hosts missed-automation notices across all routes. The hook lives
 in `automations/`; the shell supplies navigation for its View tasks action.
 The pet quick-chat window keeps its message host without polling for misses.
+
+Resources > Teams and the Chat sidebar open a separate lazy Teams route. The
+shell passes the Team store, workspace registry, route navigation, and existing
+Thread-opening callback; orchestration and plan state stay in the Teams module.

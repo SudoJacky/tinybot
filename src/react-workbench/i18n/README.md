@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:21588e70662a518713f26a786a0227928e0b5d7f5b4e58818e3999cba89d86ef -->
+<!-- tinybot-module-fingerprint: sha256:00a705d6bbde5e2c1352c4fd50392004b60235951e36b9b2f0526ce643acaf6e -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
@@ -147,3 +147,7 @@ localized in both languages. The schedule hint explicitly rules out auto replay.
 
 Cross-route missed-task reminders, grouped counts, the View tasks action and
 notification-read errors share the common English/Chinese resources.
+
+The common namespace imports `teams/teamTranslations` for Team workflow labels
+and state descriptions in English and Chinese. Backend error details remain
+verbatim so revision conflicts and provider failures can be diagnosed.

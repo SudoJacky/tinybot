@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:1a908d5aa7cfabefc62c1afc2f78500e1abc73c6526360d763aad5645ca79670 -->
+<!-- tinybot-doc-fingerprint: sha256:b982d92de25fd17a82222c342e6d6571c0919b33ba1a54836e52e9a4ef28884a -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -171,6 +171,14 @@ hooks run only after the Turn start is durable; an explicit hook denial follows
 the normal terminal persistence path. Dynamic hook context may be present in a
 resumable context checkpoint, while hook definitions and trusted hashes remain
 application/workspace configuration outside Rollouts.
+
+Team attempts also create ordinary parentless Threads, with `source: "team"`
+and run/task/member/attempt IDs in `metadata.extra`. The separate Team board
+stores dependency state, attempt references, and task outputs, while Rollouts
+remain authoritative for conversations and tool events. Board commits precede
+dispatch and dependency release. Team recovery marks uncertain attempts
+interrupted and requires explicit retry; it does not reconstruct or replay a
+running Turn from a task-board snapshot.
 
 ## Recovery and consistency
 

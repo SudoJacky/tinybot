@@ -5,6 +5,7 @@ src-tauri/src/agent/bridge/README.md
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/desktop/README.md
 src-tauri/src/runtime/README.md
+src-tauri/src/teams/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 src/app-core/agent-graph/README.md
@@ -14,9 +15,10 @@ src/app-core/native/README.md
 src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
+src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:ef46630e0625c9ab83af60805cc92f4b8b896b3c6c1e1a19d71f0b2bb59b5339 -->
+<!-- tinybot-doc-fingerprint: sha256:d80eaabfe8270fef495d96c83f93b97dea498cd7f79a216f4e14be36b311e221 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -108,6 +110,7 @@ Desktop Commands / Desktop Host
 | `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
 | `automation` | Saved task definitions, per-run configuration snapshots, durable schedule claims and dispatch to canonical Threads | A second Agent Loop or conversation transcript |
 | `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
+| `teams` | Validated Team plans, durable task/attempt boards, bounded dependency scheduling, and explicit pause/cancel/retry | A second Agent Loop, persistent member chats, automatic quality scoring, or workspace isolation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation, including Thread-scoped workspace selection for Artifact file reads | Reusable workspace path validation or file-reading behavior |
 | `desktop/memory_metrics` | Windows Rust-host and shared WebView2 process memory collection with deduplicated process totals | Long-term profiling history or renderer presentation |
@@ -289,6 +292,14 @@ existing application window.
 
 ## Cross-module flows
 
+- Team preparation accepts a supplied plan or a tool-free model proposal.
+  The Team scheduler validates the dependency graph and dispatches ready tasks
+  to the native Thread/Turn bridge. Attempt identities and results are committed
+  before execution and downstream dispatch respectively. Native Threads own
+  tool/runtime events; the Team store owns dependency and run state. Restart
+  reconciliation marks uncertain work interrupted and requires explicit retry.
+  See the [Team module](../../src-tauri/src/teams/README.md) and [Team API](../api/teams.md).
+
 - A user message follows the [Agent Turn lifecycle](agent-turn-lifecycle.md).
 - Model-visible instructions follow [Context and instructions](context-and-instructions.md).
 - Model-requested actions follow [Tool execution and permissions](tool-execution-and-permissions.md).
@@ -307,3 +318,13 @@ existing application window.
 - [Native renderer adapters](../../src/app-core/native/README.md)
 - [Desktop runtime](../../src-tauri/src/desktop/README.md)
 - [Native runtime services](../../src-tauri/src/runtime/README.md)
+
+The Teams workbench is an independent lazy route, with a goal composer and a
+shared plan/execution/result page. A typed native adapter supplies durable run
+revisions and attempt Threads. Renderer polling never owns the scheduler;
+explicit pause, cancel and retry requests remain backend decisions.
+After its first visit, the shell keeps Team mounted across route navigation for
+the app session. Unsaved plans, in-flight preparation, selected tasks and scroll
+positions survive execution-record round trips. Polling covers known running
+runs even on the Team home or while the route is hidden; durable state remains
+owned by the native Team store.
