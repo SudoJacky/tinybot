@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:da127cc5c46797bb03e41743493a4d54c1effadfa1faa7a93720612cf1891547 -->
+<!-- tinybot-doc-fingerprint: sha256:ef7bfb6e14ab00c58fa35efd7665875ab3c83372b7936a6cda53861066e7b21f -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -282,3 +282,5 @@ diagnostics and UI projection.
 - [Workspace module](../../src-tauri/src/workspace/README.md)
 - [RPC router](../../src-tauri/src/rpc/README.md)
 - [Tools and processes API](../api/tools-and-processes.md)
+
+Team board tools use an application-owned TeamBoard target. The bridge authorizes reads/completion against saved Thread identity and the active attempt; model-supplied run/author fields cannot grant access. Completion and artifact reads require workspace-read capability and existing workspace path guards. Completion must be the sole tool call and ends the turn after a validated receipt.

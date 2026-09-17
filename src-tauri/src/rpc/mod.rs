@@ -318,6 +318,7 @@ impl WorkerRpcRouter {
             | ToolExecutionTarget::AgentGraph { .. }
             | ToolExecutionTarget::SpawnWorkspaceThread
             | ToolExecutionTarget::CreateAutomation
+            | ToolExecutionTarget::TeamBoard
             | ToolExecutionTarget::SendThreadMessage => {
                 return Err(WorkerProtocolError::new(
                     WorkerProtocolErrorCode::InvalidProtocol,

@@ -285,6 +285,7 @@ pub(crate) fn run() {
             crate::desktop_commands::teams::worker_team_prepare,
             crate::desktop_commands::teams::worker_team_runs_list,
             crate::desktop_commands::teams::worker_team_run_get,
+            crate::desktop_commands::teams::worker_team_artifact_read,
             crate::desktop_commands::teams::worker_team_revise,
             crate::desktop_commands::teams::worker_team_control,
             crate::desktop_commands::teams::worker_team_execute,

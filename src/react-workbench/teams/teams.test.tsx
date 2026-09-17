@@ -1,3 +1,4 @@
+import * as teamsApi from "../../app-core/native/desktopNativeTeams";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import {
@@ -450,4 +451,31 @@ it("ignores late accepted control intent after a newer terminal snapshot", async
   });
   expect(result.current.run?.status).toBe("paused");
   expect(result.current.pending).toBeUndefined();
+});
+
+it("shows shared messages and pages verified artifacts without loading them automatically", async () => {
+  const run = fixture();
+  run.tasks[1].status = "succeeded";
+  run.tasks[1].attempts = [{ threadId: "producer", turnId: "turn", status: "succeeded", startedAt: "2026-09-17", finishedAt: "2026-09-17", error: null, output: "Evidence ready", message: {
+    summary: "Evidence ready", unresolved: "Verify pagination", sequence: 3,
+    artifacts: [{ path: "evidence.txt", bytes: 100000, sha256: "abc" }],
+  } }];
+  const read = vi.spyOn(teamsApi, "readTeamArtifact")
+    .mockResolvedValueOnce({ text: "first", byteOffset: 0, nextByteOffset: 5, totalBytes: 100000, path: "evidence.txt", sha256: "abc" })
+    .mockRejectedValueOnce(new Error("Artifact changed since publication"));
+  const open = vi.fn(async () => {});
+  render(<TeamDetail run={run} busy={false} onBack={() => {}} onExecute={() => {}} onControl={async () => {}} onRevise={async () => undefined} onOpenThread={open} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "Message board" }));
+  const board = screen.getByRole("tabpanel", { name: "Message board" });
+  expect(within(board).getByText("Evidence ready")).toBeVisible();
+  expect(within(board).getByText(/Verify pagination/)).toBeVisible();
+  expect(read).not.toHaveBeenCalled();
+  await user.click(within(board).getByRole("button", { name: "evidence.txt" }));
+  expect(await within(board).findByText("first")).toBeVisible();
+  await user.click(within(board).getByRole("button", { name: "Next section" }));
+  expect(read).toHaveBeenLastCalledWith("team", "producer", 0, 5);
+  expect(await within(board).findByRole("alert")).toHaveTextContent("Artifact changed");
+  expect(within(board).queryByText("first")).not.toBeInTheDocument();
+  read.mockRestore();
 });

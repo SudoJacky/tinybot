@@ -67,6 +67,30 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
     ) -> Result<NativeAgentToolResult, String> {
         if matches!(
             context.tool_execution_target(&tool_call.name),
+            Some(ToolExecutionTarget::TeamBoard)
+        ) {
+            return Ok(
+                match crate::teams::tools::dispatch(
+                    &self.base_services.thread_store,
+                    context,
+                    &tool_call.name,
+                    tool_call.arguments_value(),
+                ) {
+                    Ok(value) => {
+                        let mut result = NativeAgentToolResult::generic_success(tool_call, value);
+                        if tool_call.name == crate::teams::tools::COMPLETE {
+                            result.replace_model_content(
+                                "Team message validated; finishing the task.".into(),
+                            );
+                        }
+                        result
+                    }
+                    Err(error) => NativeAgentToolResult::generic_error(tool_call, error),
+                },
+            );
+        }
+        if matches!(
+            context.tool_execution_target(&tool_call.name),
             Some(ToolExecutionTarget::CreateAutomation)
         ) {
             let result = crate::automation::agent_tool::create(

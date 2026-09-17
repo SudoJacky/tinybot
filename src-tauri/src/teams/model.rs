@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-pub(super) const SCHEMA_VERSION: u32 = 2;
+pub(super) const SCHEMA_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -78,6 +78,8 @@ pub(crate) struct TeamAttempt {
     pub started_at: String,
     pub finished_at: Option<String>,
     pub output: Option<String>,
+    #[serde(default)]
+    pub message: Option<super::board::BoardMessage>,
     pub error: Option<String>,
 }
 

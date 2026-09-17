@@ -179,6 +179,26 @@ async fn schedule(
         let Some((index, outcome)) = inflight.next().await else {
             break;
         };
+        let outcome = match outcome {
+            TaskOutcome::Succeeded(output) => {
+                match serde_json::from_str::<super::board::BoardMessage>(&output)
+                    .map_err(|e| format!("Task must finish with team.complete_task: {e}"))
+                    .and_then(|message| message.validate().map(|()| message))
+                {
+                    Ok(mut message) => {
+                        message.sequence = run.revision + 1;
+                        run.tasks[index]
+                            .attempts
+                            .last_mut()
+                            .expect("active attempt")
+                            .message = Some(message);
+                        TaskOutcome::Succeeded(output)
+                    }
+                    Err(error) => TaskOutcome::Failed(error),
+                }
+            }
+            other => other,
+        };
         let record = &mut run.tasks[index];
         let attempt = record
             .attempts
@@ -187,7 +207,14 @@ async fn schedule(
         match outcome {
             TaskOutcome::Succeeded(output) if !output.trim().is_empty() => {
                 record.status = TaskStatus::Succeeded;
-                attempt.output = Some(output);
+                attempt.output = Some(
+                    attempt
+                        .message
+                        .as_ref()
+                        .expect("validated message")
+                        .summary
+                        .clone(),
+                );
             }
             TaskOutcome::Succeeded(_) | TaskOutcome::Failed(_) => {
                 let error = match outcome {
@@ -240,10 +267,7 @@ async fn schedule(
 
 fn begin_attempt(run: &mut TeamRun, index: usize) -> TaskJob {
     let record = &run.tasks[index];
-    let dependencies: Vec<_> = record.task.dependencies.iter().map(|id| {
-        let dependency = run.tasks.iter().find(|r| &r.task.id == id).expect("validated dependency");
-        json!({"taskId": id, "memberId": dependency.task.member_id, "output": dependency.attempts.last().expect("successful attempt").output})
-    }).collect();
+    let dependencies = super::board::dependencies(run, &record.task);
     let thread_id = format!(
         "{}-{}-{}",
         run.id,
@@ -264,7 +288,8 @@ fn begin_attempt(run: &mut TeamRun, index: usize) -> TaskJob {
         workspace_path: run.spec.workspace_path.clone(),
         thread_id: thread_id.clone(),
         turn_id: turn_id.clone(),
-        input: json!({"goal": run.spec.goal, "task": record.task, "dependencyResults": dependencies}),
+        input: json!({"goal": run.spec.goal, "task": record.task, "dependencyResults": dependencies,
+            "board": {"runId":run.id,"instructions":"Use team.list_messages and team.read_message for other results or omitted summaries. Read only needed artifact ranges. Finish with team.complete_task."}}),
     };
     let record = &mut run.tasks[index];
     record.status = TaskStatus::Running;
@@ -275,6 +300,7 @@ fn begin_attempt(run: &mut TeamRun, index: usize) -> TaskJob {
         started_at: store::now(),
         finished_at: None,
         output: None,
+        message: None,
         error: None,
     });
     job

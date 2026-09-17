@@ -19,6 +19,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "worker_team_prepare",
     "worker_team_runs_list",
     "worker_team_run_get",
+    "worker_team_artifact_read",
     "worker_team_revise",
     "worker_team_control",
     "worker_team_execute",

@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:67cbab6391024f0571c3355670c287085182f9f41682006ffd9205fb8edfdb31 -->
+<!-- tinybot-module-fingerprint: sha256:b16cb0ec0f80570759044b19955941e8db9afb5a0eda89f1bef0fdc008ab08ca -->
 
 `teams` owns a shared task board and dependency scheduler for a fixed set of
 members working toward one goal. It is independent of Agent Graphs and the
@@ -37,7 +37,7 @@ The test executor controls completion and cancellation without a model service.
 Plans contain 1–64 tasks and 1–8 members. The task graph is acyclic and every
 task contributes to a designated final synthesis/review task. A task starts
 only after every direct dependency succeeds. Its input contains the goal,
-assigned task, and labeled results from those dependencies. Successful tasks
+assigned task, and dependency message IDs with an aggregate bounded summary budget. Successful tasks
 are never automatically rerun. Members receive separate task conversations;
 this version has no persistent member chat or peer mailbox.
 
@@ -55,9 +55,9 @@ dispatch, cancels siblings, and drains their cleanup. Explicit cancellation
 does the same. Pausing stops dispatch and lets active attempts finish; its
 response can therefore still say `running` until draining completes. Poll
 `get` for the resulting status. A worker cancelled through its own Thread also
-stops the Team run. Empty responses are failures.
+stops the Team run. Missing or invalid completion messages are failures.
 
-The native adapter currently requires a final response. A Turn that yields for
+The native adapter requires a successful `team.complete_task` receipt. A Turn that yields for
 human input is reported as a failed Team task with its Thread ID retained;
 Team-level continuation/adoption of that Turn is not implemented. Inspect and
 resolve the original Thread before explicitly retrying uncertain work. There
@@ -66,7 +66,7 @@ are no automatic quality scores, retries, member creation, or hidden replanning.
 ## Persistence and failure behavior
 
 Runs live at `<application data>/team-runs/<run-id>.json` using atomic replacement.
-The stored schema is version 2. State fields use snake case; object keys use
+The stored schema is version 3. State fields use snake case; object keys use
 camel case. Commands that mutate a board require its current numeric revision.
 Pause/cancel signals for active runs are process-local requests; only the
 scheduler writes their resulting state. They do not acknowledge durable completion.
@@ -94,6 +94,22 @@ See [Team API](../../../docs/api/teams.md) for invocation examples.
 
 Schema version 2 requires human-readable member display names and task titles.
 The planner emits titles in the goal language; native Thread titles use both
-display fields. The store explicitly migrates version 1 snapshots once, using
-their IDs as initial labels, and logs the migration before persisting a revision.
+display fields. The store explicitly migrates version 1/2 snapshots once, using
+version 1 IDs as initial labels, and logs the migration before persisting a revision.
 New inputs remain strict and reject missing or blank labels.
+
+## Shared messages
+
+`board` owns the bounded completion contract, message discovery, and verified
+artifact reads. `tools` contributes four tools only to active Team attempts and
+rechecks saved Thread identity against the scheduler's current attempt. Model
+arguments cannot choose a run or author. Reads are run-scoped; publication happens
+only through scheduler completion, using its single atomic persistence owner.
+
+Completion validates a short summary, unresolved issues, and workspace-relative
+file references, then ends the native Turn without another provider call. The
+scheduler assigns sequence/provenance and commits the message before downstream
+work starts. Invalid tool submissions can be corrected; plain final responses
+fail the task. Files carry byte size and SHA-256 identity; selected UTF-8 reads
+verify both workspace authorization and unchanged content. See the Team API for
+exact limits. Legacy full outputs stay inspectable but are handed off by ID.

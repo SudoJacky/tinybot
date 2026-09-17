@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:e4d1269206543e5fda72eccde25b6db79b452fc025af58fcde8f1d3f38cd2d9f -->
+<!-- tinybot-module-fingerprint: sha256:eea727a90dc74519c9b08bfb3cf10d4f66d2d4032b37361cc9971d95a07fefe8 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -14,7 +14,12 @@ fields use the full form width. Planning exposes an explicit busy state.
 `TeamDetail` keeps one page through plan confirmation, execution and results.
 Dependency rows retain topological order. The inspector exposes real task
 instructions, prerequisites, output, errors and every attempt's standard Thread.
-File links open that owning execution record using the existing Chat navigation.
+Legacy Markdown file links open the owning execution record using existing Chat navigation.
+The Message board tab lists all completed attempts with author, time, summary,
+unresolved issues, artifact references, and execution-record navigation.
+TeamMessage also renders final/task results. Artifact buttons explicitly load
+verified byte pages; no file is fetched on render. Next section replaces the
+preview, and failures remove stale content and show the backend error.
 The result tab renders the successful final task output, including when the
 run stopped after producing that output.
 
@@ -23,7 +28,7 @@ final-task selection for an idle run. Attempted definitions are locked. The
 editor captures its starting revision and preserves edits on save conflicts;
 backend validation enforces an acyclic plan and complete final synthesis.
 Editing focuses the first field, keeps Save/Discard visible in short windows,
-and disables the Result tab until editing ends. Closing restores trigger focus.
+and disables the Message board and Result tabs until editing ends. Closing restores trigger focus.
 
 `useTeamRuns` separates long-running execute invocations from polling and
 revision-checked controls. Older snapshots cannot replace newer revisions.

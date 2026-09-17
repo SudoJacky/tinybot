@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:39b7a18683934877de5be60cc0420a2a07e03eaa64b38786f4f0bb980ae00a31 -->
+<!-- tinybot-module-fingerprint: sha256:4af715b37efe7a9d2651f8339f9d2aaf078287163e410132a6fb12a25ae158bc -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -175,3 +175,5 @@ the existing manual command to create a separate invocation.
 revisions, and attempt history across the six Team commands. Execution resolves
 only when scheduling stops; the renderer polls and sends controls independently.
 Errors and revision conflicts are propagated unchanged.
+
+desktopNativeTeams carries optional bounded attempt messages and content-hash artifact references. readTeamArtifact requests a verified UTF-8 byte page by run, entry, and artifact index; the renderer cannot supply another path or workspace.

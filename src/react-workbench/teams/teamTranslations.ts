@@ -1,4 +1,6 @@
 export const teamEn = {
+  board: "Message board", emptyBoard: "Completed tasks will leave their findings here.",
+  unresolved: "Unresolved", readMore: "Next section", closePreview: "Close preview",
   subtitle: "Several minds. One shared goal.",
   hero: "Put your team to work",
   intro: "Describe your goal. Agree on the work before it begins.",
@@ -92,6 +94,8 @@ export const teamEn = {
   },
 };
 export const teamZh: typeof teamEn = {
+  board: "留言板", emptyBoard: "任务完成后，会在这里留下结论与产物。",
+  unresolved: "未解决事项", readMore: "下一段", closePreview: "关闭预览",
   subtitle: "多位成员，共同完成一个目标。",
   hero: "把目标交给你的团队",
   intro: "描述你想完成的工作，先一起确定分工。",

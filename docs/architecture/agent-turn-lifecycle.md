@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:75ef38cef0959a0ff4a421f996adca15e9b8e1bbb4288e66339c0dc50fbd382a -->
+<!-- tinybot-doc-fingerprint: sha256:e7396a4a2364d7f2d4c7118ab64606f1a45d9d244004d3ce957d2d8936513040 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -307,3 +307,5 @@ reconstruct the updated log before recovery decisions are made.
 - [Live runtime services](../../src-tauri/src/runtime/README.md)
 - [Agent runtime tests](../../src-tauri/src/agent/runtime/tests/README.md)
 - [Agent runtime API](../api/agent-runtime.md)
+
+For active Team attempts, a successful sole team.complete_task call commits its observation, emits the terminal summary, and ends the Turn without another model request. The outer Team scheduler persists publication before releasing dependent tasks. Invalid submissions remain correctable tool errors.

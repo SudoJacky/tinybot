@@ -3,7 +3,7 @@
 Turn-persistence dispatch adapts wire parameters to the typed workspace store
 service. Internal Agent persistence calls that service directly, sharing its
 lifecycle lock, canonical writes, projection synchronization, and recovery.
-<!-- tinybot-module-fingerprint: sha256:c9cefa893b0b07cace35fcdbf93c0e6fb863a3ab95379feea7f54a73b57fc6b7 -->
+<!-- tinybot-module-fingerprint: sha256:2fcff9f476272ac63366463afd05826a5867893e15c4e0664900c92e3363e43c -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -106,3 +106,5 @@ bridge rather than this workspace router.
   active provider profile. Later turns must match that pinned mode.
 - Shared runtimes such as shell and MCP must be injected rather than recreated
   per request.
+
+TeamBoard targets require the active native Thread/attempt context and are rejected by generic RPC, alongside other application-owned execution targets.

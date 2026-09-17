@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:4482c5b7cb8a1ef94ccdf29431a403ed9e0e4805d45689564bb91e741b48c614 -->
+<!-- tinybot-module-fingerprint: sha256:67f3a3a0939444149391cfbe5d043d6b95e45a4b477911537be6e20d6ada5607 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -179,3 +179,5 @@ when it failed.
 See [`agent::runtime`](../runtime/README.md) for the execution core and
 [`threads::domain`](../../threads/domain/README.md) for typed conversation
 state.
+
+Active Team attempts receive a run-scoped board contributor. Dispatch rechecks saved Thread and active attempt identity, validates completion/artifact references, and returns compact receipts. Historical or ordinary Threads have no live board authority.

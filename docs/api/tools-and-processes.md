@@ -19,7 +19,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:16f3a04f690b3aa0af58d53961f97ab947fa4361e03c090956930067af0e0991 -->
+<!-- tinybot-doc-fingerprint: sha256:d503699f25dd303795e80e0b6f508e897290f7ac734eda3bd607a3d11194f61c -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -332,3 +332,5 @@ The main-window annotation action `overlay` accepts a nullable `rect` containing
 window region so a trusted renderer comment/property editor can sit above the
 live page. Values must be finite, valid surface dimensions within native region
 limits. Null or annotation stop restores the complete window region.
+
+Team board tools are contributed only during an active Team attempt. Generic Worker RPC rejects their application-owned execution target. See [Teams](teams.md) for message and artifact contracts.

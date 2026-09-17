@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:b7472f80e2e082ae15655e1f5b3faabb3d76ea37b99485518388d6b8f3eaec46 -->
+<!-- tinybot-module-fingerprint: sha256:393ad6b2e1fc43a60ed0f5baa0ea8f6f22c429c85a57f2453c04abb939f958f9 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -490,3 +490,5 @@ For frontend-visible shapes and event names, see the
 provider-native image content. It serializes `sourceText` as untrusted attached
 evidence and optional `userAnnotation` separately as a user-authored change
 request. Existing reference count and serialized-size limits apply to both.
+
+A successful registry-bound team.complete_task must be the sole call in its batch. The loop commits its tool observation and terminal summary without another provider request. Invalid submissions remain recoverable tool errors; Team persistence and dependency release belong to the outer scheduler.
