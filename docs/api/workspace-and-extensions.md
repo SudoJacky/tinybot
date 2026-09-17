@@ -20,7 +20,7 @@ src-tauri/src/workspace/types.rs
 src-tauri/src/workspace/artifact_review.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:57e75a32d98a78989684f4518afd178ce982b7f35c35844cb4de2c0a4d048f9a -->
+<!-- tinybot-doc-fingerprint: sha256:32860ae396d674212029f3048837062ad0513e281c8047507dc35ba63a8f7231 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -155,6 +155,10 @@ invocation's `threadId` with the normal Thread timeline APIs and the shared
 read-only Chat timeline renderer; a reused Thread contains every visit to that
 Agent. They remain excluded from Chat session discovery. Router node details
 show the latest selected route/edge, raw response, and provider usage.
+
+When invoked by a Thread tool, Graph Agent Threads persist that calling Thread
+as their parent. The shared usage ledger can recover Team ancestry through it;
+Graph routing and execution retain separate usage purposes.
 
 ## Workspace Commands
 

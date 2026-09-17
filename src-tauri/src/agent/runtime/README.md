@@ -1,5 +1,9 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:393ad6b2e1fc43a60ed0f5baa0ea8f6f22c429c85a57f2453c04abb939f958f9 -->
+<!-- tinybot-module-fingerprint: sha256:af27450732164b8596f4fa90697d841743ffdfa301cd32fbfb470a5cc6310658 -->
+
+Owned provider and tool tasks explicitly carry the current token-usage scope
+across task boundaries. Context compaction changes purpose while preserving its
+origin. Accounting remains at the shared provider boundary, not event replay.
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed

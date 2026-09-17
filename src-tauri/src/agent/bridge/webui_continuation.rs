@@ -302,14 +302,25 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         live_trace_sink,
     )?;
     preparation.complete();
-    let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
-        &services,
-        input,
-        config_snapshot.clone(),
-        &workspace_root,
-        instructions,
+    let scope = crate::token_usage::UsageScope::for_thread(
+        &thread_store,
+        input
+            .trace_context
+            .thread_id
+            .as_deref()
+            .unwrap_or(&input.session_id),
+        &trace.turn_id,
     )
-    .await;
+    .map_err(AgentError::from)?;
+    let turn_result = scope
+        .run(run_native_agent_turn_with_workspace_and_instructions_async(
+            &services,
+            input,
+            config_snapshot.clone(),
+            &workspace_root,
+            instructions,
+        ))
+        .await;
     let mut continuation = finish_native_agent_turn(
         turn_result,
         services.flush_trace_sink(),

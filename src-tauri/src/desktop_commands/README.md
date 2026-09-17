@@ -1,5 +1,8 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:5e4181ae5c0de02a796d6c5d6fadc08ac6f10caad73aa07fff4ba44107c668cc -->
+<!-- tinybot-module-fingerprint: sha256:9e9cacbac57298072d5143feca33f736b8f6edc6bef3211a7856caa61eb3a8fc -->
+
+`token_usage` exposes the global v3 snapshot and cursor-paginated invocation
+details, optionally scoped to a Team run. Both read the same SQLite ledger.
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,

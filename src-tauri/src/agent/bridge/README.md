@@ -1,5 +1,9 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:67f3a3a0939444149391cfbe5d043d6b95e45a4b477911537be6e20d6ada5607 -->
+<!-- tinybot-module-fingerprint: sha256:5b0a8b9979e8c2afb304738199be520a3147e1e09078044a6d013d75f26dfb60 -->
+
+Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
+The scope resolves canonical Thread identity and Team ancestry from the store,
+so session aliases and detached descendants share correct attribution.
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete

@@ -26,16 +26,29 @@ pub(super) fn with_observed_retries(
     progress: UnboundedSender<ProviderRetryStatus>,
 ) -> Client<OpenAIConfig> {
     let http = reqwest::Client::new();
+    let usage = crate::token_usage::ProviderUsageCall::current();
     // Installing a service replaces the SDK's default retry executor. There is
     // exactly one retry budget, shared by streaming and non-streaming requests.
     client.with_http_service(tower::service_fn(move |factory: HttpRequestFactory| {
         let http = http.clone();
         let progress = progress.clone();
+        let usage = usage.clone();
+        let mut attempt = 0;
         retry_request(
             move || {
                 let http = http.clone();
                 let factory = factory.clone();
-                async move { Ok(http.execute(factory.build().await?).await?) }
+                let usage = usage.clone();
+                let retry = attempt > 0;
+                attempt += 1;
+                async move {
+                    if retry {
+                        if let Some(usage) = usage {
+                            usage.retry().map_err(OpenAIError::InvalidArgument)?;
+                        }
+                    }
+                    Ok(http.execute(factory.build().await?).await?)
+                }
             },
             progress,
         )

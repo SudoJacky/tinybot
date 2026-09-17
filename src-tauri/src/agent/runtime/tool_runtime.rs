@@ -578,7 +578,8 @@ async fn dispatch_owned_tool(
     let task = async move {
         dispatch_tool_with_cancellation_policy(services, child_context, task_tool_call).await
     };
-    let mut handle = tauri::async_runtime::spawn(async move {
+    let usage_scope = crate::token_usage::UsageScope::current();
+    let mut handle = tauri::async_runtime::spawn(usage_scope.run(async move {
         match AssertUnwindSafe(task).catch_unwind().await {
             Ok(outcome) => outcome,
             Err(_) => ToolDispatchOutcome::RuntimeFailure {
@@ -586,7 +587,7 @@ async fn dispatch_owned_tool(
                 error: "owned native tool task panicked".to_string(),
             },
         }
-    });
+    }));
     let joined = if let Some(parent_cancellation) = context.cancellation.clone() {
         tokio::select! {
             biased;

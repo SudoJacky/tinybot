@@ -20,18 +20,30 @@ pub(crate) async fn worker_team_prepare(
     crate::workspace_registry::canonical_workspace(std::path::Path::new(
         &input.spec.workspace_path,
     ))?;
+    let run_id = teams::new_run_id();
+    let scope = crate::token_usage::UsageScope {
+        origin: crate::token_usage::UsageOrigin {
+            purpose: crate::token_usage::UsagePurpose::TeamPlanning,
+            team_run_id: Some(run_id.clone()),
+            ..Default::default()
+        },
+        store: Some(crate::token_usage::DailyTokenUsageStore::from_data_root(
+            &root,
+        )),
+    };
     let plan = match input.plan {
         Some(plan) => plan,
         None => {
-            teams::plan(
-                &native_runtime_config_snapshot(),
-                &input.spec,
-                input.planner_model.as_ref(),
-            )
-            .await?
+            scope
+                .run(teams::plan(
+                    &native_runtime_config_snapshot(),
+                    &input.spec,
+                    input.planner_model.as_ref(),
+                ))
+                .await?
         }
     };
-    teams::prepare(&root, input.spec, plan)
+    teams::prepare_with_id(&root, input.spec, plan, run_id)
 }
 
 #[tauri::command]

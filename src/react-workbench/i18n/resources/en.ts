@@ -1,3 +1,4 @@
+import { usageEn } from "../../settings/usageTranslations";
 import { teamEn } from "../../teams/teamTranslations";
 export const en = {
   common: {
@@ -560,6 +561,7 @@ export const en = {
     },
   },
   settings: {
+    usage: usageEn,
     choice: { notConfigured: "Not configured", options: "{{label}} options" },
     sidebar: {
       label: "Settings categories",

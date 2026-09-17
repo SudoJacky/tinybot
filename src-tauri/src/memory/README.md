@@ -1,5 +1,10 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:4602b46cb6c5030313441e1976135c50315d01c9ec58d2693697ce2fe372e24d -->
+<!-- tinybot-module-fingerprint: sha256:742cfa40495afbcaa9c4a62925c63b67853cab183aee7afbf854326f595e5222 -->
+
+Background extraction restores token-usage attribution from its persisted
+Thread/Turn and ancestry before calling the model. Consolidation starts a fresh
+shared origin with no Team/task assignment because it may combine sources.
+Both report to the same application usage ledger; Team exclusion rules remain.
 
 `memory` provides Tinybot's local long-term memory. Automatic maintenance uses
 two model-backed phases:

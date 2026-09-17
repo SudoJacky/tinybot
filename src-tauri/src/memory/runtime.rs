@@ -291,9 +291,14 @@ impl WorkspaceMemoryRuntime {
         }
         let config = self.config_snapshot()?;
         increment_metric("memory.phase1.model.started");
-        let memories = self
-            .model
-            .extract(&config, &evidence)
+        let mut scope = crate::token_usage::UsageScope::for_thread(
+            &self.thread_store,
+            &pending.thread_id,
+            &pending.turn_id,
+        )?;
+        scope.origin.purpose = crate::token_usage::UsagePurpose::MemoryExtraction;
+        let memories = scope
+            .run(self.model.extract(&config, &evidence))
             .await
             .map_err(|error| {
                 increment_metric("memory.phase1.model.failed");
@@ -317,10 +322,22 @@ impl WorkspaceMemoryRuntime {
         };
         let config = self.config_snapshot()?;
         increment_metric("memory.phase2.model.started");
-        let diff = self.model.select(&config, &input).await.map_err(|error| {
-            increment_metric("memory.phase2.model.failed");
-            error
-        })?;
+        let scope = crate::token_usage::UsageScope {
+            origin: crate::token_usage::UsageOrigin {
+                purpose: crate::token_usage::UsagePurpose::MemoryConsolidation,
+                ..Default::default()
+            },
+            store: Some(crate::token_usage::DailyTokenUsageStore::from_data_root(
+                self.thread_store.data_root(),
+            )),
+        };
+        let diff = scope
+            .run(self.model.select(&config, &input))
+            .await
+            .map_err(|error| {
+                increment_metric("memory.phase2.model.failed");
+                error
+            })?;
         increment_metric("memory.phase2.model.completed");
         if self.cancellation.is_cancelled() {
             return Err("memory selection cancelled".into());

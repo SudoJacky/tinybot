@@ -1,5 +1,12 @@
 # Desktop Commands
 <!-- tinybot-doc-watch:
+src-tauri/src/token_usage.rs
+src-tauri/src/token_usage/attribution.rs
+src-tauri/src/token_usage/ledger.rs
+src-tauri/src/token_usage/recording.rs
+src-tauri/src/desktop_commands/token_usage.rs
+src/app-core/settings/tokenUsage.ts
+src/app-core/native/desktopNativeTokenUsage.ts
 src-tauri/src/desktop/bootstrap.rs
 src-tauri/src/desktop/pet.rs
 src-tauri/src/desktop/diagnostics.rs
@@ -21,7 +28,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:6388f998098398e31d9212860cfad74ec38ce7b2ba940b9e5c8556f2902c40a3 -->
+<!-- tinybot-doc-fingerprint: sha256:36dbd1686484e1090fe7f4d4db469955a81728fb957817c0f91f692ffeb383ba -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -498,28 +505,46 @@ sandboxed by the Agent tool capability policy.
 | Command | Args | Response |
 | --- | --- | --- |
 | `worker_token_usage_snapshot` | none | `TokenUsageSnapshot` |
+| `worker_token_usage_details` | `{ teamRunId?: string, before?: number }` | `{ groups, invocations, nextCursor }` |
 
-Every successful Chat Completions or Responses provider call that reports usage
-uses one shared field mapper and records canonical input, cached-input, output,
-reasoning-output, and total tokens in
-`~/.tinybot/state/token-usage.sqlite`. The provider completion boundary covers
-ordinary Agent turns, tool-loop continuations, subagents, context compaction,
-memory maintenance, and Agent Graph routing. Records are atomically aggregated
-by the device's local `YYYY-MM-DD` calendar day and by the resolved
-Provider/model pair; an internal unique model-call identifier prevents a
-completed call from being counted twice. Missing provider usage is kept distinct
-from an explicit zero and does not create a zero-token record. Existing v1 daily
-rows are retained during migration and exposed as `unknown` Provider and model
-dimensions. Usage persistence is best effort: a storage failure increments
-`provider.tokenUsage.persistence.failed` and emits a provider diagnostic, while
-the already successful completion remains available to the caller.
+Every Chat Completions or Responses invocation records a pending entry in
+`~/.tinybot/state/token-usage.sqlite` before execution. Completion atomically
+stores nullable normalized usage and updates existing local-calendar daily and
+Provider/model totals. Exact duplicate completions are idempotent; retries use
+distinct invocation IDs under one logical request. Runtime events, replay, and
+reload never independently accumulate usage. Persistence failures increment
+`provider.tokenUsage.persistence.failed`, emit diagnostics, and return an error.
 
-`TokenUsageSnapshot` uses schema `tinybot.token_usage.v2` and returns `totals`,
-newest-first `days`, and newest-first `modelDays`. Each `modelDays` item adds
+`TokenUsageSnapshot` uses schema `tinybot.token_usage.v3` and returns `totals`,
+newest-first `days`, newest-first `modelDays`, and `groups`. Each `modelDays` item adds
 `date`, `providerId`, and `modelId` to the same five camelCase count fields:
 `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningOutputTokens`, and
 `totalTokens`. Cached input is a subset of input, and reasoning output is a
 subset of output when reported by the Provider.
+
+Groups add `date`, `providerId`, `modelId`, `purpose`, nullable `teamRunId`,
+`taskId`, `attemptId`, request counters (`calls`, `reportedCalls`, `failedCalls`,
+`pendingCalls`, `retryCalls`), and nullable `usage`. Missing usage is unavailable,
+not zero. `failedCalls` includes retry, cancellation and interruption outcomes;
+`retryCalls` counts requests after the initial attempt. Historical totals remain
+`legacy`, with unavailable request counts and no invented source attribution.
+
+Purposes are `conversation`, `team_task`, `team_planning`, `subagent`,
+`automation`, `compaction`, `title`, `memory_extraction`, `memory_consolidation`,
+`graph_routing`, `graph_execution`, and `unclassified`. Attribution comes from
+application scope and persisted Thread ancestry. Memory consolidation combines
+sources and remains shared/unallocated. Non-cached input is input minus cached
+input; cached and reasoning subsets are never added again to total tokens.
+
+Details return the same groups, optionally scoped to one Team, plus at most 100
+invocations ordered by descending `sequence`. Pass `nextCursor` as `before` for
+older requests; null means the end. Each invocation retains `id`, `requestId`,
+zero-based `attempt`, local `date`, UTC `startedAt`/`finishedAt`, Provider/model,
+`origin` (purpose and nullable Team/task/attempt/Thread/Turn IDs), `status`, and
+nullable `usage`. Outcomes are `pending`, `completed`, `failed`, `cancelled`,
+`interrupted`, or `retry`. A pending record after a process crash is uncertain.
+Read snapshots are consistent, durable, and require no transcript scan. Records
+exclude prompts, credentials, response content, and currency estimates.
 
 ## Config Commands
 

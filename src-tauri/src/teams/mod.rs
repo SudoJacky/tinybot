@@ -57,19 +57,30 @@ pub(crate) struct ReviseTeamInput {
     pub plan: TeamPlan,
 }
 
-pub(crate) fn prepare(root: &Path, mut spec: TeamSpec, plan: TeamPlan) -> Result<TeamRun, String> {
+pub(crate) fn new_run_id() -> String {
+    store::next_id()
+}
+
+#[cfg(test)]
+pub(crate) fn prepare(root: &Path, spec: TeamSpec, plan: TeamPlan) -> Result<TeamRun, String> {
+    prepare_with_id(root, spec, plan, new_run_id())
+}
+
+pub(crate) fn prepare_with_id(
+    root: &Path,
+    mut spec: TeamSpec,
+    plan: TeamPlan,
+    id: String,
+) -> Result<TeamRun, String> {
     model::validate_plan(&spec, &plan)?;
     let workspace =
         crate::workspace_registry::canonical_workspace(Path::new(&spec.workspace_path))?;
     spec.workspace_path = crate::workspace_registry::workspace_id(&workspace);
     let dir = store::directory(root)?;
     let _lock = store::lock()?;
-    let id = loop {
-        let id = store::next_id();
-        if !store::path(&dir, &id)?.exists() {
-            break id;
-        }
-    };
+    if store::path(&dir, &id)?.exists() {
+        return Err("Team run ID already exists".into());
+    }
     let mut run = TeamRun {
         schema_version: SCHEMA_VERSION,
         id,

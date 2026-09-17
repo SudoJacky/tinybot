@@ -1,5 +1,9 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:e4cafa4fb3253684070ede39d2ae994e1c84f8d62b1835094c70a77b0b805579 -->
+<!-- tinybot-module-fingerprint: sha256:9cb393cac5a0be289e4ea470651cfde820077a1e88a8412181de80c6047f5b8b -->
+
+Title generation and Graph routing use distinct token-usage purposes while
+preserving trusted originating Thread/Turn and Team identities when present.
+Graph execution Threads persist the calling Thread as parent for later recovery.
 
 `agent` contains the native agent stack. It connects provider configuration,
 the turn runtime, durable runtime events, and the desktop integration bridge.

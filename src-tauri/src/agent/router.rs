@@ -30,26 +30,32 @@ pub(crate) async fn route(
     let prompt = router_prompt(router);
     let request = router_request(api_mode, &model, &prompt, input, router.model.as_ref());
     let mut observer = |_event: NativeProviderStreamEvent| {};
-    let response = match api_mode {
-        NativeProviderApiMode::ChatCompletions => {
-            complete_chat_for_agent_with_observer_async(
-                &provider_config,
-                &request,
-                &mut observer,
-                None,
-            )
-            .await
+    let response = crate::token_usage::UsageScope::with_purpose(
+        crate::token_usage::UsagePurpose::GraphRouting,
+    )
+    .run(async {
+        match api_mode {
+            NativeProviderApiMode::ChatCompletions => {
+                complete_chat_for_agent_with_observer_async(
+                    &provider_config,
+                    &request,
+                    &mut observer,
+                    None,
+                )
+                .await
+            }
+            NativeProviderApiMode::Responses => {
+                complete_responses_for_agent_with_observer_async(
+                    &provider_config,
+                    &request,
+                    &mut observer,
+                    None,
+                )
+                .await
+            }
         }
-        NativeProviderApiMode::Responses => {
-            complete_responses_for_agent_with_observer_async(
-                &provider_config,
-                &request,
-                &mut observer,
-                None,
-            )
-            .await
-        }
-    }
+    })
+    .await
     .map_err(|error| format!("Router model request failed: {error}"))?;
     let raw_response = response_text(api_mode, &response)?;
     let route_id = parse_route_response(&raw_response, &router.routes)?;

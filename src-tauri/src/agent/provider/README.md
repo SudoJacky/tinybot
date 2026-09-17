@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:6f7492a716aeb13f6103f51c60be3d1ffd69e7577bff083fcc26377f634fc820 -->
+<!-- tinybot-module-fingerprint: sha256:6fb90d087a3761de9240e835877bbb363d3e5f23337e8a945e8a1d6dfb286354 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -29,16 +29,14 @@ their existing selection.
   explicit request override or an active profile; it never infers a Provider
   from the model, and the retired `auto` Provider ID is rejected. API base URLs
   are normalized before the OpenAI-compatible request path is appended. Every
-  successful Chat Completions or Responses call that reports usage passes through
-  the same token-field mapper and records the canonical result at this shared
-  boundary, so Agent turns, context compaction, memory maintenance, and Agent
-  Graph routing all feed the same daily SQLite totals. A response without usage
-  is not recorded as a zero-token call. The recorded dimensions use the resolved
-  Provider profile and the response model ID, with the requested model as a
-  fallback. Usage persistence is best effort: failures increment
-  `provider.tokenUsage.persistence.failed` and emit a diagnostic with the
-  protocol, model ID, and storage error without replacing a successful provider
-  response.
+  Chat Completions or Responses invocation records a pending entry in the shared
+  token-usage ledger before execution. Completion atomically records normalized
+  usage and updates existing daily totals. Missing usage remains null. Trusted
+  purpose and Team/Thread/Turn identities come from the application usage scope,
+  never model arguments. Records use the resolved Provider and response model
+  (or requested model when absent). Storage failures increment
+  `provider.tokenUsage.persistence.failed`, emit diagnostics, and fail the call
+  explicitly; a completed provider request is never silently left unaccounted.
 - `retry.rs` owns the observable HTTP retry budget, replacing the SDK's hidden
   default executor. It permits three additional attempts on connection errors,
   HTTP 5xx, and parseable HTTP 429 rate-limit errors; insufficient quota is
@@ -47,6 +45,8 @@ their existing selection.
   Overall request timeout and cancellation include the retry wait; an opened
   response stream is never restarted. Successful assistant content, including
   error-looking text, is not classified as a transport failure.
+  Each retry records a distinct invocation under the same logical request ID;
+  duplicate completion delivery cannot add tokens again.
 - `streaming.rs` normalizes streamed provider events. Responses reasoning
   accepts both summary deltas and provider-compatible textual reasoning deltas.
   Non-empty tool names and argument deltas also notify the runtime's timing

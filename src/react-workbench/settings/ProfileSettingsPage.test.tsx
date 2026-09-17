@@ -228,13 +228,13 @@ function createSettingsStore(): SettingsStore {
   return {
       load: vi.fn(async () => []),
       loadTokenUsage: vi.fn(async () => ({
-        schemaVersion: "tinybot.token_usage.v2" as const,
+        schemaVersion: "tinybot.token_usage.v3" as const,
         totals: usage(14_000, 8_000, 3_000, 1_200, 17_000),
         days: [
           { date: "2026-08-31", ...usage(12_000, 7_000, 3_000, 1_200, 15_000) },
           { date: "2026-08-30", ...usage(2_000, 1_000, 0, 0, 2_000) },
         ],
-        modelDays: [
+        groups: [], modelDays: [
           {
             date: "2026-08-31",
             providerId: "openai",

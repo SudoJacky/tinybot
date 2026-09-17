@@ -1,5 +1,10 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:b16cb0ec0f80570759044b19955941e8db9afb5a0eda89f1bef0fdc008ab08ca -->
+<!-- tinybot-module-fingerprint: sha256:a30085015dbb812d1a987609d499dc3b7b520e7d97d9ba2a621afa61ef7d4f35 -->
+
+The command allocates the run ID before invoking the planner and passes it to
+`prepare_with_id`; planner usage therefore shares the eventual board identity.
+Task and descendant usage resolves persisted attempt Thread ancestry. The shared
+usage ledger owns accounting; the board does not store independent token totals.
 
 `teams` owns a shared task board and dependency scheduler for a fixed set of
 members working toward one goal. It is independent of Agent Graphs and the

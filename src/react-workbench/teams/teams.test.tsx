@@ -30,6 +30,26 @@ vi.mock("../chat/AssistantMarkdown", () => ({
   AssistantMarkdown: ({ text }: { text: string }) => <div>{text}</div>,
 }));
 afterEach(cleanup);
+it("reconciles planner, task and background usage in the Team usage tab", async () => {
+  const usage = { inputTokens: 100, cachedInputTokens: 80, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 };
+  const loadUsageDetails = vi.fn(async () => ({
+    groups: (["team_planning", "team_task", "subagent", "memory_extraction"] as const).map(purpose => ({
+      date: "2026-09-18", providerId: "fixture", modelId: "model", purpose,
+      teamRunId: "team", taskId: purpose === "team_planning" ? null : "source", attemptId: null,
+      calls: 1, reportedCalls: 1, failedCalls: 0, pendingCalls: 0, retryCalls: 0, usage,
+    })), invocations: [], nextCursor: null,
+  }));
+  render(<TeamDetail run={fixture()} busy={false} loadUsageDetails={loadUsageDetails}
+    onBack={vi.fn()} onExecute={vi.fn()} onControl={vi.fn()} onRevise={vi.fn()} onOpenThread={vi.fn()} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "Usage" }));
+  const table = await screen.findByRole("table", { name: "Usage by purpose" });
+  expect(loadUsageDetails).toHaveBeenCalledWith({ teamRunId: "team", before: undefined });
+  expect(within(table).getByRole("row", { name: /^Run-level work Team planning/ })).toBeVisible();
+  expect(within(table).getByRole("row", { name: /^Collect sources Memory extraction/ })).toBeVisible();
+  expect(within(within(table).getByRole("row", { name: /^Total reported usage/ })).getAllByRole("cell").map(cell => cell.textContent))
+    .toEqual(["4", "0", "0", "0", "0", "400", "320", "80", "80", "20", "480"]);
+});
 function fixture(): TeamRun {
   return {
     schemaVersion: 2,

@@ -737,6 +737,7 @@ fn create_agent_graph_thread(
             serde_json::json!({
                 "title": format!("{graph_name} · {}", step.node_id),
                 "source": "agent_graph",
+                "parentThreadId": crate::token_usage::UsageScope::current().origin.thread_id,
                 "metadata": {
                     "workingDirectory": step.workspace_path,
                     "extra": graph_origin_metadata(run, step, node_run_id),

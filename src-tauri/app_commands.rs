@@ -50,6 +50,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "worker_memory_snapshot",
     "worker_memory_mutate",
     "worker_token_usage_snapshot",
+    "worker_token_usage_details",
     "worker_project_groups_list",
     "worker_project_group_save",
     "worker_project_group_delete",

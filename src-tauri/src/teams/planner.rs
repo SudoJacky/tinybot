@@ -61,16 +61,27 @@ pub(crate) async fn plan(
         }
     }
     let mut observer = |_event: NativeProviderStreamEvent| {};
-    let response = match api_mode {
-        NativeProviderApiMode::ChatCompletions => {
-            complete_chat_for_agent_with_observer_async(&config, &request, &mut observer, None)
+    let response = crate::token_usage::UsageScope::with_purpose(
+        crate::token_usage::UsagePurpose::TeamPlanning,
+    )
+    .run(async {
+        match api_mode {
+            NativeProviderApiMode::ChatCompletions => {
+                complete_chat_for_agent_with_observer_async(&config, &request, &mut observer, None)
+                    .await
+            }
+            NativeProviderApiMode::Responses => {
+                complete_responses_for_agent_with_observer_async(
+                    &config,
+                    &request,
+                    &mut observer,
+                    None,
+                )
                 .await
+            }
         }
-        NativeProviderApiMode::Responses => {
-            complete_responses_for_agent_with_observer_async(&config, &request, &mut observer, None)
-                .await
-        }
-    }
+    })
+    .await
     .map_err(|error| format!("Team planning request failed: {error}"))?;
     let raw = response_text(api_mode, &response)?;
     parse_plan(spec, &raw)

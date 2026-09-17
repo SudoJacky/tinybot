@@ -1,5 +1,8 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:4af715b37efe7a9d2651f8339f9d2aaf078287163e410132a6fb12a25ae158bc -->
+<!-- tinybot-module-fingerprint: sha256:a6536f88f0f22d4ebed2127b5fa945ecbdf093e076073e10a936400441a48421 -->
+
+`desktopNativeTokenUsage` exposes the v3 snapshot and paginated usage details.
+Settings and Teams reuse this API; renderer adapters never accumulate counters.
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,

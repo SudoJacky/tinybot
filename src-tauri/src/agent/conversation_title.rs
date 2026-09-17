@@ -50,7 +50,26 @@ async fn run_title_task(
     let started_at = Instant::now();
     let metrics = crate::runtime::observability::global_agent_runtime_metrics();
     metrics.increment("thread.title_generation.started");
-    let title = match generate_title(&config_snapshot, &task.turn_spec, &task.input).await {
+    let mut scope = match crate::token_usage::UsageScope::for_thread(
+        &thread_store,
+        &task.thread_id,
+        &task.source_turn_id,
+    ) {
+        Ok(scope) => scope,
+        Err(error) => {
+            report_title_failure(&task, started_at, &error);
+            return;
+        }
+    };
+    scope.origin.purpose = crate::token_usage::UsagePurpose::Title;
+    let title = match scope
+        .run(generate_title(
+            &config_snapshot,
+            &task.turn_spec,
+            &task.input,
+        ))
+        .await
+    {
         Ok(title) => title,
         Err(error) => {
             report_title_failure(&task, started_at, &error);

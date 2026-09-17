@@ -164,6 +164,7 @@ export function createDesktopSettingsStore({
 
   return {
     ...(nativeTokenUsage ? {
+      loadUsageDetails: nativeTokenUsage.details,
       async loadTokenUsage() {
         await initialize();
         return nativeTokenUsage.snapshot();

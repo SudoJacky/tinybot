@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e7396a4a2364d7f2d4c7118ab64606f1a45d9d244004d3ce957d2d8936513040 -->
+<!-- tinybot-doc-fingerprint: sha256:d3ed817878b444946ae5c677a2916f195681323baf34a117f26bbad65185ad90 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -171,6 +171,10 @@ For each provider iteration, the runtime:
    calls. Chat Completions and Responses usage pass through one shared mapper,
    including nested cache and reasoning detail counters; missing usage remains
    absent instead of becoming an all-zero provider count.
+   The provider boundary records a stable invocation and atomically updates the
+   shared usage ledger. Owned provider/tool tasks carry application attribution;
+   the bridge resolves canonical Thread and Team ancestry before execution.
+   Retries get distinct invocation IDs. Replay never increments global totals.
 5. Records the complete tool batch before the next provider request.
 6. Converts provider-authored argument preparation failures into correlated
    tool results for every call in the batch, then continues planning without

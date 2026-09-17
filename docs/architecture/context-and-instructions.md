@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c2c97c298ec71a8923004bc2762a3bf71a4de3f35ed5c56d516843d8a2a77cd7 -->
+<!-- tinybot-doc-fingerprint: sha256:757e4a09cd915c97b13ae71a13827acd142f48906ba39fe12fcc7a8d235deb08 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -41,6 +41,10 @@ request reuses the initiating Turn's effective model, Provider, protocol,
 streaming, generation settings, Provider adaptation, and response decoder. It
 replaces the conversation history with the title prompt and adds no separate
 output-token budget or tool definitions.
+
+Title generation and context compaction keep their originating Thread/Turn and
+Team identities in the shared usage ledger, but use separate purposes so their
+overhead remains distinguishable from ordinary conversation or task execution.
 
 ## Workspace concepts
 

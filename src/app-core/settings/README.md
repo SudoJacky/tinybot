@@ -1,5 +1,9 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:f72f1a67adad029c0834c861e89543feb02a3dfe8a74b731909cc3b53a89e831 -->
+<!-- tinybot-module-fingerprint: sha256:f18642668a8827727a2a87a657fd03ca7bb264e81658886ff2c47c529e7d8969 -->
+
+`tokenUsage.ts` defines the v3 snapshot, purpose/source groups and paginated
+invocation contracts. Nullable usage distinguishes unavailable counts from zero;
+legacy attribution remains explicit instead of being assigned to a guessed run.
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
