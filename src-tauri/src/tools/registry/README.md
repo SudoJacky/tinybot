@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:3eb7bc8a1639b99f5295e12ebda2f241d1c9eacb8e017c950b7b0181aee41cb0 -->
+<!-- tinybot-module-fingerprint: sha256:dc6c120d1b799945cadddbac9a19935322712f51f7390302819d7e5b0a9c077f -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -46,5 +46,9 @@ execution stays exclusive with detach-forbidden cancellation cleanup.
 The top-level patch description advertises fusion under those same conditions;
 removing thenRun also restores the original description. Its guidance limits
 fusion to a known verification command that needs no intermediate inspection.
+The patch description requires workspace-relative paths and a '+' prefix on
+every Add File content line, including empty lines. Retry guidance points to
+the diagnostic and committed changes; diagnostic line numbers address the
+submitted patch rather than the target file.
 
 The Team board contributor adds complete/list/read/artifact-read tools only for active attempts. Its TeamBoard execution target routes to the bridge; completion is exclusive and ends the native turn after validation. Generic RPC cannot invoke this application-owned target.

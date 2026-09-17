@@ -497,6 +497,7 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
 }
 
 pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
+    const PATCH_DESCRIPTION: &str = "Apply a structured multi-file patch under the current workspace using relative paths. Patch context must match uniquely. In Add File operations, prefix every content line (including empty lines) with '+'. On failure, inspect the diagnostic and committed changes before retrying; line numbers refer to the submitted patch.";
     vec![
         tool(
             "workspace.write_file",
@@ -521,7 +522,7 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             "workspace.apply_patch",
             "workspace",
             "Apply workspace patch",
-            "Apply a structured multi-file patch under the current workspace. Patch context must match uniquely.",
+            PATCH_DESCRIPTION,
             ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
@@ -546,7 +547,7 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             "workspace.apply_patch",
             "workspace",
             "Apply workspace patch",
-            "Apply a structured multi-file patch under the current workspace. Patch context must match uniquely.",
+            PATCH_DESCRIPTION,
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),

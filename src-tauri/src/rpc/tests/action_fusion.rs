@@ -31,6 +31,53 @@ fn router(fixture: &WorkspaceFixture, config: Value, shell: bool) -> WorkerRpcRo
 }
 
 #[test]
+fn patch_parse_diagnostics_survive_tool_dispatch_and_skip_fused_commands() {
+    for fused in [false, true] {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("existing.md", "original\n");
+        let mut router = router(&fixture, json!({"experiments":{"actionFusion":true}}), true);
+        let patch = format!(
+            "*** Begin Patch\n*** Update File: existing.md\n@@\n-original\n+changed\n*** Add File: reports/报告.md\n{}5. 缺少加号\n*** End Patch",
+            "+已核实的报告内容\n".repeat(3_000)
+        );
+        let mut arguments = json!({"patch": patch});
+        if fused {
+            arguments["thenRun"] = json!({"command":"echo unexpected > marker.txt"});
+        }
+        let response = router.dispatch(&request(arguments));
+        let error = response
+            .error
+            .expect("malformed patch must fail through the tool executor");
+        assert_eq!(
+            error.details,
+            json!({
+                "stage": "parse",
+                "path": "reports/报告.md",
+                "line": 3007,
+                "content": "5. 缺少加号",
+                "hint": "No files were changed. Prefix every Add File content line, including empty lines, with '+', then resubmit the patch.",
+                "committed": {"changed_files": [], "files_changed": 0, "hunks_applied": 0, "exact": true}
+            })
+        );
+        assert_eq!(fixture.read("existing.md"), "original\n");
+        assert!(!fixture.root.join("reports").exists());
+        assert!(!fixture.root.join("marker.txt").exists());
+        if fused {
+            assert!(error.message.contains("thenRun skipped"));
+        }
+
+        let corrected = patch.replace("\n5. 缺少加号", "\n+5. 缺少加号");
+        let response = router.dispatch(&request(json!({"patch": corrected})));
+        assert!(response.error.is_none(), "{:?}", response.error);
+        assert_eq!(fixture.read("existing.md"), "changed\n");
+        assert_eq!(
+            fixture.read("reports/报告.md"),
+            format!("{}5. 缺少加号\n", "已核实的报告内容\n".repeat(3_000))
+        );
+    }
+}
+
+#[test]
 fn action_fusion_runs_in_working_directory_created_by_patch() {
     for absolute in [true, false] {
         let fixture = WorkspaceFixture::new();

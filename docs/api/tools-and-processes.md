@@ -19,7 +19,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d503699f25dd303795e80e0b6f508e897290f7ac734eda3bd607a3d11194f61c -->
+<!-- tinybot-doc-fingerprint: sha256:35d2cfea3177755ca19cc704e70843c22f2aff2f7d98c4330346ad097757772a -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -67,6 +67,14 @@ or is not a directory, the command returns start_failed with the requested path
 and resolution stage while retaining the edit. Patch failure skips the command;
 command failure retains the applied patch. This is one exclusive tool operation,
 without cross-process filesystem locking or automatic rollback.
+
+Patch parse failures return `details.stage: "parse"`, a one-based `line` in the
+submitted patch, a `content` excerpt, `path` when known, and a repair `hint`.
+Content and path excerpts are capped at 256 and 512 UTF-8 bytes respectively;
+`content_truncated` or `path_truncated` is true when shortened. Parse failures
+include an exact empty `committed` summary and never run `thenRun`. Execution
+failures may have committed earlier operations; callers must inspect that
+summary before retrying. Invalid patches are not automatically repaired.
 
 The result has `kind: "action_fusion"`, `patch: {status: "succeeded", result: ...}`,
 and `thenRun` containing an ordinary Shell process snapshot or a `start_failed`
