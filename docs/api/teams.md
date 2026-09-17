@@ -1,13 +1,16 @@
 # Team API
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop_commands/teams.rs
+src-tauri/src/teams/board.rs
+src-tauri/src/teams/tools.rs
+src-tauri/src/teams/native.rs
 src-tauri/src/teams/model.rs
 src-tauri/src/teams/mod.rs
 src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:2b82ba34a3a5a6069f80a5bea442f452d42d315f0902ba84f34d17d9ff5e16a6 -->
+<!-- tinybot-doc-fingerprint: sha256:c6e18b67b4796a5e74c6d1a6aab1ae873ca2a24abc13fc2c7c7882d4280f731f -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
 object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
@@ -17,6 +20,7 @@ confirm assignments, execute work, and inspect results and attempt Threads.
 | --- | --- | --- |
 | `worker_team_prepare` | `{ input: { spec, plan?, plannerModel? } }` | New planned run |
 | `worker_team_runs_list` | None | All runs, newest first |
+| `worker_team_artifact_read` | `{ runId, input: { entryId, artifactIndex, byteOffset?, maxBytes? } }` | Verified UTF-8 artifact page |
 | `worker_team_run_get` | `{ runId }` | Current board; reconciles interrupted execution |
 | `worker_team_revise` | `{ input: { runId, expectedRevision, plan } }` | Revised idle board |
 | `worker_team_execute` | `{ input: { runId, expectedRevision } }` | Run after execution stops |
@@ -74,7 +78,7 @@ A run contains `schemaVersion`, `id`, numeric `revision`, the immutable `spec`,
 `finalTaskId`, `tasks`, `status`, `createdAt`, `updatedAt`, and nullable `error`.
 Each task record contains its `task` definition, `status`, and ordered `attempts`.
 Attempts contain `threadId`, `turnId`, `status`, `startedAt`, nullable `finishedAt`,
-`output`, and `error`. The final answer is the successful final task's last output.
+`output`, nullable `message`, and `error`. The final answer is the successful final task's last output.
 
 Run statuses: `planned`, `running`, `paused`, `completed`, `failed`, `cancelled`,
 `interrupted`. Task/attempt statuses: `pending`, `running`, `succeeded`, `failed`,
@@ -102,11 +106,56 @@ An orphaned running run is marked interrupted when read after restart. Pending
 work can resume once interrupted attempts have been explicitly handled. No
 background recovery automatically starts work. A native Turn yielding for human
 input is currently reported as a failed Team task; inspect and resolve its Thread
-before retrying. Automatic adoption of a human-resumed Turn, team messaging,
+before retrying. Automatic adoption of a human-resumed Turn, live peer chat,
 workspace merge/isolation, live board events, and automatic replanning are outside
 this initial backend interface. Native Thread/tool events remain available.
 
-Schema version 2 requires a nonblank member `displayName` and task `title`.
-Reading a version 1 record explicitly migrates its IDs into those display fields,
-validates the complete record, and atomically saves one new revision. New input
-with missing display fields is rejected; unknown versions remain errors.
+## Shared message board
+
+Each successful new attempt has a `message`: `{ summary, unresolved, artifacts, sequence }`.
+An artifact contains `{ path, sha256, bytes }`; paths are workspace-relative.
+The attempt's Thread/Turn and containing task supply author/provenance; sequence
+is the run revision that published it. The scheduler saves message and successful
+status in the same atomic snapshot before releasing dependencies. `output` is the
+summary; detailed results should be files. Original tool inputs, receipts and
+conversation evidence remain in the producing Thread.
+
+Active Team attempts receive these model tools (ordinary Threads do not):
+
+| Tool | Input | Behavior |
+| --- | --- | --- |
+| `team.complete_task` | `{ summary, artifacts: string[], unresolved }` | Validate and finish the Turn; call alone after all work |
+| `team.list_messages` | `{ afterSequence?, offset?, limit?, taskId? }` | Completed-message index and summaries; up to 8 entries per page |
+| `team.read_message` | `{ entryId, byteOffset?, maxBytes? }` | One bounded message; legacy output uses byte paging |
+| `team.read_artifact` | `{ entryId, artifactIndex, byteOffset?, maxBytes? }` | Verify content identity and return selected UTF-8 bytes |
+
+Limits are UTF-8 bytes: summary and unresolved each at most 1024, persisted
+message at most 4096 (including reserved sequence space), at most 8 artifacts,
+path at most 512, and each file at most 32 MiB. Oversized/malformed submissions
+return tool errors for correction; a plain final response fails the Team task.
+Successful completion ends the native loop without another provider request.
+
+Downstream `dependencyResults` contain entry/task/member IDs, sequence, a legacy
+flag, and optional summaries. The total automatically included summary text is
+at most 8192 bytes; remaining summaries are available through read_message.
+No artifact bodies, unresolved details, or old full outputs are auto-injected.
+Other completed tasks in the same run are discoverable through list_messages.
+The board is run-scoped collaboration data, not long-term memory extraction.
+
+Lists return `nextOffset` and `revision`; keep afterSequence fixed while paging,
+then use the returned completed revision when checking for newer messages.
+Reads default to 8192 bytes, accept maxBytes from 4 to 8192, and return `text`,
+`byteOffset`, `nextByteOffset`, and `totalBytes`. Offsets must be valid UTF-8
+boundaries. Artifacts also return path and sha256. Missing, changed, binary,
+unauthorized, or invalid references are explicit errors; bytes are never silently
+presented as the original artifact after modification. Desktop previews use the
+same reader, with workspace and paths derived from the saved run.
+
+## Saved run compatibility
+
+Schema 3 adds the optional attempt message. Reading versions 1 and 2 migrates
+once and persists a new revision; version 1 IDs also become missing display
+names/titles. Legacy successful outputs remain intact with message=null, appear
+on the board as legacy entries (sequence 0), and can be read in bounded pages.
+Resumed legacy runs use this reference-only handoff for old outputs and require
+the new completion contract for new attempts. Unknown versions remain errors.

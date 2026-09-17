@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:1e8d127ab8696ae66027352448c28b27762d2a1e29e793316e9a87e4d9ac2b0a -->
+<!-- tinybot-module-fingerprint: sha256:93e60f81e91c94e67cd9292a1155f0ce0ba0d28ee083cdadfcf65d1cff9b05ba -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -61,7 +61,7 @@ exact-definition trust commands. Graph definition storage remains owned by
 the standard Thread/Agent path. Hook behavior remains owned by `command_hooks`
 and the Agent runtime.
 
-Bootstrap also registers the six main-window Team commands. `teams` owns their
+Bootstrap also registers the seven main-window Team commands. `teams` owns their
 plan/task/attempt lifecycle and dependency scheduler; desktop supplies the shared
 Thread/Agent services without adding a second model or tool execution loop.
 

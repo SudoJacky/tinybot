@@ -47,8 +47,11 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
         fs::read(path).map_err(|error| format!("Read Team run {}: {error}", path.display()))?;
     let mut value: serde_json::Value = serde_json::from_slice(&bytes)
         .map_err(|error| format!("Parse Team run {}: {error}", path.display()))?;
-    let migrated = value["schemaVersion"] == 1;
-    if migrated {
+    let previous_version = value["schemaVersion"]
+        .as_u64()
+        .ok_or("Missing Team schema version")?;
+    let migrated = previous_version == 1 || previous_version == 2;
+    if previous_version == 1 {
         for member in value["spec"]["members"]
             .as_array_mut()
             .ok_or("Invalid legacy Team members")?
@@ -71,6 +74,8 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
             let id = task.get("id").ok_or("Missing legacy Team task ID")?.clone();
             task.insert("title".into(), id);
         }
+    }
+    if migrated {
         value["schemaVersion"] = SCHEMA_VERSION.into();
     }
     let mut run: TeamRun = serde_json::from_value(value)
@@ -82,6 +87,11 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
     }
     validate_plan(&run.spec, &run.plan())?;
     for record in &run.tasks {
+        for attempt in &record.attempts {
+            if let Some(message) = &attempt.message {
+                message.validate()?;
+            }
+        }
         if record.status != TaskStatus::Pending
             && record.attempts.last().map(|a| a.status) != Some(record.status)
         {
@@ -104,7 +114,10 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
         }
     }
     if migrated {
-        eprintln!("team_run_migrated run_id={} from=1 to=2", run.id);
+        eprintln!(
+            "team_run_migrated run_id={} from={} to={}",
+            run.id, previous_version, SCHEMA_VERSION
+        );
         save(path, &mut run)?;
     }
     if run.status == RunStatus::Running && !active.contains_key(path) {

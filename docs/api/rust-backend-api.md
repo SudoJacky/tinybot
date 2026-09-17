@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:e706f9e9cd24a8a1527b547e6383933d47349dd97a0ea2232ded4b66109bea2a -->
+<!-- tinybot-doc-fingerprint: sha256:aaa88d7b3a045fbc68f7d6596d0deb7f291ac47d86de090826884d95c5122805 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -208,3 +208,5 @@ The typed native browser adapter also exposes user page annotation through
 `browser_annotate`. See [Native Browser session runtime](tools-and-processes.md#native-browser-session-runtime)
 for its action contract and ownership restrictions. This desktop command is
 separate from model-facing browser tools.
+
+Team message publication uses active-attempt model tools; main-window artifact previews use worker_team_artifact_read. Their bounded contracts and saved-run migration are documented in [Teams](teams.md).

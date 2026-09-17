@@ -17,13 +17,19 @@ fn action_fusion_projects_command_failure_and_continuation_without_repeating_pat
         result: Value::Null,
     })
     .unwrap();
+    let patch = json!({"files_changed":1,"hunks_applied":1,"changed_files":[{
+        "path":"report.md","operation":"add",
+        "hunks":[{"index":1,"removed_lines":0,"added_lines":1}],
+        "delta":[{"old_start":1,"new_start":1,"old_lines":[],"new_lines":["report body"]}],
+        "delta_truncated":false
+    }]});
     for (status, running, exit_code, effect) in [
         ("running", true, Value::Null, "in_progress"),
         ("exited", false, json!(7), "failed"),
         ("cancelled", false, Value::Null, "cancelled"),
     ] {
         let result = native_tool_result_from_executor_response(&tool_call, json!({"result":{
-            "kind":"action_fusion","patch":{"status":"succeeded"},
+            "kind":"action_fusion","patch":{"status":"succeeded","result":patch},
             "thenRun":{"processId":"p1","command":"verify","status":status,"running":running,"exitCode":exit_code,
                 "output":"evidence","stdout":"evidence","stderr":"","chunks":[{"content":"evidence"}],"cursor":3}
         }})).unwrap();
@@ -37,6 +43,10 @@ fn action_fusion_projects_command_failure_and_continuation_without_repeating_pat
         let model: Value =
             serde_json::from_str(result.envelope["modelContent"].as_str().unwrap()).unwrap();
         assert_eq!(model["result"]["patch"]["status"], "succeeded");
+        assert!(model["result"]["patch"]["result"]["changed_files"][0]
+            .get("delta")
+            .is_none());
+        assert_eq!(result.envelope["raw"]["patch"]["result"], patch);
         assert_eq!(model["result"]["thenRun"]["output"], "evidence");
         assert!(model["result"]["thenRun"].get("chunks").is_none());
         assert!(model["result"]["thenRun"].get("stdout").is_none());
@@ -47,7 +57,7 @@ fn action_fusion_projects_command_failure_and_continuation_without_repeating_pat
     }
     for cancelled in [false, true] {
         let result = native_tool_result_from_executor_response(&tool_call, json!({"result":{
-            "kind":"action_fusion","patch":{"status":"succeeded"},
+            "kind":"action_fusion","patch":{"status":"succeeded","result":patch},
             "thenRun":{"status":"start_failed","error":{"message":"start rejected","details":{"cancelled":cancelled}}}
         }})).unwrap();
         assert_eq!(
@@ -58,7 +68,24 @@ fn action_fusion_projects_command_failure_and_continuation_without_repeating_pat
             result.envelope["structured"]["outcome"]["actionExecuted"],
             true
         );
+        assert!(!result.content.as_str().unwrap().contains("report body"));
+        assert!(result.content.as_str().unwrap().contains("start rejected"));
+        assert_eq!(result.envelope["raw"]["patch"]["result"], patch);
     }
+    let success = native_tool_result_from_executor_response(
+        &tool_call,
+        json!({"result":{
+            "kind":"action_fusion","patch":{"status":"succeeded","result":patch},
+            "thenRun":{"status":"exited","running":false,"exitCode":0,"output":"verified"}
+        }}),
+    )
+    .unwrap();
+    let model: Value = serde_json::from_str(success.content.as_str().unwrap()).unwrap();
+    assert!(model["patch"]["result"]["changed_files"][0]
+        .get("delta")
+        .is_none());
+    assert_eq!(model["thenRun"]["output"], "verified");
+    assert_eq!(success.envelope["raw"]["patch"]["result"], patch);
     assert!(native_tool_result_from_executor_response(
         &tool_call,
         json!({"result":{

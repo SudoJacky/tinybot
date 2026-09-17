@@ -1,3 +1,4 @@
+pub(crate) mod board;
 mod model;
 mod native;
 mod planner;
@@ -5,6 +6,7 @@ mod runtime;
 mod store;
 #[cfg(test)]
 mod tests;
+pub(crate) mod tools;
 
 use model::{RunStatus, TaskRecord, TaskStatus, SCHEMA_VERSION};
 pub(crate) use model::{TeamModel, TeamPlan, TeamRun, TeamSpec};

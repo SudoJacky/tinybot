@@ -264,6 +264,28 @@ pub(super) async fn execute_tool_calls_for_iteration(
         return tool_batch_error_result(services, context, state, iteration, failures);
     }
     let tool_calls = prepared_tool_calls;
+    if tool_calls.len() > 1
+        && tool_calls
+            .iter()
+            .any(|call| call.name == crate::tools::registry::TEAM_COMPLETE_TASK_METHOD)
+    {
+        return tool_batch_error_result(
+            services,
+            context,
+            state,
+            iteration,
+            tool_calls
+                .iter()
+                .map(|call| {
+                    (
+                        &**call,
+                        "team.complete_task must be the only tool call; no calls were executed"
+                            .into(),
+                    )
+                })
+                .collect(),
+        );
+    }
     let tool_calls = evaluate_pre_tool_hooks(context, state, iteration, tool_calls).await?;
     if tool_calls.is_empty() {
         state.apply_pending_tool_hook_context(context)?;
@@ -763,6 +785,23 @@ async fn execute_tool_batch(
             execute_tool_wave(services, context, state, iteration, wave).await?,
         );
         for completed in decision.completed {
+            let completion = if completed.tool_call.name
+                == crate::tools::registry::TEAM_COMPLETE_TASK_METHOD
+                && matches!(
+                    context.tool_execution_target(&completed.tool_call.name),
+                    Some(crate::tools::registry::ToolExecutionTarget::TeamBoard)
+                )
+                && completed.result.envelope["status"] == "ok"
+            {
+                Some(
+                    completed.result.envelope["raw"]["summary"]
+                        .as_str()
+                        .ok_or("Missing Team completion summary")?
+                        .to_string(),
+                )
+            } else {
+                None
+            };
             commit_executed_tool_observation(
                 context,
                 state,
@@ -771,6 +810,39 @@ async fn execute_tool_batch(
                 completed.result,
             )
             .await?;
+            if let Some(content) = completion {
+                state.apply_pending_tool_hook_context(context)?;
+                state.clear_pending_tool_calls();
+                if context_is_cancelled(context) {
+                    return cancelled_result(services, context, state, iteration);
+                }
+                state.emit(crate::agent::runtime_protocol::ModelOutputEvent::MessageCompleted(serde_json::json!({
+                    "iteration": iteration, "messageId": format!("{}:team-completion", context.turn_id),
+                    "messagePhase": "final_answer", "classificationSource": "team_completion", "content": content,
+                })))?;
+                state.set_stop_reason(
+                    AgentStopReason::FinalResponse,
+                    iteration,
+                    AgentEventKind::Done.wire_name(),
+                )?;
+                state.emit(TerminalEvent::Done(
+                    serde_json::json!({"iteration":iteration,"stopReason":"final_response"}),
+                ))?;
+                let message = serde_json::json!({"role":"assistant","content":content});
+                return Ok(NativeAgentToolExecutionOutcome::Finished(AgentTurnResult {
+                    final_content: content,
+                    messages: super::AgentItemHistory::from_legacy_messages(&[message.clone()])?,
+                    context_checkpoint: state.finalized_context_checkpoint(Some(message)),
+                    tools_used: state.tools_used.clone(),
+                    completed_tool_results: Some(state.completed_tool_results.clone()),
+                    runtime_events: Some(state.runtime_events()),
+                    ..AgentTurnResult::new(
+                        &context.turn_id,
+                        &context.session_id,
+                        AgentStopReason::FinalResponse,
+                    )
+                }));
+            }
         }
 
         if let Some(terminal) = decision.terminal {

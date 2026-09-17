@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d80eaabfe8270fef495d96c83f93b97dea498cd7f79a216f4e14be36b311e221 -->
+<!-- tinybot-doc-fingerprint: sha256:57c80311d837c3fddd117ff4d05f465e626b4adbcbbdf881cee9ff03fdb34a41 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -328,3 +328,5 @@ the app session. Unsaved plans, in-flight preparation, selected tasks and scroll
 positions survive execution-record round trips. Polling covers known running
 runs even on the Team home or while the route is hidden; durable state remains
 owned by the native Team store.
+
+Team collaboration uses a run-scoped shared message board: completion publishes a bounded handoff, downstream input carries indexed summaries, and other messages/artifact ranges are read on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.

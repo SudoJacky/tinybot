@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:db6b9a4549956e1b72ba16ce249d6f9ec0f4c5083d5e7e18650e9b480fc62b0a -->
+<!-- tinybot-module-fingerprint: sha256:8638470ff3feb08343977ce5de9dda977802d628ea110f0ac64e0a221fee2d9f -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -33,7 +33,7 @@ to the renderer; the renderer cannot select an arbitrary workspace root.
 - `src/desktop_commands/` adapts typed Tauri inputs to backend services.
 - `src/teams/` owns Team plans, the durable shared task board, bounded dependency
   scheduling, and explicit pause/cancel/retry. Each attempt delegates execution
-  to an ordinary Thread/Turn; its six commands are main-window only.
+  to an ordinary Thread/Turn; its seven orchestration/artifact-read commands are main-window only.
 - `WorkerRpcRouter` handles versioned `WorkerRequest` values for internal and
   transport-backed callers.
 - Tauri events carry live agent, timeline, approval, and runtime updates to the

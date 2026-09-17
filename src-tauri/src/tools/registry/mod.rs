@@ -18,6 +18,8 @@ pub const UPDATE_PLAN_METHOD: &str = "update_plan";
 pub const MCP_CALL_TOOL_METHOD: &str = "mcp.call_tool";
 pub const SPAWN_WORKSPACE_THREAD_METHOD: &str = "spawn_workspace_thread";
 pub const SEND_THREAD_MESSAGE_METHOD: &str = "send_thread_message";
+pub const TEAM_COMPLETE_TASK_METHOD: &str = "team.complete_task";
+
 pub const CREATE_AUTOMATION_METHOD: &str = "create_automation";
 
 #[derive(Clone, Debug)]
@@ -100,6 +102,7 @@ pub enum ToolExecutionTarget {
     SpawnWorkspaceThread,
     SendThreadMessage,
     CreateAutomation,
+    TeamBoard,
     RuntimeControl(ToolRuntimeControl),
 }
 

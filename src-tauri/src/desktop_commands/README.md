@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:65b07520e4f8192ee23db4576ff8a40b7b92defd2fd9aa51f3239169a706fe20 -->
+<!-- tinybot-module-fingerprint: sha256:5e4181ae5c0de02a796d6c5d6fadc08ac6f10caad73aa07fff4ba44107c668cc -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -97,3 +97,5 @@ dispatch path. Scheduled preflight failures persist as failed runs with logs.
 The scheduler passes the previous successful wall-clock check into the saved
 automation store. Startup and gaps exceeding 15 seconds record overdue
 occurrences as missed instead of dispatching them.
+
+Team artifact previews resolve entry/path/workspace from the saved run and delegate bounded content-hash verification to the Team board reader.

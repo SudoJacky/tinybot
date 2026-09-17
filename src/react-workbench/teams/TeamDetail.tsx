@@ -1,3 +1,4 @@
+import { TeamMessage } from "./TeamMessage";
 import { TeamPlanEditor } from "./TeamPlanEditor";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,7 +16,6 @@ import type {
   TeamRun,
   TeamTaskRecord,
 } from "../../app-core/native/desktopNativeTeams";
-import { AssistantMarkdown } from "../chat/AssistantMarkdown";
 import { canExecute, orderedTasks, taskState } from "./teamPresentation";
 import { TeamElapsedTime, TeamTaskStatus } from "./TeamTaskStatus";
 
@@ -220,7 +220,7 @@ export function TeamDetail({
       </section>}
       <div
         className="team-workspace"
-        data-view={tab === "result" ? "result" : draft ? "editor" : inspectorOpen ? "detail" : "tasks"}
+        data-view={tab !== "tasks" ? "result" : draft ? "editor" : inspectorOpen ? "detail" : "tasks"}
       >
         <section className="team-task-pane">
           <div className="team-task-toolbar">
@@ -236,18 +236,13 @@ export function TeamDetail({
                 )
                   return;
                 event.preventDefault();
-                const next =
-                  event.key === "Home"
-                    ? "tasks"
-                    : event.key === "End"
-                      ? "result"
-                      : tab === "tasks"
-                        ? "result"
-                        : "tasks";
+                const tabs = ["tasks", "board", "result"];
+                const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[2]
+                  : tabs[(tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : 2)) % tabs.length];
                 setTab(next);
                 event.currentTarget
                   .querySelector<HTMLButtonElement>(
-                    next === "tasks" ? "#team-tasks-tab" : "#team-result-tab",
+                    `#team-${next}-tab`,
                   )
                   ?.focus();
               }}
@@ -262,6 +257,9 @@ export function TeamDetail({
               >
                 {t("teams.tasks")}
               </button>
+              <button role="tab" id="team-board-tab" disabled={editing}
+                tabIndex={tab === "board" ? 0 : -1} aria-controls="team-board-panel"
+                aria-selected={tab === "board"} onClick={() => setTab("board")}>{t("teams.board")}</button>
               <button
                 role="tab"
                 id="team-result-tab"
@@ -308,7 +306,19 @@ export function TeamDetail({
           >
             <span style={{ transform: `scaleX(${completedCount / tasks.length})` }} />
           </div>
-          {tab === "result" ? (
+          {tab === "board" ? (
+            <section role="tabpanel" id="team-board-panel" aria-labelledby="team-board-tab" className="team-result team-board">
+              {tasks.flatMap(r => r.attempts.filter(a => a.status === "succeeded").map(a => ({ r, a })))
+                .sort((a,b) => (a.a.message?.sequence ?? 0) - (b.a.message?.sequence ?? 0))
+                .map(({r,a}) => <article key={a.threadId}>
+                  <h2>{r.task.title}</h2>
+                  <p>{run.spec.members.find(m => m.id === r.task.memberId)!.displayName} · {a.finishedAt && new Date(a.finishedAt).toLocaleString()}</p>
+                  <TeamMessage runId={run.id} attempt={a} onOpenThread={id => void openRecord(id)} />
+                  <button onClick={() => void openRecord(a.threadId)}>{t("teams.openRecord")}</button>
+                </article>)}
+              {!tasks.some(r => r.attempts.some(a => a.status === "succeeded")) && <p>{t("teams.emptyBoard")}</p>}
+            </section>
+          ) : tab === "result" ? (
             <section
               role="tabpanel"
               id="team-result-panel"
@@ -316,14 +326,7 @@ export function TeamDetail({
               className="team-result"
             >
               {result ? (
-                <AssistantMarkdown
-                  text={result}
-                  streaming={false}
-                  onOpenFileLink={() => {
-                    if (final?.attempts.slice(-1)[0])
-                      void openRecord(final.attempts.slice(-1)[0]!.threadId);
-                  }}
-                />
+                <TeamMessage key={final!.attempts.slice(-1)[0]!.threadId} runId={run.id} attempt={final!.attempts.slice(-1)[0]!} onOpenThread={id => void openRecord(id)} />
               ) : (
                 <p>{t("teams.noResult")}</p>
               )}
@@ -489,13 +492,7 @@ export function TeamDetail({
             <section>
               <h3>{t("teams.output")}</h3>
               {record.attempts.slice(-1)[0]?.output ? (
-                <AssistantMarkdown
-                  text={record.attempts.slice(-1)[0]!.output!}
-                  streaming={false}
-                  onOpenFileLink={() =>
-                    void openRecord(record.attempts.slice(-1)[0]!.threadId)
-                  }
-                />
+                <TeamMessage key={latestAttempt!.threadId} runId={run.id} attempt={latestAttempt!} onOpenThread={id => void openRecord(id)} />
               ) : (
                 <p>{t(record.status === "running" ? "teams.runningOutput" : "teams.noOutput")}</p>
               )}

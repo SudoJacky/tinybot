@@ -9,6 +9,85 @@ use tokio_util::sync::CancellationToken;
 
 static EXECUTION_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[derive(Default)]
+struct BoardProvider {
+    calls: std::sync::Mutex<HashMap<String, usize>>,
+}
+impl crate::agent::runtime::test_support::BlockingTestProvider for BoardProvider {
+    fn complete(
+        &self,
+        context: &crate::agent::runtime::AgentTurnContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
+        use crate::agent::runtime::{NativeAgentProviderResponse, NativeAgentToolCall};
+        let task = context.metadata["teamTaskId"].as_str().unwrap();
+        let mut calls = self.calls.lock().unwrap();
+        let step = calls.entry(task.into()).or_default();
+        let messages =
+            serde_json::to_string(&context.messages.to_legacy_messages().unwrap()).unwrap();
+        let id = format!("{}-a-1", context.metadata["teamRunId"].as_str().unwrap());
+        let (name, arguments) = match (task, *step) {
+            ("a", 0) => (
+                "apply_patch",
+                json!({"patch": format!("*** Begin Patch\n*** Add File: evidence.txt\n{}*** End Patch\n", "+LARGE_EVIDENCE_MARKER\n".repeat(10_000))}),
+            ),
+            ("a", 1) => (
+                super::tools::COMPLETE,
+                json!({"summary":"x".repeat(1025),"artifacts":["evidence.txt"],"unresolved":""}),
+            ),
+            ("a", 2) => {
+                assert!(
+                    messages.contains("1024"),
+                    "validation errors must return to the model"
+                );
+                ("team.list_messages", json!({"limit":1}))
+            }
+            ("b", 0) => ("team.list_messages", json!({"limit":1})),
+            ("final", 0) => {
+                assert!(!messages.contains("LARGE_EVIDENCE_MARKER"));
+                assert!(
+                    messages.len() < 40_000,
+                    "dependency input must remain bounded"
+                );
+                ("team.read_message", json!({"entryId":id}))
+            }
+            ("final", 1) => {
+                assert!(messages.contains("evidence.txt"));
+                assert!(!messages.contains("LARGE_EVIDENCE_MARKER"));
+                (
+                    "team.read_artifact",
+                    json!({"entryId":id,"artifactIndex":0,"maxBytes":128}),
+                )
+            }
+            ("final", 2) => {
+                assert!(messages.contains("LARGE_EVIDENCE_MARKER"));
+                assert!(messages.contains("nextByteOffset"));
+                (
+                    super::tools::COMPLETE,
+                    json!({"summary":"Team fixture result","artifacts":[],"unresolved":""}),
+                )
+            }
+            ("a", 3) | ("b", 1) => (
+                super::tools::COMPLETE,
+                json!({"summary":"Team fixture result","artifacts": if task == "a" { vec!["evidence.txt"] } else { vec![] },"unresolved":""}),
+            ),
+            _ => panic!("completion must not cause another model call: {task}/{step}"),
+        };
+        *step += 1;
+        Ok(NativeAgentProviderResponse {
+            final_content: String::new(),
+            reasoning_delta: None,
+            usage: None,
+            tool_calls: vec![NativeAgentToolCall {
+                id: format!("board-{task}-{step}"),
+                name: name.into(),
+                arguments_json: arguments.to_string(),
+                result: json!({}),
+            }],
+            response_items: vec![],
+        })
+    }
+}
+
 struct Fixture {
     root: PathBuf,
 }
@@ -107,7 +186,219 @@ async fn next(
         .unwrap()
 }
 fn success(send: oneshot::Sender<TaskOutcome>, text: &str) {
-    assert!(send.send(TaskOutcome::Succeeded(text.into())).is_ok());
+    assert!(send
+        .send(TaskOutcome::Succeeded(
+            json!({"summary":text,"artifacts":[],"unresolved":"","sequence":0}).to_string()
+        ))
+        .is_ok());
+}
+
+#[test]
+fn board_artifacts_are_bounded_verified_and_workspace_scoped() {
+    use crate::protocol::capability::{default_desktop_capability_policy, CapabilityPolicy};
+    let f = Fixture::new();
+    let mut run = f.prepare();
+    let source = "你好，evidence\n".repeat(10_000);
+    std::fs::write(f.root.join("evidence.txt"), &source).unwrap();
+    let input = json!({"summary":"Evidence collected","artifacts":["evidence.txt"],"unresolved":"Check API limits"});
+    let mut message =
+        board::complete(&f.root, default_desktop_capability_policy(), input.clone()).unwrap();
+    message.sequence = 3;
+    run.tasks[0].status = TaskStatus::Succeeded;
+    run.tasks[0].attempts.push(model::TeamAttempt {
+        thread_id: "entry-a".into(),
+        turn_id: "turn-a".into(),
+        status: TaskStatus::Succeeded,
+        started_at: store::now(),
+        finished_at: Some(store::now()),
+        output: Some(message.summary.clone()),
+        message: Some(message),
+        error: None,
+    });
+    let page = board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "entry-a",
+        0,
+        0,
+        128,
+    )
+    .unwrap();
+    assert!(page["text"].as_str().unwrap().len() <= 128);
+    assert_eq!(page["totalBytes"], source.len());
+    let next = page["nextByteOffset"].as_u64().unwrap() as usize;
+    let second = board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "entry-a",
+        0,
+        next,
+        128,
+    )
+    .unwrap();
+    assert_eq!(second["byteOffset"], next);
+    assert!(board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "entry-a",
+        0,
+        1,
+        128
+    )
+    .is_err());
+    assert!(board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "entry-a",
+        0,
+        0,
+        8193
+    )
+    .is_err());
+    assert!(board::read_artifact(&run, CapabilityPolicy::new([]), "entry-a", 0, 0, 128).is_err());
+    assert!(board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "other-run-entry",
+        0,
+        0,
+        128
+    )
+    .is_err());
+    assert!(board::list(&run, 3, 0, 8, None).unwrap()["entries"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        board::list(&run, 0, 0, 1, None).unwrap()["entries"][0]["entryId"],
+        "entry-a"
+    );
+    std::fs::write(
+        f.root.join("evidence.txt"),
+        source.replace("evidence", "replaced"),
+    )
+    .unwrap();
+    assert!(board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "entry-a",
+        0,
+        0,
+        128
+    )
+    .unwrap_err()
+    .contains("changed"));
+    std::fs::remove_file(f.root.join("evidence.txt")).unwrap();
+    assert!(board::read_artifact(
+        &run,
+        default_desktop_capability_policy(),
+        "entry-a",
+        0,
+        0,
+        128
+    )
+    .is_err());
+    for args in [
+        json!({"summary":"x","artifacts":["../escape"],"unresolved":""}),
+        json!({"summary":"x".repeat(1025),"artifacts":[],"unresolved":""}),
+        json!({"summary":"x","artifacts":[],"unresolved":"","author":"forged"}),
+    ] {
+        assert!(board::complete(&f.root, default_desktop_capability_policy(), args).is_err());
+    }
+}
+
+#[test]
+fn board_bounds_total_dependency_summaries_and_migrates_legacy_output_by_reference() {
+    let f = Fixture::new();
+    let ids: Vec<String> = (0..63).map(|i| format!("task-{i}")).collect();
+    let mut tasks: Vec<_> = ids.iter().map(|id| task(id, "research", &[])).collect();
+    tasks.push(task(
+        "final",
+        "review",
+        &ids.iter().map(String::as_str).collect::<Vec<_>>(),
+    ));
+    let mut run = prepare(
+        &f.root,
+        f.spec(),
+        TeamPlan {
+            tasks,
+            final_task_id: "final".into(),
+        },
+    )
+    .unwrap();
+    for (i, record) in run.tasks.iter_mut().take(63).enumerate() {
+        record.status = TaskStatus::Succeeded;
+        record.attempts.push(model::TeamAttempt {
+            thread_id: format!("entry-{i}"),
+            turn_id: format!("turn-{i}"),
+            status: TaskStatus::Succeeded,
+            started_at: store::now(),
+            finished_at: Some(store::now()),
+            output: Some("x".repeat(100_000)),
+            error: None,
+            message: Some(board::BoardMessage {
+                summary: "x".repeat(1024),
+                artifacts: vec![],
+                unresolved: String::new(),
+                sequence: i as u64 + 1,
+            }),
+        });
+    }
+    let deps = board::dependencies(&run, &run.tasks[63].task);
+    assert_eq!(deps.len(), 63);
+    assert_eq!(
+        deps.iter()
+            .filter_map(|d| d["summary"].as_str())
+            .map(str::len)
+            .sum::<usize>(),
+        8192
+    );
+    assert!(serde_json::to_vec(&deps).unwrap().len() < 40_000);
+    assert!(deps.iter().all(|d| d.get("output").is_none()));
+    let path = store::path(&store::directory(&f.root).unwrap(), &run.id).unwrap();
+    let mut legacy = serde_json::to_value(&run).unwrap();
+    legacy["schemaVersion"] = json!(2);
+    for record in legacy["tasks"].as_array_mut().unwrap() {
+        for attempt in record["attempts"].as_array_mut().unwrap() {
+            attempt.as_object_mut().unwrap().remove("message");
+        }
+    }
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let migrated = get(&f.root, &run.id).unwrap();
+    assert_eq!(migrated.schema_version, 3);
+    assert_eq!(
+        migrated.tasks[0].attempts[0].output.as_ref().unwrap().len(),
+        100_000
+    );
+    let deps = board::dependencies(&migrated, &migrated.tasks[63].task);
+    assert!(deps
+        .iter()
+        .all(|d| d.get("summary").is_none() && d["legacy"] == true));
+    let page = board::read(&migrated, "entry-0", 0, 128).unwrap();
+    assert_eq!(page["legacyOutput"]["nextByteOffset"], 128);
+    assert_eq!(page["legacyOutput"]["text"].as_str().unwrap().len(), 128);
+}
+
+#[tokio::test]
+async fn malformed_completion_does_not_publish_or_release_dependencies() {
+    let _serial = EXECUTION_TESTS.lock().await;
+    let f = Fixture::new();
+    let mut spec = f.spec();
+    spec.max_concurrency = 1;
+    let run = prepare(&f.root, spec, fork_plan()).unwrap();
+    let (executor, mut rx) = controlled();
+    let handle = launch(&f, &run, executor);
+    let (_, done) = next(&mut rx).await;
+    assert!(done
+        .send(TaskOutcome::Succeeded(
+            "plain prose is not a handoff".into()
+        ))
+        .is_ok());
+    let result = handle.await.unwrap().unwrap();
+    assert_eq!(result.status, RunStatus::Failed);
+    assert!(result.tasks[0].attempts[0].message.is_none());
+    assert!(result.tasks[2].attempts.is_empty());
+    assert!(rx.try_recv().is_err());
 }
 fn launch(
     f: &Fixture,
@@ -178,8 +469,8 @@ async fn parallel_fanout_waits_for_all_inputs_and_persists_results() {
     success(pending.remove("b").unwrap(), "evidence B");
     let (job, done) = next(&mut rx).await;
     assert_eq!(job.task.id, "final");
-    assert_eq!(job.input["dependencyResults"][0]["output"], "evidence A");
-    assert_eq!(job.input["dependencyResults"][1]["output"], "evidence B");
+    assert_eq!(job.input["dependencyResults"][0]["summary"], "evidence A");
+    assert_eq!(job.input["dependencyResults"][1]["summary"], "evidence B");
     success(done, "checked report");
     let result = handle.await.unwrap().unwrap();
     assert_eq!(result.status, RunStatus::Completed);
@@ -352,6 +643,7 @@ async fn crash_reconciliation_never_automatically_replays_attempts() {
         started_at: store::now(),
         finished_at: None,
         output: None,
+        message: None,
         error: None,
     });
     let path = store::path(&store::directory(&f.root).unwrap(), &run.id).unwrap();
@@ -382,14 +674,20 @@ async fn native_executor_creates_real_threads_and_persists_origin() {
     use crate::agent::runtime::NativeAgentRuntimeServices;
     let f = Fixture::new();
     let run = f.prepare();
-    let services = NativeAgentRuntimeServices::with_subagent_manager(Default::default())
-        .with_thread_store(
-            crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
-                f.root.clone(),
-                f.root.join("native"),
-                crate::protocol::capability::default_desktop_capability_policy(),
-            ),
-        );
+    let provider = Arc::new(BoardProvider::default());
+    let services = NativeAgentRuntimeServices::new(
+        provider.clone(),
+        Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+        Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(
+        crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
+            f.root.clone(),
+            f.root.clone(),
+            crate::protocol::capability::default_desktop_capability_policy(),
+        ),
+    );
     let thread_store = services.thread_store.clone();
     let result = execute(
         &f.root,
@@ -406,6 +704,10 @@ async fn native_executor_creates_real_threads_and_persists_origin() {
     .await
     .unwrap();
     assert_eq!(result.status, RunStatus::Completed, "{:?}", result.error);
+    assert_eq!(
+        *provider.calls.lock().unwrap(),
+        HashMap::from([("a".into(), 4), ("b".into(), 2), ("final".into(), 3)])
+    );
     let listed = crate::rpc::call_rust_state_service(
         &thread_store,
         json!({}),
@@ -492,7 +794,7 @@ async fn retry_after_partial_success_does_not_repeat_completed_work() {
     success(done, "new evidence");
     let (job, done) = next(&mut rx).await;
     assert_eq!(
-        job.input["dependencyResults"][0]["output"],
+        job.input["dependencyResults"][0]["summary"],
         "durable evidence"
     );
     success(done, "report");
@@ -526,7 +828,7 @@ fn requires_display_fields_and_migrates_legacy_records_once() {
     }
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let migrated = get(&f.root, &original.id).unwrap();
-    assert_eq!(migrated.schema_version, 2);
+    assert_eq!(migrated.schema_version, 3);
     assert_eq!(migrated.revision, original.revision + 1);
     assert_eq!(migrated.spec.members[0].display_name, "research");
     assert_eq!(migrated.tasks[0].task.title, "a");

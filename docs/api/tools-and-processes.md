@@ -19,7 +19,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:16f3a04f690b3aa0af58d53961f97ab947fa4361e03c090956930067af0e0991 -->
+<!-- tinybot-doc-fingerprint: sha256:35d2cfea3177755ca19cc704e70843c22f2aff2f7d98c4330346ad097757772a -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -67,6 +67,14 @@ or is not a directory, the command returns start_failed with the requested path
 and resolution stage while retaining the edit. Patch failure skips the command;
 command failure retains the applied patch. This is one exclusive tool operation,
 without cross-process filesystem locking or automatic rollback.
+
+Patch parse failures return `details.stage: "parse"`, a one-based `line` in the
+submitted patch, a `content` excerpt, `path` when known, and a repair `hint`.
+Content and path excerpts are capped at 256 and 512 UTF-8 bytes respectively;
+`content_truncated` or `path_truncated` is true when shortened. Parse failures
+include an exact empty `committed` summary and never run `thenRun`. Execution
+failures may have committed earlier operations; callers must inspect that
+summary before retrying. Invalid patches are not automatically repaired.
 
 The result has `kind: "action_fusion"`, `patch: {status: "succeeded", result: ...}`,
 and `thenRun` containing an ordinary Shell process snapshot or a `start_failed`
@@ -332,3 +340,5 @@ The main-window annotation action `overlay` accepts a nullable `rect` containing
 window region so a trusted renderer comment/property editor can sit above the
 live page. Values must be finite, valid surface dimensions within native region
 limits. Null or annotation stop restores the complete window region.
+
+Team board tools are contributed only during an active Team attempt. Generic Worker RPC rejects their application-owned execution target. See [Teams](teams.md) for message and artifact contracts.

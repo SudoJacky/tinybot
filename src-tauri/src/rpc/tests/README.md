@@ -1,5 +1,5 @@
 # RPC Tests
-<!-- tinybot-module-fingerprint: sha256:3de049c976d8611019040e3af84e3d5b91644c32ab984e6b8d4c57076aac3eb5 -->
+<!-- tinybot-module-fingerprint: sha256:6527f0d22c417fbfc383e0839ea845b1874961bf677276663830e8b2c2ad5351 -->
 
 This directory groups end-to-end router tests by service family. The suites
 cover request validation and dispatch for automation, collaboration, threads,
@@ -12,6 +12,9 @@ with edits retained, cancellation, and owned-process continuation.
 Directory-dependency cases run commands in directories created by the same patch
 through absolute and relative paths; invalid post-patch directories retain edit
 evidence and explicit startup failures without creating directories implicitly.
+Long Unicode report cases verify bounded parse diagnostics through ordinary and
+fused tool dispatch, no changes or commands on parse failure, and successful
+resubmission after correcting the missing content prefix.
 
 Shared router fixtures live in `mod.rs`.
 

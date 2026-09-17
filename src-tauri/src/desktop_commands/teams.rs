@@ -104,3 +104,24 @@ pub(crate) async fn worker_team_execute(
     )
     .await
 }
+
+#[tauri::command]
+pub(crate) fn worker_team_artifact_read(
+    run_id: String,
+    input: teams::tools::ArtifactRead,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<serde_json::Value, String> {
+    let root = lock_runtime(state.inner())
+        .thread_store
+        .data_root()
+        .to_path_buf();
+    let run = teams::get(&root, &run_id)?;
+    teams::board::read_artifact(
+        &run,
+        crate::protocol::capability::default_desktop_capability_policy(),
+        &input.entry_id,
+        input.artifact_index,
+        input.byte_offset,
+        input.max_bytes.unwrap_or(teams::board::READ_BYTES),
+    )
+}

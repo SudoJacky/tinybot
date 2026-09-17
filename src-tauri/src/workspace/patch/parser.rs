@@ -12,6 +12,39 @@ const MAX_PATCH_OPERATIONS: usize = 256;
 const MAX_PATCH_HUNKS_PER_FILE: usize = 256;
 
 pub(super) fn parse_patch(patch: &str) -> Result<Vec<PatchOperation>, WorkerProtocolError> {
+    parse_patch_inner(patch).map_err(|mut error| {
+        error.details["stage"] = serde_json::json!("parse");
+        if let Some(line) = error.details["line"].as_u64() {
+            // The parser trims the envelope, but diagnostics refer to the submitted text.
+            let leading = &patch[..patch.len() - patch.trim_start().len()];
+            let line = line as usize + leading.bytes().filter(|byte| *byte == b'\n').count();
+            error.details["line"] = serde_json::json!(line);
+            if let Some(content) = patch.lines().nth(line - 1) {
+                error.details["content"] = serde_json::json!(content);
+            }
+        }
+        for (field, limit) in [("content", 256), ("path", 512)] {
+            if let Some(value) = error.details[field].as_str() {
+                if value.len() > limit {
+                    let mut end = limit;
+                    while !value.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    let excerpt = value[..end].to_string();
+                    error.details[field] = serde_json::json!(excerpt);
+                    error.details[format!("{field}_truncated")] = serde_json::json!(true);
+                }
+            }
+        }
+        let hint = error.details["hint"]
+            .as_str()
+            .unwrap_or("Correct the patch syntax and resubmit the patch.");
+        error.details["hint"] = serde_json::json!(format!("No files were changed. {hint}"));
+        error
+    })
+}
+
+fn parse_patch_inner(patch: &str) -> Result<Vec<PatchOperation>, WorkerProtocolError> {
     if patch.len() > MAX_PATCH_BYTES {
         return Err(patch_error(
             format!("patch must not exceed {MAX_PATCH_BYTES} bytes"),
@@ -58,7 +91,11 @@ pub(super) fn parse_patch(patch: &str) -> Result<Vec<PatchOperation>, WorkerProt
                 let Some(content) = lines[index].strip_prefix('+') else {
                     return Err(patch_error(
                         "add file content lines must begin with +",
-                        serde_json::json!({ "line": index + 1 }),
+                        serde_json::json!({
+                            "path": path,
+                            "line": index + 1,
+                            "hint": "Prefix every Add File content line, including empty lines, with '+', then resubmit the patch."
+                        }),
                     ));
                 };
                 contents.push_str(content);
@@ -68,7 +105,7 @@ pub(super) fn parse_patch(patch: &str) -> Result<Vec<PatchOperation>, WorkerProt
             if index == content_start {
                 return Err(patch_error(
                     "add file operation must contain at least one content line",
-                    serde_json::json!({ "line": index + 1 }),
+                    serde_json::json!({ "path": path, "line": index + 1 }),
                 ));
             }
             operations.push(PatchOperation::Add {
@@ -88,11 +125,15 @@ pub(super) fn parse_patch(patch: &str) -> Result<Vec<PatchOperation>, WorkerProt
                     index += 1;
                 }
             }
-            let (chunks, next_index) = parse_update_chunks(&lines, index)?;
+            let (chunks, next_index) =
+                parse_update_chunks(&lines, index).map_err(|mut error| {
+                    error.details["path"] = serde_json::json!(path);
+                    error
+                })?;
             if chunks.is_empty() && move_path.is_none() {
                 return Err(patch_error(
                     "update file operation must contain at least one hunk or a move target",
-                    serde_json::json!({ "line": index + 1 }),
+                    serde_json::json!({ "path": path, "line": index + 1 }),
                 ));
             }
             operations.push(PatchOperation::Update {

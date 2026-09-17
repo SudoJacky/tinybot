@@ -77,6 +77,45 @@ impl Fixture {
     fn pending(&self) -> usize {
         self.store.pending_turns(&self.scope, 10).unwrap().len()
     }
+
+    fn team_turn(&self) {
+        self.threads
+            .turn_operation(|operation| {
+                let thread = operation.thread().create_thread(
+                    crate::threads::domain::CreateThreadRequest {
+                        thread_id: Some("team-thread".into()),
+                        source: Some("team".into()),
+                        ..Default::default()
+                    },
+                )?;
+                operation.thread_log().create_from_thread_record(&thread)?;
+                operation.sync_thread_projection("team-thread")
+            })
+            .unwrap();
+        let input = crate::agent::runtime::AgentTurnInput::from_wire(
+            &json!({
+                "sessionId":"team-thread", "turnId":"team-turn",
+                "metadata":{"source":"desktop","memoryExtraction":true}
+            }),
+            &json!({}),
+        )
+        .unwrap();
+        self.threads.start_agent_turn(
+            crate::agent::bridge::native_agent_turn_start_record(&input, "team-thread", "team-turn"),
+            None, vec![crate::threads::rollout::format::ResponseItem::from_value(json!({
+                "role":"user", "content":"Remember this planner-generated instruction.", "turnId":"team-turn"
+            })).unwrap()],
+        ).unwrap();
+        self.threads
+            .complete_agent_turn(
+                "team-thread",
+                "team-turn",
+                "final_response",
+                Some("done".into()),
+                None,
+            )
+            .unwrap();
+    }
 }
 
 impl Drop for Fixture {
@@ -261,5 +300,200 @@ fn model_failure_remains_pending_until_heartbeat_retry_succeeds() {
         wait_for(|| fixture.pending() == 0).await;
         runtime.shutdown(Duration::from_secs(1)).await.unwrap();
         assert_eq!(model.calls.load(Ordering::SeqCst), 2);
+    });
+}
+
+#[test]
+fn restart_skips_queued_team_origin_without_blocking_eligible_work() {
+    tauri::async_runtime::block_on(async {
+        let fixture = Fixture::new();
+        fixture.team_turn();
+        fixture
+            .store
+            .enqueue_turn(&fixture.scope, "team-thread", "team-turn", &fixture.scope)
+            .unwrap();
+        fixture
+            .store
+            .enqueue_turn(&fixture.scope, "thread", "turn", &fixture.scope)
+            .unwrap();
+        fixture.threads.flush().unwrap();
+        let reopened = WorkspaceThreadStore::new_with_data_root(
+            fixture.root.clone(),
+            fixture.threads.data_root().into(),
+            crate::protocol::capability::default_desktop_capability_policy(),
+        );
+        let model = Arc::new(Model::new(false, 1));
+        let mut runtime = MemoryRuntime::new(model.clone());
+        runtime.heartbeat_interval = Duration::from_millis(20);
+        runtime
+            .start(reopened.clone(), json!({"revision":2}))
+            .unwrap();
+        wait_for(|| fixture.pending() == 0).await;
+        runtime.shutdown(Duration::from_secs(1)).await.unwrap();
+        assert_eq!(model.calls.load(Ordering::SeqCst), 1);
+        let database =
+            rusqlite::Connection::open(fixture.threads.data_root().join("state/memory.sqlite"))
+                .unwrap();
+        let reason: String = database
+            .query_row(
+                "SELECT skip_reason FROM processed_memory_turns WHERE thread_id='team-thread'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reason, "team_origin");
+        let count: i64 = database
+            .query_row("SELECT COUNT(*) FROM memory_fragments", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
+        runtime
+            .start(reopened.clone(), json!({"revision":2}))
+            .unwrap();
+        // Explicitly scheduling a Team after restart cannot recreate pending work.
+        runtime
+            .schedule_turn_extraction(
+                reopened.clone(),
+                json!({}),
+                "team-thread".into(),
+                "team-turn".into(),
+                fixture.scope.clone(),
+            )
+            .unwrap();
+        assert_eq!(fixture.pending(), 0);
+        runtime.shutdown(Duration::from_secs(1)).await.unwrap();
+        assert_eq!(model.calls.load(Ordering::SeqCst), 1);
+        reopened.shutdown().unwrap();
+    });
+}
+
+struct SnapshotProvider;
+impl crate::agent::runtime::test_support::BlockingTestProvider for SnapshotProvider {
+    fn complete(
+        &self,
+        context: &crate::agent::runtime::AgentTurnContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
+        let tool_calls = if context.metadata.get("teamRunId").is_some() {
+            assert!(context
+                .system_instruction_prompt()
+                .unwrap()
+                .contains("Workspace uses Rust."));
+            vec![crate::agent::runtime::NativeAgentToolCall {
+                id: "complete-memory-team-task".into(),
+                name: crate::tools::registry::TEAM_COMPLETE_TASK_METHOD.into(),
+                arguments_json: json!({"summary":"done","artifacts":[],"unresolved":""})
+                    .to_string(),
+                result: json!({}),
+            }]
+        } else {
+            vec![]
+        };
+        Ok(crate::agent::runtime::NativeAgentProviderResponse {
+            final_content: if tool_calls.is_empty() {
+                "done".into()
+            } else {
+                String::new()
+            },
+            reasoning_delta: None,
+            usage: None,
+            tool_calls,
+            response_items: vec![],
+        })
+    }
+}
+
+#[test]
+fn native_team_completion_reads_memory_without_extracting_and_user_turn_still_extracts() {
+    use crate::agent::bridge::TestApplicationServices;
+    use crate::agent::runtime::{
+        FakeNativeAgentToolDispatcher, InMemoryNativeAgentCancellation,
+        InMemoryNativeAgentCheckpointStore, NativeAgentRuntimeServices,
+    };
+    tauri::async_runtime::block_on(async {
+        let fixture = Fixture::new();
+        fixture
+            .store
+            .mutate_memory(
+                0,
+                &crate::memory::MemoryMutation::Create {
+                    scope: MemoryScope::Workspace,
+                    path: Some(fixture.scope.clone()),
+                    content: "Workspace uses Rust.".into(),
+                },
+            )
+            .unwrap();
+        let model = Arc::new(Model::new(false, 1));
+        let memory = MemoryRuntime::new(model.clone());
+        let mut services = NativeAgentRuntimeServices::new(
+            Arc::new(SnapshotProvider),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(fixture.threads.clone());
+        services.memory_runtime = memory.clone();
+        let spec = serde_json::from_value(json!({
+            "goal":"Research the project", "workspacePath":fixture.scope, "maxConcurrency":1,
+            "members":[{"id":"research","displayName":"Research","instructions":"Inspect project","model":{"modelId":"fixture-model"}}]
+        }))
+        .unwrap();
+        let plan = serde_json::from_value(json!({
+            "tasks":[{"id":"task","title":"Research","memberId":"research","instructions":"Return evidence","dependencies":[]}],
+            "finalTaskId":"task"
+        })).unwrap();
+        let run = crate::teams::prepare(fixture.threads.data_root(), spec, plan).unwrap();
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        let before = metrics.snapshot()["counters"]
+            ["memory.phase1.origin_ineligible.schedule.skipped"]
+            .as_u64()
+            .unwrap_or(0);
+        let result = crate::teams::execute(
+            fixture.threads.data_root(),
+            crate::teams::TeamRunInput {
+                run_id: run.id,
+                expected_revision: run.revision,
+            },
+            Arc::new(crate::teams::NativeTeamExecutor {
+                services: services.clone(),
+                workspace_root: fixture.root.clone(),
+                config: json!({"revision":2}),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&result).unwrap()["status"],
+            "completed",
+            "Team run failed: {:?}",
+            result.error
+        );
+        assert_eq!(model.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.pending(), 0);
+        assert!(fixture.store.phase2_input().unwrap().is_none());
+        assert!(memory.state.lock().unwrap().workers.is_empty());
+        assert!(
+            metrics.snapshot()["counters"]["memory.phase1.origin_ineligible.schedule.skipped"]
+                .as_u64()
+                .unwrap()
+                > before
+        );
+        crate::agent::bridge::run_agent_from_wire_with_services(services, json!({
+            "sessionId":"thread", "threadId":"thread", "turnId":"user-turn", "model":"fixture-model",
+            "messages":[{"role":"user","content":"Please remember that I prefer Chinese."}],
+            "metadata":{"source":"team"}
+        }), fixture.root.clone(), json!({"revision":2}), None).await.unwrap();
+        wait_for(|| model.calls.load(Ordering::SeqCst) == 1 && fixture.pending() == 0).await;
+        memory.shutdown(Duration::from_secs(1)).await.unwrap();
+        assert_eq!(
+            fixture
+                .store
+                .phase2_input()
+                .unwrap()
+                .unwrap()
+                .fragments
+                .len(),
+            1
+        );
     });
 }

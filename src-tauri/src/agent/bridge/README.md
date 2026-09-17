@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:6720e9958b92a210149841f18d648c4d52923d6301fa4656709058c1a842aa85 -->
+<!-- tinybot-module-fingerprint: sha256:67f3a3a0939444149391cfbe5d043d6b95e45a4b477911537be6e20d6ada5607 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -88,7 +88,9 @@ Dynamic tool arguments and external tool RPC adapters retain their extension sch
    runtime execution or trace flush fails, persist a failed terminal with the
    original error before returning it to the caller.
 8. Schedule memory extraction through the application-owned `MemoryRuntime`
-   only after a completed turn is durably persisted.
+   only after a completed turn is durably persisted. MemoryRuntime excludes
+   persisted Team-origin Threads before enqueueing; memory snapshot reads remain
+   available. The same origin check protects queued work after restart.
 
 `command_hooks.rs` adapts the command engine to the core's asynchronous
 `AgentHook` interface. Loading invalid configuration fails Turn preparation;
@@ -177,3 +179,5 @@ when it failed.
 See [`agent::runtime`](../runtime/README.md) for the execution core and
 [`threads::domain`](../../threads/domain/README.md) for typed conversation
 state.
+
+Active Team attempts receive a run-scoped board contributor. Dispatch rechecks saved Thread and active attempt identity, validates completion/artifact references, and returns compact receipts. Historical or ordinary Threads have no live board authority.

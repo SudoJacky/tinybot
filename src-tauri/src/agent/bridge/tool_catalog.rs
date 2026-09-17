@@ -80,6 +80,13 @@ pub(super) async fn prepare_tools(
     }
     preparation.next("tool_selection");
     let mut selected_tools = context.settings.selected_tools.clone();
+    if crate::teams::tools::available(thread_store, context)? {
+        let board = crate::teams::tools::BoardTools;
+        if let Some(selected) = selected_tools.as_mut() {
+            selected.extend(board.contribute().into_iter().map(|entry| entry.tool_id));
+        }
+        contributors.push(Arc::new(board));
+    }
     for server in mcp_snapshot
         .as_deref()
         .into_iter()

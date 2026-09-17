@@ -21,14 +21,14 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:8d825a8be8c4305361e0c49dec1411b1254233838ecc04393da5eab2cb96d19c -->
+<!-- tinybot-doc-fingerprint: sha256:6388f998098398e31d9212860cfad74ec38ce7b2ba940b9e5c8556f2902c40a3 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
 which defines the shared invocation conventions and source-backed freshness
 policy for this reference set.
 
-The main desktop also registers the six [Team orchestration commands](teams.md).
+The main desktop also registers the seven [Team orchestration and artifact-read commands](teams.md).
 Their task-board and scheduling contracts belong to the Team module; they are
 not exposed to the pet or quick-chat windows.
 

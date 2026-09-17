@@ -31,7 +31,8 @@ impl WorkerWorkspaceRpc {
     ) -> Result<WorkspacePatchApplyResult, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceRead)?;
         self.require(WorkerCapability::FsWorkspaceWrite)?;
-        let operations = parse_patch(patch)?;
+        let operations = parse_patch(patch)
+            .map_err(|error| PatchFailure::before_commit(error).into_protocol_error())?;
         apply_patch_operations(&self.root, operations, file_system)
             .map_err(PatchFailure::into_protocol_error)
     }

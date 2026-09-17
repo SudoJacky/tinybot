@@ -67,10 +67,11 @@ impl ChatCompletionsAdapter {
         legacy_messages: &[Value],
         system_prompt: Option<&str>,
     ) -> Result<Value, String> {
-        let provider_messages = legacy_messages
+        let mut provider_messages = legacy_messages
             .iter()
             .map(provider_message_with_user_context_and_images)
             .collect::<Result<Vec<_>, _>>()?;
+        super::patch_result::project_patch_history(&mut provider_messages);
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {
             history.items.insert(

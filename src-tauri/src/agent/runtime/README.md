@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:c1e5c6eb9df1ba303b6af19c81bef33c9444ceeb5aaca162d3c913835d822295 -->
+<!-- tinybot-module-fingerprint: sha256:393ad6b2e1fc43a60ed0f5baa0ea8f6f22c429c85a57f2453c04abb939f958f9 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -33,6 +33,11 @@ and references survive entry normalization. Context compaction checkpoints carry
 typed history, window lineage, and installed/finalized stages. The committer calls
 the persistence service directly and retains structured commit failures.
 Configuration, extension metadata, and provider-native items remain dynamic.
+`patch_result.rs` removes patch diff bodies from model-visible receipts while
+retaining paths, operations, hunk counts, and added/removed line counts. Raw tool
+envelopes retain the full available diff for review and persistence. Both provider
+adapters apply the same projection to old history without rewriting canonical
+storage. Fused command output, errors, and patch completion status stay visible.
 `AgentError` preserves execution error categories and the
 complete service error (code, source, details, retryability) across task ownership,
 trace buffering, and bridge persistence. Multiple failures retain their individual
@@ -485,3 +490,5 @@ For frontend-visible shapes and event names, see the
 provider-native image content. It serializes `sourceText` as untrusted attached
 evidence and optional `userAnnotation` separately as a user-authored change
 request. Existing reference count and serialized-size limits apply to both.
+
+A successful registry-bound team.complete_task must be the sole call in its batch. The loop commits its tool observation and terminal summary without another provider request. Invalid submissions remain recoverable tool errors; Team persistence and dependency release belong to the outer scheduler.

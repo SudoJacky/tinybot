@@ -107,6 +107,24 @@ impl MemoryStore {
         pending: &PendingMemoryTurn,
         memories: &[ExtractedMemory],
     ) -> Result<usize, String> {
+        self.finish_extraction(pending, memories, None)
+    }
+
+    pub(crate) fn skip_extraction(
+        &self,
+        pending: &PendingMemoryTurn,
+        reason: &str,
+    ) -> Result<(), String> {
+        self.finish_extraction(pending, &[], Some(reason))?;
+        Ok(())
+    }
+
+    fn finish_extraction(
+        &self,
+        pending: &PendingMemoryTurn,
+        memories: &[ExtractedMemory],
+        skip_reason: Option<&str>,
+    ) -> Result<usize, String> {
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(memory_db_error)?;
         let still_pending = transaction
@@ -130,11 +148,12 @@ impl MemoryStore {
         let inserted_processed = transaction
             .execute(
                 "INSERT OR IGNORE INTO processed_memory_turns \
-                 (thread_store_path, thread_id, turn_id) VALUES (?1, ?2, ?3)",
+                 (thread_store_path, thread_id, turn_id, skip_reason) VALUES (?1, ?2, ?3, ?4)",
                 params![
                     pending.thread_store_path,
                     pending.thread_id,
-                    pending.turn_id
+                    pending.turn_id,
+                    skip_reason
                 ],
             )
             .map_err(memory_db_error)?;
@@ -358,7 +377,7 @@ impl MemoryStore {
                 parent.display()
             )
         })?;
-        let connection = Connection::open(&self.database_path).map_err(memory_db_error)?;
+        let mut connection = Connection::open(&self.database_path).map_err(memory_db_error)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(memory_db_error)?;
@@ -400,6 +419,7 @@ impl MemoryStore {
                      thread_store_path TEXT NOT NULL,
                      thread_id         TEXT NOT NULL,
                      turn_id           TEXT NOT NULL,
+                     skip_reason       TEXT,
                      PRIMARY KEY (thread_store_path, thread_id, turn_id)
                  );
                  CREATE TABLE IF NOT EXISTS memory_state (
@@ -408,8 +428,31 @@ impl MemoryStore {
                  );",
             )
             .map_err(memory_db_error)?;
+        // Older databases have only the processed marker. Preserve those rows;
+        // a nullable reason distinguishes future skips from successful extraction.
+        if !has_skip_reason(&connection)? {
+            let migration = connection
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(memory_db_error)?;
+            if !has_skip_reason(&migration)? {
+                migration
+                    .execute(
+                        "ALTER TABLE processed_memory_turns ADD COLUMN skip_reason TEXT",
+                        [],
+                    )
+                    .map_err(memory_db_error)?;
+            }
+            migration.commit().map_err(memory_db_error)?;
+        }
         Ok(connection)
     }
+}
+
+fn has_skip_reason(connection: &Connection) -> Result<bool, String> {
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('processed_memory_turns') WHERE name = 'skip_reason')",
+        [], |row| row.get(0),
+    ).map_err(memory_db_error)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

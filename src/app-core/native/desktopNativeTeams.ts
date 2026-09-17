@@ -32,6 +32,19 @@ export type TeamTaskStatus =
   | "failed"
   | "cancelled"
   | "interrupted";
+export type TeamMessage = {
+  summary: string;
+  unresolved: string;
+  sequence: number;
+  artifacts: { path: string; sha256: string; bytes: number }[];
+};
+export type TeamArtifactPage = {
+  text: string; byteOffset: number; nextByteOffset: number | null;
+  totalBytes: number; path: string; sha256: string;
+};
+export function readTeamArtifact(runId: string, entryId: string, artifactIndex: number, byteOffset = 0): Promise<TeamArtifactPage> {
+  return tauriInvoke("worker_team_artifact_read", { runId, input: { entryId, artifactIndex, byteOffset, maxBytes: 8192 } });
+}
 export type TeamAttempt = {
   threadId: string;
   turnId: string;
@@ -39,6 +52,7 @@ export type TeamAttempt = {
   startedAt: string;
   finishedAt: string | null;
   output: string | null;
+  message?: TeamMessage | null;
   error: string | null;
 };
 export type TeamTaskRecord = {
