@@ -1,12 +1,24 @@
+mod attribution;
+mod ledger;
+#[cfg(test)]
+mod ledger_tests;
+mod recording;
+pub(crate) use attribution::{UsageOrigin, UsagePurpose, UsageScope};
+pub(crate) use ledger::{UsageGroup, UsageInvocation};
+pub(crate) use recording::ProviderUsageCall;
+
 use crate::threads::rollout::format::TokenUsage;
-use chrono::{Local, NaiveDate};
+use chrono::Local;
+#[cfg(test)]
+use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const TOKEN_USAGE_SCHEMA_VERSION: &str = "tinybot.token_usage.v2";
+const TOKEN_USAGE_SCHEMA_VERSION: &str = "tinybot.token_usage.v3";
+#[cfg(test)]
 const UNKNOWN_USAGE_DIMENSION: &str = "unknown";
 
 #[derive(Clone, Debug)]
@@ -39,6 +51,15 @@ pub(crate) struct TokenUsageSnapshot {
     totals: TokenUsage,
     days: Vec<DailyTokenUsage>,
     model_days: Vec<DailyModelTokenUsage>,
+    groups: Vec<UsageGroup>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageDetails {
+    pub groups: Vec<UsageGroup>,
+    pub invocations: Vec<UsageInvocation>,
+    pub next_cursor: Option<i64>,
 }
 
 impl DailyTokenUsageStore {
@@ -52,7 +73,7 @@ impl DailyTokenUsageStore {
         }
     }
 
-    #[cfg_attr(test, allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn record_model_call(
         &self,
         model_call_id: &str,
@@ -69,6 +90,7 @@ impl DailyTokenUsageStore {
         )
     }
 
+    #[cfg(test)]
     fn record_model_call_on_date(
         &self,
         model_call_id: &str,
@@ -89,74 +111,14 @@ impl DailyTokenUsageStore {
         let transaction = connection
             .transaction()
             .map_err(|error| token_usage_db_error("begin transaction", error))?;
-        transaction
-            .execute(
-                "INSERT OR IGNORE INTO daily_token_usage (
-                     usage_date, input_tokens, cached_input_tokens, output_tokens,
-                     reasoning_output_tokens, total_tokens
-                 ) VALUES (?1, 0, 0, 0, 0, 0)",
-                [&date],
-            )
-            .map_err(|error| token_usage_db_error("ensure daily row", error))?;
-        let inserted = transaction
-            .execute(
-                "INSERT OR IGNORE INTO recorded_token_usage_calls (model_call_id, usage_date)
-                 VALUES (?1, ?2)",
-                params![model_call_id, date],
-            )
-            .map_err(|error| token_usage_db_error("record model call", error))?
-            == 1;
-        if inserted {
-            transaction
-                .execute(
-                    "INSERT OR IGNORE INTO daily_model_token_usage (
-                         usage_date, provider_id, model_id, input_tokens, cached_input_tokens,
-                         output_tokens, reasoning_output_tokens, total_tokens
-                     ) VALUES (?1, ?2, ?3, 0, 0, 0, 0, 0)",
-                    params![date, provider_id, model_id],
-                )
-                .map_err(|error| token_usage_db_error("ensure daily model row", error))?;
-            transaction
-                .execute(
-                    "UPDATE daily_token_usage SET
-                         input_tokens = input_tokens + ?2,
-                         cached_input_tokens = cached_input_tokens + ?3,
-                         output_tokens = output_tokens + ?4,
-                         reasoning_output_tokens = reasoning_output_tokens + ?5,
-                         total_tokens = total_tokens + ?6
-                     WHERE usage_date = ?1",
-                    params![
-                        date,
-                        usage.input_tokens,
-                        usage.cached_input_tokens,
-                        usage.output_tokens,
-                        usage.reasoning_output_tokens,
-                        usage.total_tokens,
-                    ],
-                )
-                .map_err(|error| token_usage_db_error("update daily totals", error))?;
-            transaction
-                .execute(
-                    "UPDATE daily_model_token_usage SET
-                         input_tokens = input_tokens + ?4,
-                         cached_input_tokens = cached_input_tokens + ?5,
-                         output_tokens = output_tokens + ?6,
-                         reasoning_output_tokens = reasoning_output_tokens + ?7,
-                         total_tokens = total_tokens + ?8
-                     WHERE usage_date = ?1 AND provider_id = ?2 AND model_id = ?3",
-                    params![
-                        date,
-                        provider_id,
-                        model_id,
-                        usage.input_tokens,
-                        usage.cached_input_tokens,
-                        usage.output_tokens,
-                        usage.reasoning_output_tokens,
-                        usage.total_tokens,
-                    ],
-                )
-                .map_err(|error| token_usage_db_error("update daily model totals", error))?;
-        }
+        let inserted = record_usage(
+            &transaction,
+            model_call_id,
+            &date,
+            &provider_id,
+            &model_id,
+            &usage,
+        )?;
         transaction
             .commit()
             .map_err(|error| token_usage_db_error("commit transaction", error))?;
@@ -165,6 +127,9 @@ impl DailyTokenUsageStore {
 
     pub(crate) fn snapshot(&self) -> Result<TokenUsageSnapshot, String> {
         let connection = self.open()?;
+        let connection = connection
+            .unchecked_transaction()
+            .map_err(|e| token_usage_db_error("begin snapshot", e))?;
         let mut statement = connection
             .prepare(
                 "SELECT usage_date, input_tokens, cached_input_tokens, output_tokens,
@@ -234,6 +199,29 @@ impl DailyTokenUsageStore {
             totals,
             days,
             model_days,
+            groups: ledger::groups(&connection, None)?,
+        })
+    }
+
+    pub(crate) fn details(
+        &self,
+        team_run_id: Option<&str>,
+        before: Option<i64>,
+    ) -> Result<UsageDetails, String> {
+        let connection = self.open()?;
+        let connection = connection
+            .unchecked_transaction()
+            .map_err(|e| token_usage_db_error("begin details snapshot", e))?;
+        let invocations = Self::invocations(&connection, team_run_id, before)?;
+        let next_cursor = if invocations.len() == 100 {
+            invocations.last().and_then(|c| c.sequence)
+        } else {
+            None
+        };
+        Ok(UsageDetails {
+            groups: ledger::groups(&connection, team_run_id)?,
+            invocations,
+            next_cursor,
         })
     }
 
@@ -297,8 +285,88 @@ impl DailyTokenUsageStore {
                  );",
             )
             .map_err(|error| token_usage_db_error("initialize schema", error))?;
+        ledger::initialize(&connection)?;
         Ok(connection)
     }
+}
+
+fn record_usage(
+    connection: &Connection,
+    model_call_id: &str,
+    date: &str,
+    provider_id: &str,
+    model_id: &str,
+    usage: &TokenUsage,
+) -> Result<bool, String> {
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO daily_token_usage (
+                     usage_date, input_tokens, cached_input_tokens, output_tokens,
+                     reasoning_output_tokens, total_tokens
+                 ) VALUES (?1, 0, 0, 0, 0, 0)",
+            [&date],
+        )
+        .map_err(|error| token_usage_db_error("ensure daily row", error))?;
+    let inserted = connection
+        .execute(
+            "INSERT OR IGNORE INTO recorded_token_usage_calls (model_call_id, usage_date)
+                 VALUES (?1, ?2)",
+            params![model_call_id, date],
+        )
+        .map_err(|error| token_usage_db_error("record model call", error))?
+        == 1;
+    if inserted {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO daily_model_token_usage (
+                         usage_date, provider_id, model_id, input_tokens, cached_input_tokens,
+                         output_tokens, reasoning_output_tokens, total_tokens
+                     ) VALUES (?1, ?2, ?3, 0, 0, 0, 0, 0)",
+                params![date, provider_id, model_id],
+            )
+            .map_err(|error| token_usage_db_error("ensure daily model row", error))?;
+        connection
+            .execute(
+                "UPDATE daily_token_usage SET
+                         input_tokens = input_tokens + ?2,
+                         cached_input_tokens = cached_input_tokens + ?3,
+                         output_tokens = output_tokens + ?4,
+                         reasoning_output_tokens = reasoning_output_tokens + ?5,
+                         total_tokens = total_tokens + ?6
+                     WHERE usage_date = ?1",
+                params![
+                    date,
+                    usage.input_tokens,
+                    usage.cached_input_tokens,
+                    usage.output_tokens,
+                    usage.reasoning_output_tokens,
+                    usage.total_tokens,
+                ],
+            )
+            .map_err(|error| token_usage_db_error("update daily totals", error))?;
+        connection
+            .execute(
+                "UPDATE daily_model_token_usage SET
+                         input_tokens = input_tokens + ?4,
+                         cached_input_tokens = cached_input_tokens + ?5,
+                         output_tokens = output_tokens + ?6,
+                         reasoning_output_tokens = reasoning_output_tokens + ?7,
+                         total_tokens = total_tokens + ?8
+                     WHERE usage_date = ?1 AND provider_id = ?2 AND model_id = ?3",
+                params![
+                    date,
+                    provider_id,
+                    model_id,
+                    usage.input_tokens,
+                    usage.cached_input_tokens,
+                    usage.output_tokens,
+                    usage.reasoning_output_tokens,
+                    usage.total_tokens,
+                ],
+            )
+            .map_err(|error| token_usage_db_error("update daily model totals", error))?;
+    }
+    Ok(inserted)
 }
 
 /// Maps token counts from either Chat Completions or Responses into the one
@@ -452,6 +520,7 @@ fn max_optional(left: Option<i64>, right: Option<i64>) -> Option<i64> {
     }
 }
 
+#[cfg(test)]
 fn non_negative_usage(usage: &TokenUsage) -> TokenUsage {
     TokenUsage {
         input_tokens: usage.input_tokens.max(0),
@@ -462,6 +531,7 @@ fn non_negative_usage(usage: &TokenUsage) -> TokenUsage {
     }
 }
 
+#[cfg(test)]
 fn usage_dimension(value: &str) -> String {
     let value = value.trim();
     if value.is_empty() {

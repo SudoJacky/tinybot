@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:aaa88d7b3a045fbc68f7d6596d0deb7f291ac47d86de090826884d95c5122805 -->
+<!-- tinybot-doc-fingerprint: sha256:52dc866c40359c02fdc014c3c263741943f3c554d42a98a397641e69ec93e24f -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -27,7 +27,7 @@ entire backend inventory.
 
 | Area | Reference |
 | --- | --- |
-| Desktop lifecycle, dialogs, diagnostics, updates, configuration, and command-hook trust | [Desktop commands](desktop.md) |
+| Desktop lifecycle, dialogs, diagnostics, token usage, updates, configuration, and command-hook trust | [Desktop commands](desktop.md) |
 | Agent turns, provider behavior, cancellation, and checkpoints | [Agent runtime](agent-runtime.md) |
 | Team plans, dependency scheduling, task boards, and explicit run control | [Teams](teams.md) |
 | Timeline queries, memory, persistence, project groups, and Threads | [Threads and memory](threads-and-memory.md) |

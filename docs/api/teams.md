@@ -10,7 +10,7 @@ src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:c6e18b67b4796a5e74c6d1a6aab1ae873ca2a24abc13fc2c7c7882d4280f731f -->
+<!-- tinybot-doc-fingerprint: sha256:03da07b70a6272af26a531ba50455bc981363733aa91f3e31816834fe5e0682b -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
 object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
@@ -73,6 +73,21 @@ existing workspace and native tool permissions. The limit counts Team tasks,
 not additional work a member may delegate through existing native tools.
 
 ## Board and control semantics
+
+The Usage tab reads `worker_token_usage_details` with `teamRunId` from the same
+SQLite authority as global Profile usage. It shows reported run totals and
+task/purpose breakdowns, including planning and attributable background work,
+with input, cached/non-cached input, output, and reasoning subsets. Missing
+usage and uncertain/failed/retried requests remain visible. Expand request
+details for stable logical-request, invocation, task-attempt, Thread and Turn IDs.
+History is paginated and survives restart; historical unattributed usage and
+shared memory consolidation are not guessed into a Team.
+
+The run ID is allocated before planning so planner usage belongs to the eventual
+run. If planning fails before a board is saved, its usage remains inspectable in
+global request history under that allocated ID. Descendant Threads recover
+origin through persisted parent IDs. Direct Team attempts remain excluded from
+automatic memory extraction; attribution does not enable extra background work.
 
 A run contains `schemaVersion`, `id`, numeric `revision`, the immutable `spec`,
 `finalTaskId`, `tasks`, `status`, `createdAt`, `updatedAt`, and nullable `error`.

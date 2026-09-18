@@ -165,18 +165,23 @@ async fn run_owned_native_agent_turn_async(
     let owned_services = services.clone();
     let execution_context = identity.clone();
     let result_instructions = instructions.clone();
+    let usage_scope = crate::token_usage::UsageScope::current();
     let handle = services
         .task_runtime
-        .start_cooperative_async(request, Duration::from_secs(5), async move {
-            run_native_agent_turn_with_instructions_async(
-                &owned_services,
-                execution_context,
-                config_snapshot,
-                instructions,
-                workspace_root.as_deref(),
-            )
-            .await
-        })
+        .start_cooperative_async(
+            request,
+            Duration::from_secs(5),
+            usage_scope.run(async move {
+                run_native_agent_turn_with_instructions_async(
+                    &owned_services,
+                    execution_context,
+                    config_snapshot,
+                    instructions,
+                    workspace_root.as_deref(),
+                )
+                .await
+            }),
+        )
         .map_err(|error| format!("failed to start owned agent task: {error}"))?;
     if handle.turn_id() != identity.turn_id || handle.session_id() != identity.session_id {
         return Err(

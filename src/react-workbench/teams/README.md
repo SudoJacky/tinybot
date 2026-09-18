@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:eea727a90dc74519c9b08bfb3cf10d4f66d2d4032b37361cc9971d95a07fefe8 -->
+<!-- tinybot-module-fingerprint: sha256:1904027ad8f23d22c501ed1ab60b0c81a9392e8415b7f6c86ce5bd7434a17acd -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -23,12 +23,17 @@ preview, and failures remove stale content and show the backend error.
 The result tab renders the successful final task output, including when the
 run stopped after producing that output.
 
+The Usage tab queries the shared token-usage ledger for this run. It shows
+reported totals and task/purpose breakdowns, including planning and eligible
+background work, missing usage and retries, plus paginated request origins.
+It reuses Settings' usage components rather than accumulating Thread counters.
+
 `TeamPlanEditor` changes titles, assignments, instructions, dependencies and
 final-task selection for an idle run. Attempted definitions are locked. The
 editor captures its starting revision and preserves edits on save conflicts;
 backend validation enforces an acyclic plan and complete final synthesis.
 Editing focuses the first field, keeps Save/Discard visible in short windows,
-and disables the Message board and Result tabs until editing ends. Closing restores trigger focus.
+and disables the Message board, Result and Usage tabs until editing ends. Closing restores trigger focus.
 
 `useTeamRuns` separates long-running execute invocations from polling and
 revision-checked controls. Older snapshots cannot replace newer revisions.

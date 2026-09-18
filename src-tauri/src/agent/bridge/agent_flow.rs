@@ -87,14 +87,24 @@ pub(super) async fn run_agent_with_services(
         })?;
     preparation.complete();
     let session_id = request.input.session_id.clone();
-    let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
-        &services,
-        request.input,
-        config_snapshot.clone(),
-        &workspace_root,
-        instructions,
+    let usage_scope = crate::token_usage::UsageScope::for_thread(
+        &thread_store,
+        trace_context
+            .thread_id
+            .as_deref()
+            .unwrap_or(&request.input.session_id),
+        &trace_context.turn_id,
     )
-    .await;
+    .map_err(AgentError::from)?;
+    let turn_result = usage_scope
+        .run(run_native_agent_turn_with_workspace_and_instructions_async(
+            &services,
+            request.input,
+            config_snapshot.clone(),
+            &workspace_root,
+            instructions,
+        ))
+        .await;
     let flush_result = services.flush_trace_sink();
     let mut result = match (turn_result, flush_result) {
         (Ok(result), Ok(())) => result,

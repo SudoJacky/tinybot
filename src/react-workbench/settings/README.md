@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:9a4a5c737e0d7e397c76b2767069deb8ba4c301adc70203ee38344c28a77c751 -->
+<!-- tinybot-module-fingerprint: sha256:3331b139727be35c8aa333b524398eee3665b544762950a88bfc10c3e0153012 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -43,9 +43,9 @@ patches live in `app-core/settings`. Native reads and writes are exposed through
 the Settings store adapter. Config revisions remain internal to persistence
 and are not displayed in settings footers.
 
-The Profile module loads `tinybot.token_usage.v2` from the native Settings-store
-adapter and shows filterable Provider/model totals, a 30-day daily trend, a
-ranked model chart, and exact daily and model tables. Historical v1 rows without
+The Profile module loads `tinybot.token_usage.v3` from the native Settings-store
+adapter and shows filterable Provider/model/purpose totals, a 30-day daily trend,
+a ranked model chart, and exact daily and model tables. Historical v1 rows without
 dimensions are labeled Unknown. Cached input remains a subset of input tokens,
 and reasoning output remains a subset of output tokens; the UI labels those
 relationships instead of summing the breakdown columns into a misleading
@@ -58,6 +58,13 @@ Filtering or updating chart data settles geometry and labels immediately;
 SVG identity is tied only to explicit replay, so added model rows cannot replay
 an old entrance. Empty results preserve the chart's reveal history. Animation
 completion is scoped to the active run and cannot settle a later replay.
+
+`UsageBreakdown` presents reported totals, non-cached input, request/retry counts,
+missing usage, and failed or uncertain outcomes. `UsageHistory` loads 100 requests
+per page on demand, exposes source identities, and shares the Team detail view.
+Historical attribution is not reconstructed; missing usage displays Unavailable.
+Failed loads stay visible and can be refreshed. Stale responses cannot replace
+the selected run/page. Tables scroll locally in narrow windows.
 
 `HooksSettingsPage` is backed by the separate optional Hooks store because its
 catalog and trust file are not ordinary config patches. It can inspect another

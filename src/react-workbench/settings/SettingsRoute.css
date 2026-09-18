@@ -1806,8 +1806,8 @@
 }
 
 .react-profile-usage-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1px;
   overflow: hidden;
   margin: 0;
@@ -1817,6 +1817,8 @@
 }
 
 .react-profile-usage-metrics > div {
+  flex: 1 1 130px;
+  min-width: 0;
   display: grid;
   gap: 7px;
   background: var(--color-panel);

@@ -1,3 +1,4 @@
+import { UsageBreakdown, UsageHistory } from "./UsageBreakdown";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -6,6 +7,7 @@ import type {
   DailyTokenUsage,
   TokenUsageCounts,
   TokenUsageSnapshot,
+  UsageDetailsLoader,
 } from "../../app-core/settings/tokenUsage";
 import type { SettingsStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
@@ -84,16 +86,19 @@ export function ProfileSettingsPage({ settingsStore }: { settingsStore: Settings
         <TokenUsageContent
           locale={i18n.resolvedLanguage ?? i18n.language}
           snapshot={state.snapshot}
+          loadUsageDetails={settingsStore.loadUsageDetails}
         />
       )}
     </section>
   );
 }
 
-function TokenUsageContent({ locale, snapshot }: { locale: string; snapshot: TokenUsageSnapshot }) {
+function TokenUsageContent({ locale, snapshot, loadUsageDetails }: { locale: string; snapshot: TokenUsageSnapshot; loadUsageDetails?: UsageDetailsLoader }) {
   const { t } = useTranslation("settings");
   const [providerFilter, setProviderFilter] = useState("");
   const [modelFilter, setModelFilter] = useState("");
+  const [purposeFilter, setPurposeFilter] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
   const formatTokens = (value: number) => new Intl.NumberFormat(locale).format(value);
   const formatCompactTokens = (value: number) => new Intl.NumberFormat(locale, {
     compactDisplay: "short",
@@ -101,12 +106,12 @@ function TokenUsageContent({ locale, snapshot }: { locale: string; snapshot: Tok
     notation: "compact",
   }).format(value);
   const providers = useMemo(
-    () => [...new Set(snapshot.modelDays.map((entry) => entry.providerId))].sort(),
-    [snapshot.modelDays],
+    () => [...new Set([...snapshot.modelDays, ...snapshot.groups].map((entry) => entry.providerId))].sort(),
+    [snapshot.modelDays, snapshot.groups],
   );
   const modelOptions = useMemo(() => {
     const options = new Map<string, { key: string; providerId: string; modelId: string }>();
-    for (const entry of snapshot.modelDays) {
+    for (const entry of [...snapshot.modelDays, ...snapshot.groups]) {
       if (providerFilter && entry.providerId !== providerFilter) continue;
       const key = modelUsageKey(entry.providerId, entry.modelId);
       options.set(key, { key, providerId: entry.providerId, modelId: entry.modelId });
@@ -114,33 +119,40 @@ function TokenUsageContent({ locale, snapshot }: { locale: string; snapshot: Tok
     return [...options.values()].sort((left, right) => (
       left.providerId.localeCompare(right.providerId) || left.modelId.localeCompare(right.modelId)
     ));
-  }, [providerFilter, snapshot.modelDays]);
+  }, [providerFilter, snapshot.modelDays, snapshot.groups]);
   const selectedModel = modelOptions.find((option) => option.key === modelFilter);
+  const sourceModelDays = useMemo(() => purposeFilter
+    ? snapshot.groups.filter(group => group.purpose === purposeFilter && group.usage).map(group => ({ date: group.date, providerId: group.providerId, modelId: group.modelId, ...group.usage! }))
+    : snapshot.modelDays, [snapshot.groups, snapshot.modelDays, purposeFilter]);
   const filteredModelDays = useMemo(
-    () => snapshot.modelDays.filter((entry) => (
+    () => sourceModelDays.filter((entry) => (
       (!providerFilter || entry.providerId === providerFilter)
       && (!selectedModel || (
         entry.providerId === selectedModel.providerId && entry.modelId === selectedModel.modelId
       ))
     )),
-    [providerFilter, selectedModel, snapshot.modelDays],
+    [providerFilter, selectedModel, sourceModelDays],
   );
   const filteredDays = useMemo(
-    () => (!providerFilter && !selectedModel
+    () => (!providerFilter && !selectedModel && !purposeFilter
       ? snapshot.days
       : aggregateUsageByDay(filteredModelDays)),
-    [filteredModelDays, providerFilter, selectedModel, snapshot.days],
+    [filteredModelDays, providerFilter, selectedModel, purposeFilter, snapshot.days],
   );
   const filteredTotals = useMemo(
-    () => (!providerFilter && !selectedModel
+    () => (!providerFilter && !selectedModel && !purposeFilter
       ? snapshot.totals
       : sumUsage(filteredDays)),
-    [filteredDays, providerFilter, selectedModel, snapshot.totals],
+    [filteredDays, providerFilter, selectedModel, purposeFilter, snapshot.totals],
   );
   const modelTotals = useMemo(
     () => aggregateUsageByModel(filteredModelDays),
     [filteredModelDays],
   );
+  const filteredGroups = snapshot.groups.filter(group => (!purposeFilter || group.purpose === purposeFilter)
+    && (!providerFilter || group.providerId === providerFilter)
+    && (!selectedModel || (group.providerId === selectedModel.providerId && group.modelId === selectedModel.modelId)));
+  const noReportedUsage = filteredGroups.length > 0 && filteredGroups.every(group => group.usage === null);
   const metrics: Array<{ key: keyof TokenUsageCounts; label: string }> = [
     { key: "inputTokens", label: t("profile.inputTokens") },
     { key: "cachedInputTokens", label: t("profile.cachedInputTokens") },
@@ -185,23 +197,33 @@ function TokenUsageContent({ locale, snapshot }: { locale: string; snapshot: Tok
           optionsAriaLabel={t("profile.modelFilterLabel")}
           value={modelFilter}
         />
+        <SettingsChoiceList ariaLabel={t("usage.purposeLabel")} label={t("usage.purposeLabel")}
+          value={purposeFilter} onChange={setPurposeFilter}
+          options={[{ label: t("usage.allPurposes"), value: "" }, ...[...new Set(snapshot.groups.map(g => g.purpose))].sort().map(purpose => ({ value: purpose, label: t(`usage.purposes.${purpose}`) }))]}
+          optionsAriaLabel={t("usage.purposeLabel")} />
       </fieldset>
 
       <section className="react-profile-usage-summary" aria-labelledby="profile-usage-summary-title">
         <div className="react-profile-usage-total">
           <span id="profile-usage-summary-title">{t("profile.totalTokens")}</span>
-          <strong>{formatTokens(filteredTotals.totalTokens)}</strong>
+          <strong>{noReportedUsage ? t("usage.unavailable") : formatTokens(filteredTotals.totalTokens)}</strong>
         </div>
         <dl className="react-profile-usage-metrics">
           {metrics.map((metric) => (
             <div key={metric.key}>
               <dt>{metric.label}</dt>
-              <dd>{formatTokens(filteredTotals[metric.key])}</dd>
+              <dd>{noReportedUsage ? t("usage.unavailable") : formatTokens(filteredTotals[metric.key])}</dd>
             </div>
           ))}
+          <div><dt>{t("usage.nonCached")}</dt><dd>{noReportedUsage ? t("usage.unavailable") : formatTokens(filteredTotals.inputTokens - filteredTotals.cachedInputTokens)}</dd></div>
         </dl>
       </section>
 
+      <UsageBreakdown groups={filteredGroups} />
+      {loadUsageDetails && <section className="react-form-controls">
+        <button type="button" aria-expanded={showHistory} onClick={() => setShowHistory(value => !value)}>{t("usage.history")}</button>
+        {showHistory && <UsageHistory load={loadUsageDetails} />}
+      </section>}
       <section className="react-profile-charts" aria-label={t("profile.chartsLabel")} hidden={!filteredDays.length}>
         <DailyUsageChart
           days={filteredDays}

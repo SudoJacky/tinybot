@@ -1,3 +1,4 @@
+import type { UsageDetails, UsageDetailsLoader } from "../settings/tokenUsage";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 
 export type TeamModel = {
@@ -80,6 +81,7 @@ export type TeamRun = {
   error: string | null;
 };
 export type TeamStore = {
+  loadUsageDetails?: UsageDetailsLoader;
   list(): Promise<TeamRun[]>;
   get(runId: string): Promise<TeamRun>;
   prepare(input: { spec: TeamSpec; plan?: TeamPlan; plannerModel?: TeamModel }): Promise<TeamRun>;
@@ -106,6 +108,7 @@ export function createDesktopNativeTeamsApi({
   ) => Promise<unknown>;
 } = {}): TeamStore {
   return {
+    loadUsageDetails: (input = {}) => invoke("worker_token_usage_details", input) as Promise<UsageDetails>,
     list: () => invoke("worker_team_runs_list") as Promise<TeamRun[]>,
     get: (runId) =>
       invoke("worker_team_run_get", { runId }) as Promise<TeamRun>,

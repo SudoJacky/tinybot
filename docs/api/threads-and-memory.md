@@ -17,9 +17,15 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:43afa5d9cfa39e372cf895fe8e36895063bf88d7b7908afff3af59c055ed1eef -->
+<!-- tinybot-doc-fingerprint: sha256:c731b2be2cc6ea76a3c3df88ee98e0937830238edbf6636829407eac162b8739 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
+
+Token accounting is queried separately through the shared [usage ledger](desktop.md#token-usage-command).
+Extraction retains its source Thread/Turn and Team ancestry; consolidation remains
+shared/unallocated because it may combine sources. These classifications do not
+enable extraction for excluded Team Threads.
+
 It is part of the [Rust backend API reference](rust-backend-api.md), which
 defines the shared invocation conventions and source-backed freshness policy
 for this reference set.

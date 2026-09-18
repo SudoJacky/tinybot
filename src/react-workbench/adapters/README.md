@@ -1,5 +1,8 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:a0a8bf2bf9249903a4af72a44c9e5082f2e98d53625c02f8082452504ba1cf66 -->
+<!-- tinybot-module-fingerprint: sha256:381afa86e561039f9ddc2e4bae30849beaa819eaa127ed9a02aa62c3f74085d7 -->
+
+The Settings adapter exposes global usage snapshots and on-demand invocation
+details through the native token-usage API, preserving nullable usage values.
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and

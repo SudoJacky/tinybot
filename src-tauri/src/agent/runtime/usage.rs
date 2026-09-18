@@ -861,35 +861,39 @@ async fn compact_messages_once_async(
         Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
     });
     let mut observer = |_event: crate::agent::provider::NativeProviderStreamEvent| {};
-    let completion = crate::agent::provider::complete_chat_for_agent_with_observer_async(
-        &provider_config,
-        &body,
-        &mut observer,
-        cancellation,
-    )
-    .await
-    .map_err(|error| {
-        NativeAgentProviderFailure::new(
-            match error.kind() {
-                crate::agent::provider::NativeProviderFailureKind::Cancelled => {
-                    super::NativeAgentProviderFailureKind::Cancelled
-                }
-                crate::agent::provider::NativeProviderFailureKind::RequestTimeout => {
-                    super::NativeAgentProviderFailureKind::RequestTimeout
-                }
-                crate::agent::provider::NativeProviderFailureKind::StreamIdleTimeout => {
-                    super::NativeAgentProviderFailureKind::StreamIdleTimeout
-                }
-                crate::agent::provider::NativeProviderFailureKind::Transport => {
-                    super::NativeAgentProviderFailureKind::Transport
-                }
-                crate::agent::provider::NativeProviderFailureKind::Provider => {
-                    super::NativeAgentProviderFailureKind::Provider
-                }
-            },
-            error.message(),
-        )
-    })?;
+    let completion =
+        crate::token_usage::UsageScope::with_purpose(crate::token_usage::UsagePurpose::Compaction)
+            .run(
+                crate::agent::provider::complete_chat_for_agent_with_observer_async(
+                    &provider_config,
+                    &body,
+                    &mut observer,
+                    cancellation,
+                ),
+            )
+            .await
+            .map_err(|error| {
+                NativeAgentProviderFailure::new(
+                    match error.kind() {
+                        crate::agent::provider::NativeProviderFailureKind::Cancelled => {
+                            super::NativeAgentProviderFailureKind::Cancelled
+                        }
+                        crate::agent::provider::NativeProviderFailureKind::RequestTimeout => {
+                            super::NativeAgentProviderFailureKind::RequestTimeout
+                        }
+                        crate::agent::provider::NativeProviderFailureKind::StreamIdleTimeout => {
+                            super::NativeAgentProviderFailureKind::StreamIdleTimeout
+                        }
+                        crate::agent::provider::NativeProviderFailureKind::Transport => {
+                            super::NativeAgentProviderFailureKind::Transport
+                        }
+                        crate::agent::provider::NativeProviderFailureKind::Provider => {
+                            super::NativeAgentProviderFailureKind::Provider
+                        }
+                    },
+                    error.message(),
+                )
+            })?;
     chat_completion_content(&completion).map_err(NativeAgentProviderFailure::provider)
 }
 

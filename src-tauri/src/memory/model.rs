@@ -49,7 +49,13 @@ pub(crate) async fn extract_memories(
         "user_messages": evidence.user_messages,
         "successful_tool_results": evidence.successful_tool_results,
     });
-    let content = complete_json(config_snapshot, PHASE1_SYSTEM_PROMPT, input).await?;
+    let content = complete_json(
+        config_snapshot,
+        PHASE1_SYSTEM_PROMPT,
+        input,
+        crate::token_usage::UsagePurpose::MemoryExtraction,
+    )
+    .await?;
     parse_extraction_response(&content)
 }
 
@@ -67,6 +73,7 @@ pub(crate) async fn select_diff(
             "user_managed_ids": input.protected_ids,
             "new_fragments": fragments,
         }),
+        crate::token_usage::UsagePurpose::MemoryConsolidation,
     )
     .await?;
     parse_selection_diff(&content)
@@ -85,27 +92,37 @@ async fn complete_json(
     config_snapshot: &Value,
     system_prompt: &str,
     input: Value,
+    purpose: crate::token_usage::UsagePurpose,
 ) -> Result<String, String> {
     let model_config = memory_model_config(config_snapshot)?;
     let api_mode = memory_api_mode(&model_config)?;
     let body = model_request_with_config(&model_config, api_mode, system_prompt, input)?;
     let mut observer = |_event: NativeProviderStreamEvent| {};
-    let completion = match api_mode {
-        NativeProviderApiMode::ChatCompletions => {
-            complete_chat_for_agent_with_observer_async(&model_config, &body, &mut observer, None)
-                .await
-        }
-        NativeProviderApiMode::Responses => {
-            complete_responses_for_agent_with_observer_async(
-                &model_config,
-                &body,
-                &mut observer,
-                None,
-            )
-            .await
-        }
-    }
-    .map_err(|error| format!("memory model request failed: {}", error.message()))?;
+    let completion = crate::token_usage::UsageScope::with_purpose(purpose)
+        .run(async {
+            match api_mode {
+                NativeProviderApiMode::ChatCompletions => {
+                    complete_chat_for_agent_with_observer_async(
+                        &model_config,
+                        &body,
+                        &mut observer,
+                        None,
+                    )
+                    .await
+                }
+                NativeProviderApiMode::Responses => {
+                    complete_responses_for_agent_with_observer_async(
+                        &model_config,
+                        &body,
+                        &mut observer,
+                        None,
+                    )
+                    .await
+                }
+            }
+        })
+        .await
+        .map_err(|error| format!("memory model request failed: {}", error.message()))?;
     completion_content(api_mode, &completion)
 }
 

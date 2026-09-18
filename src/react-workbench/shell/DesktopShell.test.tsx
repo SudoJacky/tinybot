@@ -280,7 +280,7 @@ function withFullSettingsRoute(services: ReturnType<typeof createServices>) {
   services.settingsStore.loadProviderSettings = vi.fn(async () => providerSettings);
   services.settingsStore.saveProviderSettings = vi.fn(async () => providerSettings);
   services.settingsStore.loadTokenUsage = vi.fn(async () => ({
-    schemaVersion: "tinybot.token_usage.v2" as const,
+    schemaVersion: "tinybot.token_usage.v3" as const,
     totals: {
       inputTokens: 12_000,
       cachedInputTokens: 8_000,
@@ -296,7 +296,7 @@ function withFullSettingsRoute(services: ReturnType<typeof createServices>) {
       reasoningOutputTokens: 1_200,
       totalTokens: 15_000,
     }],
-    modelDays: [{
+    groups: [], modelDays: [{
       date: "2026-08-31",
       providerId: "openai",
       modelId: "gpt-4.1",

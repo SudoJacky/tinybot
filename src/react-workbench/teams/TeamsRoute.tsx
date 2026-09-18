@@ -206,6 +206,7 @@ export default function TeamsRoute({
           )}
           {state.run ? (
             <TeamDetail
+              loadUsageDetails={services.teamStore.loadUsageDetails}
               key={state.run.id}
               run={state.run}
               busy={state.busy}

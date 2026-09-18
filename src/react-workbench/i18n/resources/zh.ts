@@ -1,3 +1,4 @@
+import { usageZh } from "../../settings/usageTranslations";
 import { teamZh } from "../../teams/teamTranslations";
 import type { en, TranslationResourceShape } from "./en";
 
@@ -310,6 +311,7 @@ export const zh = {
     },
   },
   settings: {
+    usage: usageZh,
     choice: { notConfigured: "未配置", options: "{{label}}选项" },
     sidebar: { label: "设置类别", title: "偏好设置", description: "根据你的工作方式配置 Tinybot。" },
     modules: {

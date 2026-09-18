@@ -1,5 +1,8 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:00a705d6bbde5e2c1352c4fd50392004b60235951e36b9b2f0526ce643acaf6e -->
+<!-- tinybot-module-fingerprint: sha256:ac5d674aad4edec3c8c0dffb119e80963e6c913a82e50781f178f8410e37c8e4 -->
+
+Settings usage resources cover purposes, request outcomes, source identities,
+missing-usage explanations and the shared Team Usage tab in English and Chinese.
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation

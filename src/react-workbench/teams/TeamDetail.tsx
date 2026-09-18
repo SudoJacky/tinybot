@@ -1,3 +1,5 @@
+import { UsageHistory } from "../settings/UsageBreakdown";
+import type { UsageDetailsLoader } from "../../app-core/settings/tokenUsage";
 import { TeamMessage } from "./TeamMessage";
 import { TeamPlanEditor } from "./TeamPlanEditor";
 import { useEffect, useRef, useState } from "react";
@@ -20,6 +22,7 @@ import { canExecute, orderedTasks, taskState } from "./teamPresentation";
 import { TeamElapsedTime, TeamTaskStatus } from "./TeamTaskStatus";
 
 type Props = {
+  loadUsageDetails?: UsageDetailsLoader;
   run: TeamRun;
   busy: boolean;
   pending?: "start" | "pause" | "cancel";
@@ -34,6 +37,7 @@ type Props = {
   onOpenThread(id: string): Promise<void>;
 };
 export function TeamDetail({
+  loadUsageDetails,
   run,
   busy,
   pending,
@@ -45,6 +49,7 @@ export function TeamDetail({
   onOpenThread,
 }: Props) {
   const { t } = useTranslation("common");
+  const { t: usageText } = useTranslation("settings");
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState("tasks");
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -236,9 +241,9 @@ export function TeamDetail({
                 )
                   return;
                 event.preventDefault();
-                const tabs = ["tasks", "board", "result"];
-                const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[2]
-                  : tabs[(tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : 2)) % tabs.length];
+                const tabs = ["tasks", "board", "result", "usage"];
+                const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[tabs.length - 1]
+                  : tabs[(tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
                 setTab(next);
                 event.currentTarget
                   .querySelector<HTMLButtonElement>(
@@ -271,6 +276,9 @@ export function TeamDetail({
               >
                 {t("teams.result")}
               </button>
+              <button role="tab" id="team-usage-tab" disabled={editing}
+                tabIndex={tab === "usage" ? 0 : -1} aria-controls="team-usage-panel"
+                aria-selected={tab === "usage"} onClick={() => setTab("usage")}>{usageText("usage.tab")}</button>
             </div>
             <div className="team-task-progress">
               {runningTasks.length > 0 && (
@@ -306,7 +314,11 @@ export function TeamDetail({
           >
             <span style={{ transform: `scaleX(${completedCount / tasks.length})` }} />
           </div>
-          {tab === "board" ? (
+          {tab === "usage" ? (
+            <section role="tabpanel" id="team-usage-panel" aria-labelledby="team-usage-tab" className="team-result">
+              {loadUsageDetails ? <UsageHistory key={run.id} load={loadUsageDetails} teamRunId={run.id} tasks={Object.fromEntries(run.tasks.map(r => [r.task.id, r.task.title]))} /> : <p>{usageText("profile.unavailable")}</p>}
+            </section>
+          ) : tab === "board" ? (
             <section role="tabpanel" id="team-board-panel" aria-labelledby="team-board-tab" className="team-result team-board">
               {tasks.flatMap(r => r.attempts.filter(a => a.status === "succeeded").map(a => ({ r, a })))
                 .sort((a,b) => (a.a.message?.sequence ?? 0) - (b.a.message?.sequence ?? 0))

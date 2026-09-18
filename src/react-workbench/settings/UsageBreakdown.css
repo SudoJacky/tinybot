@@ -1,0 +1,13 @@
+.usage-breakdown { min-width: 0; margin-block: 20px; }
+.usage-breakdown > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.usage-breakdown h3 { margin: 0 0 8px; font-size: 14px; }
+.usage-breakdown p { font-size: 12px; opacity: .75; }
+.usage-breakdown__scroll { max-width: 100%; overflow-x: auto; }
+.usage-breakdown table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.usage-breakdown th, .usage-breakdown td { padding: 10px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+.usage-breakdown th:first-child, .usage-breakdown td:first-child { text-align: left; }
+.usage-breakdown details { max-width: 300px; text-align: left; }
+.usage-breakdown summary { cursor: pointer; white-space: normal; overflow-wrap: anywhere; }
+.usage-breakdown dl { white-space: normal; overflow-wrap: anywhere; }
+.usage-breakdown dd { margin: 0 0 8px; }
+.usage-breakdown dt { opacity: .7; }
