@@ -1,7 +1,10 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:31027873499602595a8ef8ef937c5c101a878d0bd5019b405ca47eeac0a443eb -->
+<!-- tinybot-module-fingerprint: sha256:271a08adaecf9f61595f300bf5a49abf2b92b46b3773d25722a31cf4f07cbb47 -->
 
-The sidebar title aligns with workspace folder icons. Its workspace menu anchors to the title row and fits the available width. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
+The sidebar title aligns with workspace folder icons. Its workspace menu expands from the 28px toolbar button into a 28px-radius panel
+inside the title row's available width. Geometry settles over 320ms; rows enter
+with a short stagger and share a moving hover surface. Keyboard activation and
+reduced-motion preferences disable the transitions. Top-menu labels use a 1.5 line height to give glyph descenders room within their clipping boxes.
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -28,6 +31,11 @@ Width transitions are disabled during expanded direct dragging. Collapse keeps
 its existing motion and reduced-motion behavior while pointer capture remains
 active. The collapsed rail hides the handle only after the gesture ends, so a
 held drag can reverse direction and reopen the sidebar.
+
+Session drag previews use transform-only sibling movement and a separate,
+22px-radius floating skin with a small velocity-based lean and stretch. The
+floating row is inaccessible and non-interactive; drop positions are resolved
+against the original layout. Reduced motion disables deformation and position transitions.
 
 Workspace session reveal buttons align with session titles and use the sidebar's
 muted text, row hover surface, and keyboard focus styling.
@@ -72,13 +80,17 @@ footprint stable; reduced-motion mode retains these static state cues.
 Session-row entrance styles apply only to the workspace's explicitly eligible
 initial rows, with a bounded 30 ms stagger. Ordinary search/navigation never
 inherits an entrance animation from the list container.
-Its search action expands from the compact icon into a full-width inline input;
+Its search action morphs one persistent lens and surface into an inline input
+capped at 240px and constrained by the available sidebar width;
 the outer search field stays 28px high including its border, with a 24px input
 and close button, so toggling search never shifts the session rows vertically.
-The mounted search layer reveals and retracts toward its trigger through reversible
-160ms clip-path and opacity transitions; the default title controls crossfade in
-the same fixed-height row. Focus-within styling keeps the active boundary visible,
-and reduced-motion mode disables these transitions.
+A 280ms lightly elastic width transition and 32px radius turn the circular
+button into a capsule. Absolute positioning confines layout to the control; the
+lens stays at a fixed inset as the surface expands. Text fades and slides in,
+while the title controls fade in the same fixed-height row. Press feedback does
+not delay focus or typing. Pointer transitions reverse from their current state;
+keyboard activation, Escape and reduced-motion preferences apply immediately.
+Focus restoration, tab order and the inert closed search region remain intact.
 The collapsed sidebar is a 36px vertical shortcut rail matching the top bar's
 height, with centered 28px buttons, 16px action icons, and a 22px mascot.
 Its top control presents the Tinybot mascot at rest, then reveals the expand icon

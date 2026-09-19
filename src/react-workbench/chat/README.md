@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e23ffabac1da86b8d3e0fe966dfb509a65ca5cf2e0b13823480c2f94e4d0a045 -->
+<!-- tinybot-module-fingerprint: sha256:a31cb95e3248f6d8de29c3660ed71184ae979b9ce0ca1fb0b03d209985685580 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -62,10 +62,21 @@ Results show message excerpts and open, highlight and focus the matching Turn.
 Stale requests cannot replace newer queries; errors expose Retry and capped
 results invite a narrower query.
 
-Inline session search stays mounted within the expanded sidebar so both opening
-and closing can transition, including rapid reversals. The inactive search or
+Inline session search keeps one lens and surface mounted in the expanded sidebar.
+Pointer activation morphs the button into a bounded capsule, including rapid
+reversals; keyboard activation and Escape remain immediate. The inactive search or
 title controls are inert and hidden from accessibility APIs. Closing clears the
 query and immediately restores trigger focus; Escape follows the same path.
+The workspace action menu stays mounted so pointer dismissal can reverse its
+expansion. Closed actions are immediately inert and hidden from accessibility
+APIs. Keyboard opening focuses an enabled item; arrows and Home/End navigate,
+Escape restores trigger focus, and moving focus outside dismisses the menu.
+Session rows retain native drag transport and their existing container-scoped
+persisted order. `sessionReorderMotion` owns the floating row, velocity-based
+skin deformation, sibling slot previews, edge scrolling, and release settling.
+Previews never write order; only valid drops commit. Escape, outside drops, blur,
+and disposal restore layout and remove drag listeners. Keyboard reorders stay
+immediate; reduced motion keeps direct dragging without deformation or settling.
 Workspace and project groups retain native disclosure behavior. Pointer toggles
 animate the list height and opacity; keyboard toggles are immediate. Refreshing
 session data preserves each group's open state.
