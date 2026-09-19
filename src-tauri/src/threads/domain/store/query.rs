@@ -3,7 +3,8 @@ use super::index::ThreadIndex;
 use super::invalid_thread_request;
 use crate::protocol::WorkerProtocolError;
 use crate::threads::domain::types::{
-    ListThreadsRequest, ReadThreadRequest, ThreadItem, ThreadRecord,
+    ListThreadsRequest, ReadThreadRequest, ThreadItem, ThreadItemKind, ThreadRecord,
+    ThreadSearchMatch,
 };
 
 pub(super) fn thread_matches_query(thread: &ThreadRecord, query: &str) -> bool {
@@ -17,6 +18,9 @@ pub(super) fn thread_matches_query(thread: &ThreadRecord, query: &str) -> bool {
     }
     if let Some(preview) = thread.metadata.preview.as_deref() {
         haystacks.push(preview);
+    }
+    if let Some(path) = thread.metadata.working_directory.as_deref() {
+        haystacks.push(path);
     }
     if let Some(model) = thread.metadata.model.as_deref() {
         haystacks.push(model);
@@ -138,4 +142,79 @@ fn thread_is_descendant_of(
             .and_then(|candidate| candidate.parent_thread_id.as_deref());
     }
     false
+}
+
+/// Match visible message text, not serialized event metadata. Return a Unicode-safe excerpt.
+pub(super) fn message_match(items: &[ThreadItem], query: &str) -> Option<ThreadSearchMatch> {
+    if query.is_empty() {
+        return None;
+    }
+    items.iter().rev().find_map(|item| {
+        let value = match &item.kind {
+            ThreadItemKind::UserMessage(value)
+            | ThreadItemKind::AssistantMessageCompleted(value) => value,
+            _ => return None,
+        };
+        let content = value.get("content").or_else(|| value.get("text"))?;
+        let text = match content {
+            serde_json::Value::String(text) => text.clone(),
+            serde_json::Value::Array(parts) => parts
+                .iter()
+                .filter_map(|part| {
+                    part.as_str()
+                        .or_else(|| part.get("text").and_then(serde_json::Value::as_str))
+                })
+                .collect::<Vec<_>>()
+                .join(""),
+            _ => return None,
+        };
+        let mut folded = String::new();
+        let mut source_positions = Vec::new();
+        let chars = text.chars().collect::<Vec<_>>();
+        for (index, ch) in chars.iter().enumerate() {
+            for lower in ch.to_lowercase() {
+                source_positions.extend(std::iter::repeat_n(index, lower.len_utf8()));
+                folded.push(lower);
+            }
+        }
+        let offset = folded.find(query)?;
+        let start = source_positions[offset].saturating_sub(48);
+        let end = (source_positions[offset + query.len() - 1] + 97).min(chars.len());
+        let snippet = format!(
+            "{}{}{}",
+            if start > 0 { "…" } else { "" },
+            chars[start..end].iter().collect::<String>(),
+            if end < chars.len() { "…" } else { "" }
+        );
+        Some(ThreadSearchMatch {
+            thread_id: item.thread_id.clone(),
+            turn_id: item.turn_id.clone(),
+            snippet,
+        })
+    })
+}
+
+#[cfg(test)]
+mod message_search_tests {
+    use super::*;
+    #[test]
+    fn returns_unicode_excerpts_with_the_owning_turn_and_ignores_metadata() {
+        let item = ThreadItem {
+            item_id: "item".into(),
+            thread_id: "thread".into(),
+            turn_id: "turn".into(),
+            parent_item_id: None,
+            sequence: 1,
+            created_at: String::new(),
+            kind: ThreadItemKind::AssistantMessageCompleted(serde_json::json!({
+                "id": "metadata-only", "content": [{"type": "output_text", "text": "前文".repeat(90)}, {"type": "output_text", "text": "需要修复 ÉCOLE 的同步问题。"}]
+            })),
+        };
+        let hit = message_match(std::slice::from_ref(&item), "école").unwrap();
+        assert_eq!(hit.thread_id, "thread");
+        assert_eq!(hit.turn_id, "turn");
+        assert!(hit.snippet.contains("ÉCOLE"));
+        assert!(hit.snippet.starts_with('…'));
+        assert!(message_match(&[item], "metadata-only").is_none());
+    }
 }

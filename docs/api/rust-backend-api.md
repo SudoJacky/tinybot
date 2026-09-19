@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:52dc866c40359c02fdc014c3c263741943f3c554d42a98a397641e69ec93e24f -->
+<!-- tinybot-doc-fingerprint: sha256:d30bb352b08bad2e584c55682ff2fc3c5dbb00b9388e5bbc2692286dd098bc82 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation

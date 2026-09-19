@@ -36,6 +36,13 @@ export type NativeThreadListResult = {
   nextOffset?: number;
 };
 
+export type NativeThreadSearchResult = {
+  query: string;
+  threads: NativeThreadRecord[];
+  matches: { threadId: string; turnId: string; snippet: string }[];
+  hasMore: boolean;
+};
+
 export type NativeThreadTurnInput = {
   threadId: string;
   input: {
@@ -94,7 +101,7 @@ export type NativeThreadsApi = {
   read(body: Record<string, unknown>): Promise<unknown>;
   resume(body: Record<string, unknown>): Promise<unknown>;
   list(body?: Record<string, unknown>): Promise<NativeThreadListResult>;
-  search(body: Record<string, unknown>): Promise<unknown>;
+  search(body: Record<string, unknown>): Promise<NativeThreadSearchResult>;
   activity(body: Record<string, unknown>): Promise<unknown>;
   status(body: Record<string, unknown>): Promise<unknown>;
   updateMetadata(body: Record<string, unknown>): Promise<NativeThreadRecord>;

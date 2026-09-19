@@ -443,6 +443,48 @@ describe("ChatSessionWorkspace", () => {
     expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
   });
 
+  test("closes the animated workspace menu without leaving hidden actions interactive", () => {
+    renderWorkspace();
+    const trigger = screen.getByRole("button", { name: "Workspace and project actions" });
+    fireEvent.click(trigger, { detail: 1 });
+    const menu = screen.getByRole("menu");
+    fireEvent.pointerDown(screen.getByText("Conversation surface"));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(menu.parentElement?.hasAttribute("inert")).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger, { detail: 1 });
+    expect(screen.getByRole("menu")).toBe(menu);
+  });
+
+  test("navigates workspace actions with the keyboard and restores trigger focus on Escape", () => {
+    const projectGroupStore: ProjectGroupStore = { list: vi.fn(async () => []), save: vi.fn(), delete: vi.fn() };
+    renderWorkspace({ projectGroupStore });
+    const trigger = screen.getByRole("button", { name: "Workspace and project actions" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowUp" });
+    const items = screen.getAllByRole("menuitem");
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0], { key: "End" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(items[1], { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  test("skips unavailable workspace actions and closes when focus leaves", () => {
+    renderWorkspace();
+    const trigger = screen.getByRole("button", { name: "Workspace and project actions" });
+    fireEvent.click(trigger, { detail: 0 });
+    const first = screen.getByRole("menuitem", { name: "Add workspace folder" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(first);
+    act(() => screen.getByRole("button", { name: "Search chats" }).focus());
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   test("registers a picked workspace before creating its first session", async () => {
     const actions = createActions();
     const workspaceRegistryStore = createWorkspaceRegistryStore([]);

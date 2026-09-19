@@ -1,12 +1,42 @@
+import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 // @vitest-environment happy-dom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import type { AppServices } from "../services";
 import type { AutomationSnapshot, SaveAutomation, SavedAutomation } from "../../app-core/native/desktopNativeAutomations";
 import AutomationsRoute from "./AutomationsRoute";
 
-afterEach(cleanup);
+vi.mock("../../app-core/native/desktopNativeWorkspacePicker", () => ({ pickDesktopWorkspaceDirectory: vi.fn() }));
+
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
+it("resumes live updates after an explicit refresh recovers a polling failure", async () => {
+  vi.useFakeTimers();
+  try {
+    const { services, appServices } = fixture();
+    services.automationStore.list.mockRejectedValueOnce(new Error("Disconnected"));
+    render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toContain("Disconnected");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh" })); });
+    const recoveredCalls = services.automationStore.list.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(services.automationStore.list.mock.calls.length).toBeGreaterThan(recoveredCalls);
+  } finally { cleanup(); vi.useRealTimers(); }
+});
+
+it("keeps unsaved automation edits when discarding is declined", async () => {
+  const confirm = vi.fn(() => false); vi.stubGlobal("confirm", confirm);
+  try {
+    const { appServices } = fixture(); const user = userEvent.setup();
+    render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "New automation" }));
+    await user.type(screen.getByLabelText("Name"), "Keep my work");
+    await user.click(screen.getByRole("button", { name: "Close task settings" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Keep my work");
+  } finally { vi.unstubAllGlobals(); }
+});
 async function choose(user: ReturnType<typeof userEvent.setup>, label: string, option: string | RegExp) {
   await user.click(await screen.findByRole("button", { name: new RegExp(`^${label}:`) }));
   await user.click(screen.getByRole("menuitemradio", { name: option }));
@@ -27,7 +57,7 @@ function fixture(initial: AutomationSnapshot = { definitions: [], runs: [] }) {
       }),
       output: vi.fn(async () => "[Report](report.md)"),
     },
-    workspaceRegistryStore: { list: vi.fn(async () => [{ path: "D:/project", name: "Project", exists: true, addedAtMs: 1, updatedAtMs: 1 }]) },
+    workspaceRegistryStore: { register: vi.fn(async (path: string) => ({ path, name: "New project", exists: true, addedAtMs: 1, updatedAtMs: 1 })), list: vi.fn(async () => [{ path: "D:/project", name: "Project", exists: true, addedAtMs: 1, updatedAtMs: 1 }]) },
     sessionStore: { list: vi.fn(async () => [
       { id: "existing", title: "Existing report chat", workingDirectory: "D:/project", updatedAtMs: 1 },
       { id: "other", title: "Other workspace chat", workingDirectory: "D:/other", updatedAtMs: 1 },
@@ -60,7 +90,9 @@ it("creates, runs, previews the report and retains history after deleting the de
   await user.click(screen.getByRole("button", { name: "Open conversation and report" }));
   expect(open).toHaveBeenCalledWith("thread-1");
   await user.click(screen.getByRole("button", { name: "Edit" }));
+  vi.stubGlobal("confirm", vi.fn(() => true));
   await user.click(screen.getByRole("button", { name: "Delete task" }));
+  expect(services.automationStore.delete).toHaveBeenCalledWith("report", 1);
   await waitFor(() => expect(screen.queryByRole("button", { name: "Run now" })).toBeNull());
   expect(screen.getByText("Completed")).toBeTruthy();
 });
@@ -192,4 +224,35 @@ it("disables Run now in both task and missed history while older work is active"
   await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Run history" }));
   expect((screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement).disabled).toBe(true);
   expect(services.automationStore.run).not.toHaveBeenCalled();
+});
+
+it("adds the first workspace without leaving the editor and restores the draft after remounting", async () => {
+  const { services, appServices } = fixture(); const user = userEvent.setup();
+  services.workspaceRegistryStore.list.mockResolvedValue([]);
+  vi.mocked(pickDesktopWorkspaceDirectory).mockResolvedValue("D:/new-project");
+  const view = render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: "New automation" }));
+  await user.type(screen.getByLabelText("Name"), "Recovered automation");
+  await user.type(screen.getByLabelText("Instructions and output location"), "Write a useful report");
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Add workspace folder" }));
+  expect(await screen.findByRole("button", { name: "Workspace: New project" })).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+  view.unmount();
+  services.workspaceRegistryStore.list.mockResolvedValue([{ path: "D:/new-project", name: "New project", exists: true, addedAtMs: 1, updatedAtMs: 1 }]);
+  render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+  expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Recovered automation");
+  await screen.findByRole("button", { name: "Workspace: New project" });
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(services.automationStore.save).toHaveBeenCalledWith(expect.objectContaining({ workspacePath: "D:/new-project", name: "Recovered automation" }));
+});
+
+it("does not remove a saved automation when deletion is cancelled", async () => {
+  const { services, appServices } = fixture(missedSnapshot()); const user = userEvent.setup();
+  vi.stubGlobal("confirm", vi.fn(() => false));
+  render(<AutomationsRoute services={appServices} onOpenThread={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: /^Weekly report/ }));
+  await user.click(screen.getByRole("button", { name: "Delete task" }));
+  expect(services.automationStore.delete).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog")).toBeTruthy();
 });

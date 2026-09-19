@@ -12,6 +12,26 @@ async function flush() { await act(async () => { await Promise.resolve(); }); }
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Local artifact observation", () => {
+  it("appends text pages without mixing revisions and preserves expanded content on unchanged refresh", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const readThreadFile = vi.fn()
+      .mockResolvedValueOnce({ ...chunk("v1", "text"), content: "first", nextCursor: "page2" })
+      .mockResolvedValueOnce({ ...chunk("v1", "text"), content: " second", nextCursor: "page3" })
+      .mockResolvedValueOnce(chunk("v1", "unchanged"))
+      .mockResolvedValueOnce({ ...chunk("v2", "text"), content: "WRONG" });
+    const { result } = renderHook(() => useArtifactFile({ ...base, workspaceStore: { readThreadFile } }));
+    await flush();
+    await act(async () => { result.current.loadMore?.(); });
+    expect(readThreadFile).toHaveBeenLastCalledWith({ path: "report.xlsx", threadId: "s1", cursor: "page2" });
+    expect(result.current.detail?.textContent).toBe("first second");
+    await act(async () => { await vi.advanceTimersByTimeAsync(ARTIFACT_REFRESH_INTERVAL_MS); });
+    expect(result.current.detail?.textContent).toBe("first second");
+    await act(async () => { result.current.loadMore?.(); });
+    expect(result.current.detail?.textContent).toBe("first second");
+    expect(result.current.error).toContain("File changed");
+  });
+
   it("refreshes changed image bytes and releases URLs on replacement and close", async () => {
     vi.useFakeTimers();
     const createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValueOnce("blob:first").mockReturnValueOnce("blob:second");

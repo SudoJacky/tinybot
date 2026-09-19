@@ -1,3 +1,4 @@
+import type { PreviewWorkspaceStore } from "../sidecar/ResultFilePreview";
 import { UsageHistory } from "../settings/UsageBreakdown";
 import type { UsageDetailsLoader } from "../../app-core/settings/tokenUsage";
 import { TeamMessage } from "./TeamMessage";
@@ -22,6 +23,7 @@ import { canExecute, orderedTasks, taskState } from "./teamPresentation";
 import { TeamElapsedTime, TeamTaskStatus } from "./TeamTaskStatus";
 
 type Props = {
+  workspaceStore: PreviewWorkspaceStore;
   loadUsageDetails?: UsageDetailsLoader;
   run: TeamRun;
   busy: boolean;
@@ -37,6 +39,7 @@ type Props = {
   onOpenThread(id: string): Promise<void>;
 };
 export function TeamDetail({
+  workspaceStore,
   loadUsageDetails,
   run,
   busy,
@@ -325,7 +328,7 @@ export function TeamDetail({
                 .map(({r,a}) => <article key={a.threadId}>
                   <h2>{r.task.title}</h2>
                   <p>{run.spec.members.find(m => m.id === r.task.memberId)!.displayName} · {a.finishedAt && new Date(a.finishedAt).toLocaleString()}</p>
-                  <TeamMessage runId={run.id} attempt={a} onOpenThread={id => void openRecord(id)} />
+                  <TeamMessage runId={run.id} workspaceStore={workspaceStore} workspacePath={run.spec.workspacePath} attempt={a} />
                   <button onClick={() => void openRecord(a.threadId)}>{t("teams.openRecord")}</button>
                 </article>)}
               {!tasks.some(r => r.attempts.some(a => a.status === "succeeded")) && <p>{t("teams.emptyBoard")}</p>}
@@ -338,7 +341,7 @@ export function TeamDetail({
               className="team-result"
             >
               {result ? (
-                <TeamMessage key={final!.attempts.slice(-1)[0]!.threadId} runId={run.id} attempt={final!.attempts.slice(-1)[0]!} onOpenThread={id => void openRecord(id)} />
+                <TeamMessage key={final!.attempts.slice(-1)[0]!.threadId} runId={run.id} workspaceStore={workspaceStore} workspacePath={run.spec.workspacePath} attempt={final!.attempts.slice(-1)[0]!} />
               ) : (
                 <p>{t("teams.noResult")}</p>
               )}
@@ -504,7 +507,7 @@ export function TeamDetail({
             <section>
               <h3>{t("teams.output")}</h3>
               {record.attempts.slice(-1)[0]?.output ? (
-                <TeamMessage key={latestAttempt!.threadId} runId={run.id} attempt={latestAttempt!} onOpenThread={id => void openRecord(id)} />
+                <TeamMessage key={latestAttempt!.threadId} runId={run.id} workspaceStore={workspaceStore} workspacePath={run.spec.workspacePath} attempt={latestAttempt!} />
               ) : (
                 <p>{t(record.status === "running" ? "teams.runningOutput" : "teams.noOutput")}</p>
               )}

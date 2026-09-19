@@ -4,9 +4,12 @@ import type { en, TranslationResourceShape } from "./en";
 
 export const zh = {
   common: {
+    resultPreview: { currentFile: "预览当前文件" },
+    unsavedChanges: { discard: "放弃尚未保存的修改？选择取消可继续编辑。" },
     teams: teamZh,
     notifications: { dismiss: "关闭通知" },
     automations: {
+      confirmDelete: "删除自动化“{{name}}”？未来的定时执行将停止，历史记录、会话和文件会保留。",
       pageTitle: "定时任务",
       reasoning: "推理强度", frequency: "频率", repeat: "重复", startsAt: "开始时间",
       unavailableConversation: "会话不可用", nextRun: "下次：{{time}}",
@@ -669,7 +672,10 @@ export const zh = {
       label: "插件迁移结果", installed: "{{name}} 已安装{{state}}", keptDisabled: "（保持停用）", enabled: "并已启用", complete: "迁移完成——安装生成的插件",
       cleaned: "临时迁移工作区已清理。", validate: "Tinybot 会先验证生成的 Package，再进行全局安装。", installing: "正在安装…", install: "安装迁移后的插件",
     },
-    search: { label: "会话搜索", placeholder: "搜索会话…", close: "关闭会话搜索", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
+    search: {
+      searching: "正在搜索消息正文…",
+      failed: "搜索失败：{{message}}",
+      refine: "结果较多，请增加关键词缩小范围。", label: "会话搜索", placeholder: "搜索会话…", close: "关闭会话搜索", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
     empty: {
       title: "想让 Tinybot 做什么？",
       titleWithWorkspace: "想和 Tinybot 在 {{workspace}} 做点什么？",

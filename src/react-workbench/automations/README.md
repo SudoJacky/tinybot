@@ -1,5 +1,5 @@
 # Automations
-<!-- tinybot-module-fingerprint: sha256:ce74947a79ac2ad6dd7ac6b031968a2f78dcb7be0673d644bd09b262eec1fef4 -->
+<!-- tinybot-module-fingerprint: sha256:f10d1bce6ce0429d5adc47423fd19d2586785bde640efdb0818c7090d71f96aa -->
 
 The lazy Automations route owns definition forms, run selection, and report
 presentation. Native storage and execution belong to
@@ -23,17 +23,21 @@ its earliest skipped time and a visible Run now action, also available in histor
 Manual execution preserves the missed record. Run buttons check all active runs
 so a newer missed entry cannot hide running or waiting work. Provider/session catalogs load before saving;
 unavailable paths, catalogs and native failures remain visible.
-No draft or canonical execution state is stored in browser local storage.
+Unsaved editor values and their saved baseline persist in localStorage across
+route changes and restarts. Closing or replacing a dirty editor asks before
+discarding. Canonical definitions and execution state remain native. The editor
+can register and select a workspace folder without leaving the form. Deleting
+a saved task requires confirmation and retains its execution history.
 
 History refreshes sequentially every three seconds while mounted. Refresh
-failure stops polling and exposes an explicit refresh action. Route unmount
+failure stops polling and exposes an explicit refresh action that restarts polling. Route unmount
 does not cancel backend execution. Opening a Thread refreshes the session
 catalog and navigates through the desktop shell's existing Chat activation path.
 
 `AutomationReport` loads canonical output on demand and reuses Chat Markdown
-and workspace-contained file-link resolution. Text file previews are paginated
-and reject revision changes between chunks. Non-text previews are available in
-the owning Chat's Artifact sidecar. Errors never become empty successful reports.
+and workspace-contained file-link resolution. The shared inline Artifact preview supports text, images and Office files.
+Text pages reject revision changes; binary reads bind to the observed revision,
+and closing releases resources. Errors never become empty successful reports.
 
 `AutomationsRoute.test.tsx` covers creation, execution, file opening, deletion
 with history retention, search/status filtering, suggestion drafts, and preserving

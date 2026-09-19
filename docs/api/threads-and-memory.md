@@ -17,7 +17,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:c731b2be2cc6ea76a3c3df88ee98e0937830238edbf6636829407eac162b8739 -->
+<!-- tinybot-doc-fingerprint: sha256:2a0c97c7b069e749e0d16db66339071f9b107743a2471cefecdcffbf5eb4027e -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 
@@ -29,6 +29,18 @@ enable extraction for excluded Team Threads.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
 defines the shared invocation conventions and source-backed freshness policy
 for this reference set.
+
+## Thread content search
+
+`worker_thread_search` accepts `{ input: { body: { query, limit?, includeChildThreads?, conversationsOnly? } } }`.
+The optional `conversationsOnly` flag excludes Graph and internal child Threads
+while allowing forks and workspace conversations. The default remains unrestricted.
+Search covers metadata (including working directory) and persisted content.
+The response contains `threads`, `matches: [{ threadId, turnId, snippet }]`, and
+`hasMore`. Each visible-message match identifies the most recent matching user
+or completed assistant message for that Thread; metadata-only matches have no
+excerpt. Snippets preserve original Unicode text. `hasMore` reports truncation
+at the requested limit, allowing the UI to suggest a narrower query.
 
 ## Thread Timeline Queries
 

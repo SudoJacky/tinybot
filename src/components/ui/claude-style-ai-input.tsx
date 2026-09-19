@@ -552,7 +552,8 @@ export function ClaudeStyleAiInput({
       });
       updateMessage("");
       setActiveSlashStart(null);
-      updateFiles(() => []);
+      if (controlledFiles === undefined) updateFiles(() => []);
+      else onFilesChange?.([]);
       onClearContextReferences?.();
       onClearSessionMentions?.();
       onClearSkills?.();

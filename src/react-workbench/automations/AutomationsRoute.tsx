@@ -1,3 +1,5 @@
+import { AddWorkspaceButton } from "../lib/AddWorkspaceButton";
+import { readEditorDraft, writeEditorDraft } from "../lib/editorDraft";
 import { FileSearch, History, ListTodo, NotebookPen, Plus, Search, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,6 +10,7 @@ import { AutomationReport } from "./AutomationReport";
 import { AutomationTaskRow } from "./AutomationTaskRow";
 import "./AutomationsRoute.css";
 
+const DRAFT_KEY = "tinybot.automation-draft.v1";
 const emptyDraft: SaveAutomation = { name: "", instructions: "", workspacePath: "" };
 const filters = ["all", "running", "completed", "attention"] as const;
 type Filter = typeof filters[number];
@@ -24,7 +27,13 @@ export default function AutomationsRoute({ services, onOpenThread }: {
   const { t } = useTranslation("common");
   const [snapshot, setSnapshot] = useState<AutomationSnapshot>({ definitions: [], runs: [] });
   const [workspaces, setWorkspaces] = useState<WorkspaceRegistryEntry[]>([]);
-  const [draft, setDraft] = useState<SaveAutomation | null>(null);
+  const [recovered] = useState(() => readEditorDraft<{ draft: SaveAutomation; baseline: string }>(DRAFT_KEY));
+  const [draft, setDraft] = useState<SaveAutomation | null>(recovered?.draft ?? null);
+  const [baseline, setBaseline] = useState(recovered?.baseline ?? "");
+  const draftDirty = Boolean(draft && JSON.stringify(draft) !== baseline);
+  useEffect(() => { writeEditorDraft(DRAFT_KEY, draft ? { draft, baseline } : null); }, [draft, baseline]);
+  function canDiscard() { return !draftDirty || window.confirm(t("unsavedChanges.discard")); }
+  function closeEditor() { if (canDiscard()) setDraft(null); }
   const [selected, setSelected] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
@@ -32,6 +41,7 @@ export default function AutomationsRoute({ services, onOpenThread }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
   const reload = useCallback(async () => {
     const value = await services.automationStore.list();
     setSnapshot(value);
@@ -47,13 +57,13 @@ export default function AutomationsRoute({ services, onOpenThread }: {
         setSnapshot(value);
         setLoaded(true);
         timer = setTimeout(() => { void poll(); }, 3000);
-      } catch (e) { if (active) setError(String(e)); }
+      } catch (e) { if (active) { console.error("[automations] refresh stopped", e); setError(String(e)); } }
     };
     void poll();
     void services.workspaceRegistryStore.list().then((value) => { if (active) setWorkspaces(value); })
       .catch((e: unknown) => { if (active) setError(String(e)); });
     return () => { active = false; clearTimeout(timer); };
-  }, [services]);
+  }, [services, refreshEpoch]);
 
   async function action(work: () => Promise<unknown>) {
     setBusy(true);
@@ -64,13 +74,17 @@ export default function AutomationsRoute({ services, onOpenThread }: {
   }
   function edit(definition: SavedAutomation) {
     setError(null);
-    setDraft({ id: definition.id, name: definition.name, instructions: definition.instructions, workspacePath: definition.workspacePath, expectedRevision: definition.revision, execution: definition.execution, schedule: definition.schedule });
+    if (!canDiscard()) return;
+    const next = { id: definition.id, name: definition.name, instructions: definition.instructions, workspacePath: definition.workspacePath, expectedRevision: definition.revision, execution: definition.execution, schedule: definition.schedule };
+    setBaseline(JSON.stringify(next)); setDraft(next);
   }
   function create(suggestion?: typeof suggestions[number]["id"]) {
     setError(null);
-    setDraft({ ...emptyDraft, workspacePath: workspaces.find((w) => w.exists)?.path ?? "",
+    if (!canDiscard()) return;
+    const next = { ...emptyDraft, workspacePath: workspaces.find((w) => w.exists)?.path ?? "",
       ...(suggestion ? { name: t(`automations.suggestions.${suggestion}.title`), instructions: t(`automations.suggestions.${suggestion}.prompt`) } : {}),
-    });
+    };
+    setBaseline(JSON.stringify(next)); setDraft(next);
   }
   function openHistory(id: string | null) {
     setSelected(id); setShowHistory(true); setDraft(null);
@@ -98,7 +112,7 @@ export default function AutomationsRoute({ services, onOpenThread }: {
         <button type="button" disabled={busy} onClick={() => create()}><Plus aria-hidden="true" size={17} />{t("automations.create")}</button>
       </div>
     </header>
-    {error && !draft && <div role="alert" className="automation-error">{error}<button type="button" disabled={busy} onClick={() => { void action(reload); }}>{t("automations.refresh")}</button></div>}
+    {error && !draft && <div role="alert" className="automation-error">{error}<button type="button" disabled={busy} onClick={() => { setError(null); setRefreshEpoch((value) => value + 1); }}>{t("automations.refresh")}</button></div>}
     {!loaded && !error && <p role="status">{t("automations.loading")}</p>}
 
     {!showHistory ? <>
@@ -142,15 +156,17 @@ export default function AutomationsRoute({ services, onOpenThread }: {
       </article>)}
     </section>}
 
-    {draft && <AutomationEditor services={services} draft={draft} workspaces={workspaces} busy={busy} error={error} onChange={setDraft} onClose={() => setDraft(null)}
-      onHistory={() => openHistory(draft.id ?? null)}
+    {draft && <AutomationEditor services={services} draft={draft} workspaces={workspaces} busy={busy} error={error} onChange={setDraft} onClose={closeEditor}
+      workspaceAction={<AddWorkspaceButton store={services.workspaceRegistryStore} disabled={busy} onAdded={(workspace) => { setWorkspaces((current) => [...current.filter((item) => item.path !== workspace.path), workspace]); setDraft((current) => current ? { ...current, workspacePath: workspace.path, execution: { ...current.execution, threadId: null } } : null); }} />}
+      onHistory={() => { if (canDiscard()) openHistory(draft.id ?? null); }}
       onSave={(runAfterSave) => { void action(async () => {
         const saved = await services.automationStore.save(draft);
-        setDraft({ id: saved.id, name: saved.name, instructions: saved.instructions, workspacePath: saved.workspacePath, expectedRevision: saved.revision, execution: saved.execution, schedule: saved.schedule });
+        const next = { id: saved.id, name: saved.name, instructions: saved.instructions, workspacePath: saved.workspacePath, expectedRevision: saved.revision, execution: saved.execution, schedule: saved.schedule };
+        setDraft(next); setBaseline(JSON.stringify(next));
         if (runAfterSave) { await services.automationStore.run(saved.id); openHistory(saved.id); }
         else { setDraft(null); setShowHistory(false); setQuery(""); setFilter("all"); }
       }); }}
-      onDelete={() => { void action(async () => {
+      onDelete={() => { if (!window.confirm(t("automations.confirmDelete", { name: draft.name }))) return; void action(async () => {
         await services.automationStore.delete(draft.id!, draft.expectedRevision!); setDraft(null); openHistory(null);
       }); }} />}
   </div>;

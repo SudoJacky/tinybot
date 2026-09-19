@@ -1,5 +1,5 @@
 # Thread Stores
-<!-- tinybot-module-fingerprint: sha256:cfb75e89e8281e5e3c5afad1010f7aa2accaf0f4318b808e7b1430a77d45ae79 -->
+<!-- tinybot-module-fingerprint: sha256:43fa75054383649e6be8016cb74ea3990fc667afe0640904b58c5bac05eece83 -->
 
 This module implements thread storage operations and projections used by the
 thread domain.
@@ -24,3 +24,9 @@ lock, rejects archived or manually titled Threads, and records `titleSource` as
 
 Runtime projection also replays persisted form resolutions as completed form
 Items, preserving submitted values and the original form identity.
+
+Thread search includes workspace metadata and persisted content. Optional
+conversation filtering excludes Graph and internal child Threads while retaining
+forks and workspace conversations. Results include capped-result metadata and
+Unicode-safe excerpts from visible user or completed assistant messages, with
+the owning Turn identity for navigation.

@@ -1,3 +1,4 @@
+import { AddWorkspaceButton } from "../lib/AddWorkspaceButton";
 import { SettingsChoiceList } from "../settings/SettingsChoiceList";
 import { SessionSidebarResizeHandle } from "../chat/SessionSidebarResizeHandle";
 import { useEffect, useState } from "react";
@@ -28,7 +29,7 @@ export default function TeamsRoute({
   onOpenThread,
   onNavigate,
 }: {
-  services: Pick<AppServices, "teamStore" | "workspaceRegistryStore">;
+  services: Pick<AppServices, "teamStore" | "workspaceRegistryStore" | "workspaceStore">;
   onOpenThread: (id: string) => Promise<void>;
   onNavigate: (route: AppRoute) => void;
 }) {
@@ -206,6 +207,7 @@ export default function TeamsRoute({
           )}
           {state.run ? (
             <TeamDetail
+              workspaceStore={services.workspaceStore}
               loadUsageDetails={services.teamStore.loadUsageDetails}
               key={state.run.id}
               run={state.run}
@@ -283,6 +285,7 @@ export default function TeamsRoute({
                       })),
                     ]}
                   />
+                  <AddWorkspaceButton store={services.workspaceRegistryStore} disabled={state.busy} onAdded={(entry) => { setWorkspaces((current) => [...current.filter((item) => item.path !== entry.path), entry]); setWorkspace(entry.path); }} />
                   <div className="team-roster-control">
                     <span className="react-settings-choice__label">{t("teams.members")}</span>
                     <button

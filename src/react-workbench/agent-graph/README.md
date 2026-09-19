@@ -1,8 +1,8 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:6ec7e9a2c16199eb0e4ffea0dda5d8d334f286c1ae21905b98175bdd47074a42 -->
+<!-- tinybot-module-fingerprint: sha256:53cb8b82f0407eb98082167558a43e98bf23668b8824d3d351bcb8b31338d3c3 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
-The page creates one honest in-memory starter draft and exposes an unbounded
+The page creates a starter draft and exposes an unbounded
 spatial canvas editor: palette nodes can be dragged or clicked into the canvas,
 positioned at signed world coordinates by pointer or keyboard, connected through
 accessible handles, selected, and removed with the Delete or Backspace shortcut.
@@ -37,7 +37,11 @@ stack inside the narrow node configuration popover so localized copy cannot
 collide with the selected-state indicator. The compact Run input reuses the
 same field treatment as Router route inputs.
 The route lists, explicitly saves, opens, and deletes
-workspace definitions through `AgentGraphStore`; dirty state and revision
+workspace definitions through `AgentGraphStore`. Drafts, their saved baseline,
+revision and Run input persist locally across route changes and restarts.
+Closing or discarding modified definitions requires confirmation; native save
+revision checks remain authoritative. The library can add a workspace folder
+directly through the shared registry. Dirty state and revision
 conflicts stay visible. A separate Run panel accepts the required transient
 input, starts only saved definitions, and keeps a compact selectable Run
 history. Activating any canvas node opens a

@@ -1,13 +1,13 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:0f4444de91d802d9442b7babbf3697dce5ff792f66930d202a9e4ac2cb3717c7 -->
+<!-- tinybot-module-fingerprint: sha256:c1aa7d8e7a40629136ad3924189753e7095ece96fe2cd36d9dc53841017eb90a -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
 and desktop-level modal interaction behavior. Composer file references retain
 the optional managed-image content hash while keeping preview and removal
 interaction independent from native storage. The composer supports internal
-attachment state for ordinary Chat and controlled attachment state for native
-entry points such as desktop-pet quick chat; both paths share selection limits,
+attachment state for standalone consumers and controlled attachment state for
+Chat session drafts and desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
 File drops and clipboard files use the injected `onImportFiles` adapter. Plain
 text paste always inserts the full clipboard text into the current selection,

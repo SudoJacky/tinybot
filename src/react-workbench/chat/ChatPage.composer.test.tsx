@@ -105,6 +105,10 @@ describe("ChatPage", () => {
     await user.click(within(listbox).getByRole("option", { name: /Architecture review/ }));
 
     expect(within(screen.getByLabelText("Composer attachments")).getByText("Architecture review")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Other workspace" }));
+    expect(screen.queryByLabelText("Composer attachments")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Current implementation" }));
+    expect(within(await screen.findByLabelText("Composer attachments")).getByText("Architecture review")).toBeTruthy();
     await user.type(input, "for regressions");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 

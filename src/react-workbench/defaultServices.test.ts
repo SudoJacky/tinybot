@@ -101,6 +101,15 @@ describe("desktop native app services", () => {
     });
   });
 
+  test("projects native content matches with conversation scope and Turn targets", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    mocks.invoke.mockResolvedValueOnce({ threads: [thread], matches: [{ threadId: "thread-1", turnId: "turn-found", snippet: "body match" }], hasMore: true });
+    const result = await services.sessionStore.search!("body");
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_search", { input: { body: { query: "body", includeChildThreads: true, conversationsOnly: true, limit: 100 } } });
+    expect(result).toMatchObject({ hasMore: true, hits: [{ session: { id: "thread-1" }, turnId: "turn-found", snippet: "body match" }] });
+  });
+
   test("initializes directly through native Thread commands", async () => {
     const services = createDesktopAppServices();
 

@@ -251,6 +251,14 @@ export function createDesktopAppServices(
         await initialize();
         return sessionSummaries();
       },
+      async search(query) {
+        await initialize();
+        const result = await requireNative(nativeThreads, "Thread").search({ query, includeChildThreads: true, conversationsOnly: true, limit: 100 });
+        return { hasMore: result.hasMore, hits: result.threads.map((thread) => {
+          const match = result.matches.find((item) => item.threadId === thread.threadId);
+          return { session: mapSession(thread, false), ...(match ? { turnId: match.turnId, snippet: match.snippet } : {}) };
+        }) };
+      },
       async refresh() {
         await initialize();
         await controller.loadSessions();

@@ -1,3 +1,6 @@
+import { startSessionReorderMotion, type SessionReorderMotion } from "./sessionReorderMotion";
+import { useSessionSearch } from "./useSessionSearch";
+import type { SessionStore } from "../services";
 import {
   useEffect,
   useLayoutEffect,
@@ -95,7 +98,7 @@ export type ChatSessionWorkspaceActions = {
     projectContext?: ProjectSessionContext,
   ) => Promise<SessionSummary | null>;
   onDeleteSession: (session: SessionSummary) => Promise<void>;
-  onSelectSession: (session: SessionSummary) => void;
+  onSelectSession: (session: SessionSummary, turnId?: string) => void;
 };
 
 export type ChatSessionWorkspaceRenderContext = {
@@ -118,7 +121,9 @@ export function ChatSessionWorkspace({
   projectGroupStore,
   sessions,
   workspaceRegistryStore,
+  searchSessions,
 }: {
+  searchSessions?: SessionStore["search"];
   actions: ChatSessionWorkspaceActions;
   activeSessionId: string;
   children: ReactNode | ((context: ChatSessionWorkspaceRenderContext) => ReactNode);
@@ -138,9 +143,11 @@ export function ChatSessionWorkspace({
   const [projectDialogGroupId, setProjectDialogGroupId] = useState<string | "new">();
   const [workspaceDialogPath, setWorkspaceDialogPath] = useState<string>();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchMotion, setSearchMotion] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sessionLimits, setSessionLimits] = useState<Record<string, number>>({});
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
+  const [workspaceMenuMotion, setWorkspaceMenuMotion] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
   const workspaceMutationRevisionRef = useRef(0);
@@ -156,6 +163,11 @@ export function ChatSessionWorkspace({
   const searchTriggerRef = useRef<HTMLButtonElement>(null);
   const restoreSearchTriggerFocusRef = useRef(false);
   const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
+  const workspaceMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const workspaceMenuItemsRef = useRef<HTMLDivElement>(null);
+  const workspaceMenuFocusLastRef = useRef(false);
+  const sessionReorderMotionRef = useRef<SessionReorderMotion | undefined>(undefined);
+  useEffect(() => () => sessionReorderMotionRef.current?.dispose(), []);
   const draggedSidebarItemRef = useRef<SidebarDragItem | undefined>(undefined);
 
   useEffect(() => {
@@ -183,16 +195,46 @@ export function ChatSessionWorkspace({
     };
   }, [projectGroupStore, workspaceRegistryStore]);
 
+  function closeWorkspaceMenu(restoreFocus = false, animate = true): void {
+    setWorkspaceMenuMotion(animate);
+    setWorkspaceActionMenuOpen(false);
+    if (restoreFocus) workspaceMenuTriggerRef.current?.focus();
+  }
+
   useEffect(() => {
     if (!workspaceActionMenuOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!workspaceActionMenuRef.current?.contains(event.target as Node)) {
-        setWorkspaceActionMenuOpen(false);
-      }
+      if (!workspaceActionMenuRef.current?.contains(event.target as Node)) closeWorkspaceMenu();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeWorkspaceMenu(true, false);
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
   }, [workspaceActionMenuOpen]);
+
+  useLayoutEffect(() => {
+    if (!workspaceActionMenuOpen || workspaceMenuMotion) return;
+    const items = workspaceMenuItemsRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+    (workspaceMenuFocusLastRef.current ? items?.[items.length - 1] : items?.[0])?.focus();
+  }, [workspaceActionMenuOpen, workspaceMenuMotion]);
+
+  function navigateWorkspaceMenu(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+      : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  }
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -214,14 +256,16 @@ export function ChatSessionWorkspace({
     workspace,
   ])), [workspaces]);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const contentSearch = useSessionSearch(normalizedSearchQuery, searchSessions);
+  const contentMatches = useMemo(() => new Map(contentSearch.results?.hits.map((hit) => [hit.session.id, hit]) ?? []), [contentSearch.results]);
   const visibleSessions = useMemo(() => (
     normalizedSearchQuery
-      ? sessions.filter((session) => (
+      ? [...new Map([...sessions.filter((session) => (
           [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
             .some((value) => value.toLocaleLowerCase().includes(normalizedSearchQuery))
-        ))
+        )), ...[...contentMatches.values()].map((hit) => hit.session)].map((session) => [session.id, session])).values()]
       : sessions
-  ), [normalizedSearchQuery, sessions]);
+  ), [normalizedSearchQuery, sessions, contentMatches]);
   const projectProjection = useMemo(() => {
     const projection = projectSessionGroups(projectGroups, [...visibleSessions]);
     return {
@@ -366,14 +410,32 @@ export function ChatSessionWorkspace({
   function beginSidebarDrag(
     event: ReactDragEvent<HTMLElement>,
     item: SidebarDragItem,
+    currentItems?: readonly SidebarOrderItem[],
   ): void {
+    sessionReorderMotionRef.current?.dispose();
+    setEntrance("settled");
     draggedSidebarItemRef.current = item;
     setDraggedSidebarItem(item);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", item.itemId);
+    if (currentItems) {
+      sessionReorderMotionRef.current = startSessionReorderMotion(
+        event.currentTarget, event.dataTransfer, event,
+        (targetId, placement) => {
+          const target = currentItems.find((candidate) => candidate.itemId === targetId);
+          if (target) moveSidebarItem(item, target, placement, currentItems);
+        },
+        resetSidebarDrag,
+      );
+    }
   }
 
   function finishSidebarDrag(): void {
+    sessionReorderMotionRef.current?.finish(false);
+    resetSidebarDrag();
+  }
+
+  function resetSidebarDrag(): void {
     draggedSidebarItemRef.current = undefined;
     setDraggedSidebarItem(undefined);
     setSidebarDropTarget(undefined);
@@ -530,7 +592,9 @@ export function ChatSessionWorkspace({
         data-dissolving={dissolving ? "true" : undefined}
         data-motion-role="item"
         data-session-id={session.id}
+        data-reorder-container={containerId}
         data-has-status={Boolean(statusLabel)}
+        data-search-hit={Boolean(contentMatches.get(session.id)?.snippet)}
         data-entering={entranceIndex !== undefined ? "true" : undefined}
         draggable={!dissolving}
         key={session.id}
@@ -545,7 +609,7 @@ export function ChatSessionWorkspace({
         }}
         onDragEnd={finishSidebarDrag}
         onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
-        onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
+        onDragStart={(event) => beginSidebarDrag(event, reorderItem, currentItems)}
         onDrop={(event) => dropSidebarItem(event, reorderItem, currentItems)}
         onMouseLeave={() => actions.onCancelDeleteConfirmation(session.id)}
         style={entranceIndex !== undefined
@@ -561,7 +625,9 @@ export function ChatSessionWorkspace({
           disabled={dissolving}
           onClick={() => {
             setEntrance("settled");
-            actions.onSelectSession(session);
+            const turnId = contentMatches.get(session.id)?.turnId;
+             if (turnId) actions.onSelectSession(session, turnId);
+             else actions.onSelectSession(session);
           }}
           onKeyDown={(event) => {
             if (event.altKey && event.key === "ArrowDown"
@@ -573,7 +639,7 @@ export function ChatSessionWorkspace({
           }}
         >
           <span aria-hidden="true" className="react-session-row__icon-placeholder" />
-          <span className="react-session-row__title">{sessionLabel}</span>
+          <span className="react-session-row__title">{sessionLabel}{contentMatches.get(session.id)?.snippet && <span className="react-session-search-snippet">{contentMatches.get(session.id)!.snippet}</span>}</span>
           <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
         </button>
         {statusLabel ? (
@@ -690,13 +756,15 @@ export function ChatSessionWorkspace({
     });
   }
 
-  function closeSessionSearch(): void {
+  function closeSessionSearch(event?: ReactMouseEvent): void {
+    setSearchMotion(Boolean(event?.detail));
     restoreSearchTriggerFocusRef.current = true;
     setSearchQuery("");
     setSearchOpen(false);
   }
 
-  function openSessionSearch(): void {
+  function openSessionSearch(event: ReactMouseEvent): void {
+    setSearchMotion(event.detail > 0);
     setWorkspaceActionMenuOpen(false);
     if (collapsed) actions.onCollapsedChange(false);
     setSearchOpen(true);
@@ -761,7 +829,9 @@ export function ChatSessionWorkspace({
           </nav>
         ) : (
           <div className="react-session-list__header">
-            <div className="react-session-list__title-row" data-search-open={searchOpen ? "true" : undefined}>
+            <div className="react-session-list__title-row" data-search-open={searchOpen ? "true" : undefined} data-search-motion={searchMotion ? "true" : undefined}>
+              <div className="react-session-list__search-morph">
+                <Search aria-hidden="true" className="react-session-list__search-lens" size={15} />
                 <div
                   aria-hidden={!searchOpen}
                   aria-label={t("search.label")}
@@ -769,7 +839,6 @@ export function ChatSessionWorkspace({
                   inert={!searchOpen}
                   role="search"
                 >
-                  <Search aria-hidden="true" size={15} />
                   <input
                     aria-label={t("shell.searchChats")}
                     placeholder={t("search.placeholder")}
@@ -794,10 +863,16 @@ export function ChatSessionWorkspace({
                     <X aria-hidden="true" size={14} />
                   </button>
                 </div>
+              </div>
                 <div className="react-session-list__title-default" aria-hidden={searchOpen} inert={searchOpen}>
                   <h2>Tinybot</h2>
                   <div className="react-session-list__title-actions">
-                    <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
+                    <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}
+                      data-menu-open={workspaceActionMenuOpen ? "true" : undefined}
+                      data-menu-motion={workspaceMenuMotion ? "true" : undefined}
+                      onBlur={(event) => {
+                        if (workspaceActionMenuOpen && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) closeWorkspaceMenu(false, false);
+                      }}>
                       <button
                         aria-expanded={workspaceActionMenuOpen}
                         aria-haspopup="menu"
@@ -806,18 +881,31 @@ export function ChatSessionWorkspace({
                         disabled={workspacePickerPending || createPending}
                         title={t("shell.workspaceActions")}
                         type="button"
-                        onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
+                        ref={workspaceMenuTriggerRef}
+                        onKeyDown={(event) => {
+                          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+                          event.preventDefault();
+                          workspaceMenuFocusLastRef.current = event.key === "ArrowUp";
+                          setWorkspaceMenuMotion(false);
+                          setWorkspaceActionMenuOpen(true);
+                        }}
+                        onClick={(event) => {
+                          workspaceMenuFocusLastRef.current = false;
+                          setWorkspaceMenuMotion(event.detail > 0);
+                          setWorkspaceActionMenuOpen((open) => !open);
+                        }}
                       >
                         <FolderPlus aria-hidden="true" size={15} />
                       </button>
-                      {workspaceActionMenuOpen ? (
-                        <div aria-label={t("shell.workspaceActions")} className="react-popover-surface react-session-list__workspace-menu" role="menu">
+                      <div className="react-popover-surface react-session-list__workspace-menu" aria-hidden={!workspaceActionMenuOpen} inert={!workspaceActionMenuOpen}>
+                        <div aria-label={t("shell.workspaceActions")} className="react-session-list__workspace-menu-items" role="menu" ref={workspaceMenuItemsRef} onKeyDown={navigateWorkspaceMenu}>
+                          <span className="react-session-list__workspace-menu-highlight" aria-hidden="true" />
                           <button
                             className="react-popover-item"
                             role="menuitem"
                             type="button"
-                            onClick={() => {
-                              setWorkspaceActionMenuOpen(false);
+                            onClick={(event) => {
+                              closeWorkspaceMenu(true, event.detail > 0);
                               void handleAddWorkspace();
                             }}
                           >
@@ -829,8 +917,8 @@ export function ChatSessionWorkspace({
                             disabled={!projectGroupStore}
                             role="menuitem"
                             type="button"
-                            onClick={() => {
-                              setWorkspaceActionMenuOpen(false);
+                            onClick={(event) => {
+                              closeWorkspaceMenu(true, event.detail > 0);
                               setProjectDialogGroupId("new");
                             }}
                           >
@@ -838,18 +926,16 @@ export function ChatSessionWorkspace({
                             {t("projectGroups.create")}
                           </button>
                         </div>
-                      ) : null}
+                      </div>
                     </div>
                     <button
                       aria-label={t("shell.searchChats")}
-                      className="react-session-list__search"
+                      className="react-session-list__search-trigger"
                       ref={searchTriggerRef}
                       title={t("shell.searchChats")}
                       type="button"
                       onClick={openSessionSearch}
-                    >
-                      <Search aria-hidden="true" size={15} />
-                    </button>
+                    />
                     <button
                       aria-label={t("shell.collapseSidebar")}
                       className="react-session-list__collapse"
@@ -873,6 +959,9 @@ export function ChatSessionWorkspace({
                 <span>{t("shell.scheduledTasks")}</span>
               </button>
             )}
+            {contentSearch.pending && <p role="status">{t("search.searching")}</p>}
+            {contentSearch.error && <p role="alert">{t("search.failed", { message: contentSearch.error })} <button type="button" onClick={contentSearch.retry}>{t("quickStart.retry")}</button></p>}
+            {contentSearch.results?.hasMore && <p role="status">{t("search.refine")}</p>}
             {displayError ? (
               <p className="react-session-list__error" role="alert">{displayError}</p>
             ) : null}
@@ -1126,7 +1215,7 @@ export function ChatSessionWorkspace({
             );
           })}
           {!rootGroups.length && !collapsed
-            ? <EmptyStateText text={t(normalizedSearchQuery ? "search.noMatches" : "shell.noSessions")} />
+            ? (contentSearch.pending || contentSearch.error ? null : <EmptyStateText text={t(normalizedSearchQuery ? "search.noMatches" : "shell.noSessions")} />)
             : null}
           <p aria-live="polite" className="react-sr-only">{reorderAnnouncement}</p>
         </div>

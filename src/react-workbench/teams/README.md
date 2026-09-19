@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:1904027ad8f23d22c501ed1ab60b0c81a9392e8415b7f6c86ce5bd7434a17acd -->
+<!-- tinybot-module-fingerprint: sha256:e454f75e9fb9b6c82eff5b790b12c0d5d1a4cfb494b242348f3e95244faccfd5 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -8,18 +8,22 @@ model. It prepares a plan before any worker can run. Attachments and file lists
 are not synthesized.
 
 Home lists runs for the selected workspace and identifies their workspace in each
-row. Workspace and member configuration precede submission; expanded member
+row. The workspace chooser can register and select a folder directly.
+Workspace and member configuration precede submission; expanded member
 fields use the full form width. Planning exposes an explicit busy state.
 
 `TeamDetail` keeps one page through plan confirmation, execution and results.
 Dependency rows retain topological order. The inspector exposes real task
 instructions, prerequisites, output, errors and every attempt's standard Thread.
-Legacy Markdown file links open the owning execution record using existing Chat navigation.
+Markdown file links open a shared inline Artifact preview in the result surface.
 The Message board tab lists all completed attempts with author, time, summary,
 unresolved issues, artifact references, and execution-record navigation.
 TeamMessage also renders final/task results. Artifact buttons explicitly load
 verified byte pages; no file is fetched on render. Next section replaces the
-preview, and failures remove stale content and show the backend error.
+preview, and failures remove stale content and show the backend error. A separate
+Preview current file action supports images, Office documents and paginated text
+through the shared workspace reader; it does not replace verified historical
+artifact reads. Result previews omit Chat editing and restoration actions.
 The result tab renders the successful final task output, including when the
 run stopped after producing that output.
 

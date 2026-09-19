@@ -13,6 +13,8 @@ export type ArtifactFileState = {
   loading: boolean;
   error?: string;
   truncated?: boolean;
+  loadingMore?: boolean;
+  loadMore?: () => void;
 };
 
 // Only the visible local file is observed. Each effect owns its request lifetime;
@@ -35,6 +37,7 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
     let disposed = false;
     let inFlight = false;
     let revision: string | undefined;
+    let nextCursor: string | undefined;
     let timer: ReturnType<typeof setTimeout>;
     let lastError: string | undefined;
     let imageUrl: string | undefined;
@@ -70,7 +73,8 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
           }
         } else {
           if (file.contentType !== "text") throw new Error(binaryMessage);
-          next = { loading: false, detail: { id, title, mimeType, textContent: file.content ?? "" }, revision: file.revision, truncated: Boolean(file.nextCursor) };
+          nextCursor = file.nextCursor;
+          next = { loading: false, detail: { id, title, mimeType, textContent: file.content ?? "" }, revision: file.revision, truncated: Boolean(nextCursor), loadMore: nextCursor ? () => void loadMore() : undefined };
         }
         if (disposed) return;
         logRendererEvent("info", "artifact.workspace_file.loaded", { path, threadId, revision: file.revision, refreshed: Boolean(revision) });
@@ -89,6 +93,38 @@ export function useArtifactFile({ artifact, enabled, threadId, workspaceStore, u
       } finally {
         inFlight = false;
         if (!disposed) timer = setTimeout(() => void refresh(), ARTIFACT_REFRESH_INTERVAL_MS);
+      }
+    }
+    async function loadMore() {
+      if (disposed || inFlight || !nextCursor || !readFile) return;
+      clearTimeout(timer);
+      inFlight = true;
+      setState((current) => ({ ...current, loadingMore: true }));
+      try {
+        const file = await readFile({ path: path!, threadId: threadId!, cursor: nextCursor });
+        if (disposed) return;
+        if (file.contentType !== "text" || file.revision !== revision) {
+          throw new Error("File changed while loading more; refresh the preview before continuing");
+        }
+        nextCursor = file.nextCursor;
+        lastError = undefined;
+        setState((current) => ({ ...current, error: undefined,
+          detail: current.detail ? { ...current.detail, textContent: (current.detail.textContent ?? "") + (file.content ?? "") } : undefined,
+          truncated: Boolean(nextCursor), loadMore: nextCursor ? () => void loadMore() : undefined,
+        }));
+      } catch (cause) {
+        if (disposed) return;
+        const error = cause instanceof Error ? cause.message : String(cause);
+        lastError = error;
+        console.error("[artifact-preview] load more failed", { error: cause, path, threadId });
+        logRendererEvent("error", "artifact.workspace_file.read.failed", { path, threadId, error: error.slice(0, 512) });
+        setState((current) => ({ ...current, error }));
+      } finally {
+        inFlight = false;
+        if (!disposed) {
+          setState((current) => ({ ...current, loadingMore: false }));
+          timer = setTimeout(() => void refresh(), ARTIFACT_REFRESH_INTERVAL_MS);
+        }
       }
     }
     const wake = () => { void refresh(); };
