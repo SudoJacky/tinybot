@@ -164,7 +164,7 @@ impl InstructionComposer {
             workspace_root.to_path_buf(),
             BUILTIN_IDENTITY_PRECEDENCE,
             loaded_at_ms,
-            "You are Tinybot, a local-first AI assistant running on the user's machine."
+            "You are Tinybot, a local-first AI assistant running on the user's machine.\n\nWhen search_file_content is available, use it first to search local file contents in the current working directory. Start with a narrow path or file glob when known. Check the returned search scope and truncated flag before concluding that text is absent; an error is not a no-match result."
                 .to_string(),
             false,
             Vec::new(),

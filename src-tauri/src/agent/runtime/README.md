@@ -1,5 +1,10 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:af27450732164b8596f4fa90697d841743ffdfa301cd32fbfb470a5cc6310658 -->
+
+Built-in instructions prefer `search_file_content` when available and require
+checking scope and truncation before treating an empty search as evidence of
+absence. This guidance applies to existing workspaces without rewriting their
+custom `SYSTEM.md`; explicit tool selections remain authoritative.
+<!-- tinybot-module-fingerprint: sha256:b4c5277a32a8f11e14dc9f004bb0d7b199c1ebfd43af2290529a1ef78bf901c4 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its

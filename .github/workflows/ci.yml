@@ -36,6 +36,9 @@ jobs:
       - name: Test release tooling
         run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs .github/scripts/resolve-release-build.test.mjs
 
+      - name: Test ripgrep preparation
+        run: node --test tools/ripgrep/prepare.test.mjs
+
       - name: Test README freshness tooling
         run: node --test .github/scripts/readme-freshness.test.mjs
 
@@ -82,6 +85,8 @@ jobs:
       - name: Check Rust formatting
         working-directory: src-tauri
         run: cargo fmt --check
+      - name: Prepare bundled ripgrep
+        run: npm run prepare:ripgrep -- x86_64-pc-windows-msvc
       - name: Run Rust tests
         working-directory: src-tauri
         run: cargo test --locked --lib -- --test-threads=4

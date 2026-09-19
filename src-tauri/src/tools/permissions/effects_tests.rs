@@ -4,6 +4,36 @@ use crate::tools::registry::WorkerToolRegistryRpc;
 use serde_json::json;
 
 #[test]
+fn file_search_is_scoped_read_only_without_shell_capability() {
+    let policy = CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]);
+    let registry = WorkerToolRegistryRpc::new(policy.clone());
+    let tool = registry.get_tool("search_file_content").unwrap();
+    assert!(tool.available);
+    assert!(tool.supports_parallel_tool_calls);
+    assert!(!tool.runtime_policy.mutates_workspace);
+    let evaluation = WorkerPermissionProfileRpc::new(policy)
+        .evaluate_tool(
+            &tool,
+            PermissionEvaluateToolRequest {
+                tool_id: tool.tool_id.clone(),
+                arguments: json!({"pattern": "needle", "path": "notes"}),
+            },
+        )
+        .unwrap();
+    assert_eq!(evaluation.decision, PermissionDecision::Allow);
+    assert_eq!(
+        evaluation.effects.filesystem.read_roots,
+        vec!["workspace://current/notes"]
+    );
+    assert!(evaluation.effects.filesystem.write_roots.is_empty());
+    assert_eq!(
+        evaluation.effects.network.mode,
+        PermissionNetworkMode::Denied
+    );
+    assert!(!evaluation.effects.environment.inherit);
+}
+
+#[test]
 fn shell_effects_are_current_user_and_ignore_removed_sandbox_fields() {
     let registry =
         WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::ShellExecute]));

@@ -6,6 +6,29 @@ impl WorkerRpcRouter {
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
         match request.method.as_str() {
+            "workspace.search_file_content" => {
+                let started = std::time::Instant::now();
+                eprintln!(
+                    "workspace_search_started request_id={} trace_id={}",
+                    request.id, request.trace_id
+                );
+                let params = parse_params(request)?;
+                let result = self
+                    .workspace
+                    .search_file_content(params, request.cancellation());
+                // Correlate concurrent searches without logging queries or matched content.
+                match &result {
+                    Ok(result) => eprintln!(
+                        "workspace_search_finished request_id={} trace_id={} duration_ms={} match_count={} returned_entries={} stop_reason={}",
+                        request.id, request.trace_id, started.elapsed().as_millis(), result.match_count, result.entries.len(), result.stop_reason,
+                    ),
+                    Err(error) => eprintln!(
+                        "workspace_search_failed request_id={} trace_id={} duration_ms={} code={:?} reason={}",
+                        request.id, request.trace_id, started.elapsed().as_millis(), error.code, error.message,
+                    ),
+                }
+                serde_json::to_value(result?).map_err(serialization_error)
+            }
             "workspace.resolve_path" => {
                 let params: PathParams = parse_params(request)?;
                 serde_json::to_value(self.workspace.resolve_path(&params.path)?)

@@ -59,6 +59,16 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
+Desktop development and packaging automatically prepare the bundled ripgrep
+15.2.0 executable and license files. The first preparation needs network access;
+later runs verify and reuse the downloaded archive. Before invoking Cargo
+directly, run `npm run prepare:ripgrep` from the repository root. An explicit
+target can be supplied as `npm run prepare:ripgrep -- x86_64-pc-windows-msvc`.
+The generated files under `src-tauri/binaries/` and `src-tauri/resources/ripgrep/`
+are build inputs, not source-controlled binaries. Updating ripgrep requires
+reviewing the pinned version and per-target SHA-256 digests in the preparation
+script, then rerunning the real-binary search tests.
+
 After changing desktop startup, Sidecar, WebView2, PTY, or window layout, run
 the relevant sections of the [Windows desktop smoke test](guides/desktop-smoke-test.md).
 

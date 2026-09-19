@@ -288,6 +288,16 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
                 return result.map_err(Into::into);
             }
+            if tool_call.name == "search_file_content" {
+                return tokio::task::spawn_blocking(move || self.dispatch(&context, &tool_call))
+                    .await
+                    .map_err(|error| {
+                        crate::agent::runtime::AgentError::from(format!(
+                            "file search task failed: {error}"
+                        ))
+                    })?
+                    .map_err(Into::into);
+            }
             self.dispatch(&context, &tool_call).map_err(Into::into)
         })
     }

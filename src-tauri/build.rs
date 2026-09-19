@@ -1,6 +1,10 @@
 include!("app_commands.rs");
 
 fn main() {
+    println!(
+        "cargo:rustc-env=TINYBOT_TARGET_TRIPLE={}",
+        std::env::var("TARGET").expect("Cargo must provide TARGET")
+    );
     println!("cargo:rerun-if-changed=tauri.conf.json");
     println!("cargo:rerun-if-changed=app_commands.rs");
     println!("cargo:rerun-if-changed=permissions");

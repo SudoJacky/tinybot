@@ -1,9 +1,15 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:dc6c120d1b799945cadddbac9a19935322712f51f7390302819d7e5b0a9c077f -->
+<!-- tinybot-module-fingerprint: sha256:410937e88b194343a6efcab0559375b71538f2053085f4483b76ff33e71dccd8 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
 behavior, and mutation policy.
+
+`search_file_content` is model-visible by default and targets
+`workspace.search_file_content`. It requires only `FsWorkspaceRead`, permits
+parallel searches, and uses terminate-process cancellation. Its description
+teaches literal/regex matching, scope filters, explicit-file behavior, and the
+need to narrow an incomplete search. Explicit tool selections still apply.
 
 The built-in `create_automation` tool is model-visible and routes to the native
 Agent bridge. Its schema describes supported schedules, RFC 3339 start times,

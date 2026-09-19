@@ -28,6 +28,7 @@ pub(crate) mod artifact_review;
 mod patch;
 mod path_guard;
 mod read;
+pub(crate) mod search;
 mod skills;
 #[cfg(test)]
 mod tests;

@@ -810,7 +810,7 @@ fn repeated_no_progress_call_is_returned_to_model_without_redispatch() {
 }
 
 #[test]
-fn registry_has_no_parallel_safe_builtin_tools() {
+fn registry_allows_parallel_file_search_but_keeps_mutations_exclusive() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
@@ -826,7 +826,7 @@ fn registry_has_no_parallel_safe_builtin_tools() {
         .map(|tool| tool.method.clone())
         .collect::<Vec<_>>();
 
-    assert!(parallel_methods.is_empty());
+    assert_eq!(parallel_methods, vec!["search_file_content"]);
     assert!(
         !tools
             .iter()

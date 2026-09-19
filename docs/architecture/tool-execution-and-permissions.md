@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2b0408dae0d0e31c0893926f53fb7cb146d21c931ed2607f6ba41205cd768c40 -->
+<!-- tinybot-doc-fingerprint: sha256:7e8f7967d4af4063c22b3abf74f82e1a0df53d24d3ae3eb895a2da8ff1205d12 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -148,6 +148,17 @@ concrete MCP registry entries. The generic deferred `mcp.call_tool` fallback is
 not selected by default; a concrete MCP selection suppresses it defensively.
 
 ## Permission enforcement
+
+`search_file_content` is a default model-visible, parallel-safe read tool. The
+bridge routes it to the active working directory's workspace service on a
+blocking worker, preserving cancellation without blocking the async scheduler.
+That service requires `FsWorkspaceRead`, bounds paths to the workspace, and
+executes only the pinned bundled ripgrep binary with typed arguments. It grants
+no general Shell authority and never falls back to PATH or a shell command.
+Limits produce explicitly incomplete results; errors, cancellation, and timeout
+remain failures. The service terminates/reaps the child and joins its bounded
+pipe readers before returning. The request and result contract is documented
+under [file content search](../api/tools-and-processes.md#file-content-search).
 
 The active permission profile supplies a `CapabilityPolicy`. The registry uses
 that policy to mark tools available, and the executor evaluates the registered

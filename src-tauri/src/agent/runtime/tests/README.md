@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:5c55b168763e5810baf98cdd682022a7f951a82bc849bc91c4dfb94875757673 -->
+<!-- tinybot-module-fingerprint: sha256:92a31ae219e285692ded642ada012368db78230ce64e888604bc52e0964eb43c -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -55,3 +55,6 @@ dispatch is blocked, every call ID receives a non-empty error result, and the
 provider loop continues. Dispatcher coverage also verifies that retired
 alternative subagent tool names are rejected as unknown instead of reaching
 execution.
+
+Registry coverage permits parallel `search_file_content` calls while keeping
+workspace writes, Shell commands, and subagent mutation tools exclusive.

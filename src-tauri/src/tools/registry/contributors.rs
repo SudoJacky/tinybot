@@ -499,6 +499,33 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
 pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
     const PATCH_DESCRIPTION: &str = "Apply a structured multi-file patch under the current workspace using relative paths. Patch context must match uniquely. In Add File operations, prefix every content line (including empty lines) with '+'. On failure, inspect the diagnostic and committed changes before retrying; line numbers refer to the submitted patch.";
     vec![
+        worker_rpc_tool(
+            "search_file_content",
+            "workspace.search_file_content",
+            "workspace",
+            "Search file contents",
+            "Preferred tool for searching text in files under the current working directory. Uses bundled ripgrep without a shell. Paths are workspace-relative; default path is '.'. Searches literal text by default; regex=true enables Rust regex syntax (no look-around or backreferences). Returns match/context entries with paths and 1-based line numbers. By default respects ignore files, skips hidden and binary files, and does not follow symbolic links. An explicit file bypasses ignore/hidden filtering. includeHidden/includeIgnored expand directory searches; .git is always excluded. Glob follows ripgrep rules and can explicitly include hidden/ignored paths. Results are bounded to 64 KiB and maxResults matching lines; truncated=true means the search is incomplete: narrow the path, glob or pattern. Failures and the 30-second timeout are errors, never empty matches.",
+            ToolExposure::Model,
+            false,
+            runtime_policy(true, ToolCancellationMode::TerminateProcess, false, false),
+            vec![WorkerCapability::FsWorkspaceRead],
+            json!({
+                "type": "object",
+                "required": ["pattern"],
+                "properties": {
+                    "pattern": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                    "path": { "type": "string", "description": "Workspace-relative file or directory; defaults to '.'", "default": "." },
+                    "regex": { "type": "boolean", "default": false },
+                    "ignoreCase": { "type": "boolean", "default": false },
+                    "glob": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Optional ripgrep file filter, e.g. '*.rs' or '!*.lock'" },
+                    "contextLines": { "type": "integer", "minimum": 0, "maximum": 5, "default": 0 },
+                    "maxResults": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 200 },
+                    "includeHidden": { "type": "boolean", "default": false },
+                    "includeIgnored": { "type": "boolean", "default": false }
+                },
+                "additionalProperties": false
+            }),
+        ),
         tool(
             "workspace.write_file",
             "workspace",

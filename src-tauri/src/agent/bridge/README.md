@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:5b0a8b9979e8c2afb304738199be520a3147e1e09078044a6d013d75f26dfb60 -->
+<!-- tinybot-module-fingerprint: sha256:a3050ee646077d71a05ecabe70544c3001d2fe607239cd55d7bb2c7f268d55bf -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -114,6 +114,11 @@ Registered subagent lifecycle tools execute through Worker RPC so their state
 is restored from and committed to the canonical Thread store. Only the
 runtime-only `subagent.query` and `subagent.cancel` controls use the direct
 subagent dispatcher fallback; unregistered alternative names fail normally.
+
+File content searches execute the workspace RPC path on a blocking worker so
+the async runtime can deliver cancellation while ripgrep is running. They use
+the Turn's working directory and cancellation handle, and wait for the search
+service to terminate/reap its fixed subprocess before returning.
 
 Running Shell results suggest an empty-input `write_stdin` with the latest
 cursor and the Shell module's default 30-second wait, so progress collection

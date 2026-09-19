@@ -130,6 +130,7 @@ npm test
 npm run build
 
 # Rust backend
+npm run prepare:ripgrep
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 

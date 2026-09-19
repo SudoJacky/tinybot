@@ -86,7 +86,7 @@ pub fn normalize_tool_effects(
             effects.environment.inherit = true;
             effects.environment.secret_scopes = vec!["environment://ambient-process".to_string()];
         }
-        "workspace.read_file" => {
+        "workspace.read_file" | "search_file_content" => {
             effects.filesystem.read_roots = vec![workspace_path(arguments, "path")];
         }
         "workspace.write_file" | "workspace.delete_file" | "workspace.create_dir" => {
