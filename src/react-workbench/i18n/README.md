@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:ac5d674aad4edec3c8c0dffb119e80963e6c913a82e50781f178f8410e37c8e4 -->
+<!-- tinybot-module-fingerprint: sha256:fed8c40e7297f6225393caaf0b012c03080e4d8ddd73657737a06ad53abcd217 -->
 
 Settings usage resources cover purposes, request outcomes, source identities,
 missing-usage explanations and the shared Team Usage tab in English and Chinese.

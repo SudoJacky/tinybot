@@ -19,7 +19,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:35d2cfea3177755ca19cc704e70843c22f2aff2f7d98c4330346ad097757772a -->
+<!-- tinybot-doc-fingerprint: sha256:eda609ed082b8dfe3fb914b0a8d4a74fb88dc067de4d35b6ef09b5bd79b1bd65 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),

@@ -1129,7 +1129,7 @@ impl ThreadStore for MemoryThreadStore {
         &self,
         request: SearchThreadsRequest,
     ) -> Result<SearchThreadsResult, WorkerProtocolError> {
-        let query = request.query.trim().to_ascii_lowercase();
+        let query = request.query.trim().to_lowercase();
         let list_request = ListThreadsRequest {
             include_archived: request.include_archived,
             include_child_threads: request.include_child_threads,
@@ -1151,6 +1151,12 @@ impl ThreadStore for MemoryThreadStore {
             })
             .filter(|thread| thread_matches_list_filters(thread, &state.threads, &list_request))
             .filter(|thread| {
+                !request.conversations_only
+                    || (thread.source != "agent_graph"
+                        && (thread.parent_thread_id.is_none()
+                            || matches!(thread.source.as_str(), "fork" | "workspace_thread")))
+            })
+            .filter(|thread| {
                 thread_matches_query(thread, &query)
                     || state
                         .items
@@ -1160,14 +1166,23 @@ impl ThreadStore for MemoryThreadStore {
             .cloned()
             .collect::<Vec<_>>();
         threads.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        threads.truncate(bounded_limit(
-            request.limit,
-            DEFAULT_SEARCH_LIMIT,
-            MAX_SEARCH_LIMIT,
-        ));
+        let limit = bounded_limit(request.limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
+        let has_more = threads.len() > limit;
+        threads.truncate(limit);
+        let matches = threads
+            .iter()
+            .filter_map(|thread| {
+                state
+                    .items
+                    .get(&thread.thread_id)
+                    .and_then(|items| super::query::message_match(items, &query))
+            })
+            .collect();
         Ok(SearchThreadsResult {
             query: request.query,
             threads,
+            matches,
+            has_more,
         })
     }
 

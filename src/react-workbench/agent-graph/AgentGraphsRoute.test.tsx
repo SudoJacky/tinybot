@@ -15,7 +15,7 @@ import type { AppServices, ChatModelOption } from "../services";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import AgentGraphsRoute from "./AgentGraphsRoute";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe("AgentGraphsRoute", () => {
   it("stacks choice copy inside the narrow node configuration popover", () => {
@@ -52,6 +52,7 @@ describe("AgentGraphsRoute", () => {
     await user.clear(screen.getByRole("textbox", { name: "Graph name" }));
     expect(screen.getByRole("alert").textContent).toContain("Enter a graph name");
 
+    vi.stubGlobal("confirm", vi.fn(() => true));
     await user.click(screen.getByRole("button", { name: "Discard draft" }));
     expect(screen.getByText("Start with your first workflow")).toBeTruthy();
   });
@@ -630,3 +631,22 @@ function createDataTransfer(): DataTransfer {
     setDragImage: () => undefined,
   };
 }
+
+it("recovers edited graph drafts after navigation and only discards with confirmation", async () => {
+  const user = userEvent.setup();
+  const services = createServices();
+  const view = render(<AgentGraphsRoute services={services} />);
+  await screen.findByRole("button", { name: "Definition workspace: tinybot" });
+  await user.click(screen.getByRole("button", { name: "Create first graph" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Graph name" }), { target: { value: "Keep this workflow" } });
+  const confirm = vi.fn(() => false); vi.stubGlobal("confirm", confirm);
+  await user.click(screen.getByRole("button", { name: "Discard draft" }));
+  expect((screen.getByRole("textbox", { name: "Graph name" }) as HTMLInputElement).value).toBe("Keep this workflow");
+  view.unmount();
+  render(<AgentGraphsRoute services={services} />);
+  expect((screen.getByRole("textbox", { name: "Graph name" }) as HTMLInputElement).value).toBe("Keep this workflow");
+  expect(services.agentGraphStore.save).not.toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  await user.click(screen.getByRole("button", { name: "Discard draft" }));
+  expect(localStorage.getItem("tinybot.graph-draft.v1")).toBeNull();
+});

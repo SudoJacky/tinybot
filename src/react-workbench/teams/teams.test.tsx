@@ -1,3 +1,4 @@
+import type { WorkspaceStore } from "../services";
 import * as teamsApi from "../../app-core/native/desktopNativeTeams";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
@@ -29,6 +30,7 @@ import TeamsRoute from "./TeamsRoute";
 vi.mock("../chat/AssistantMarkdown", () => ({
   AssistantMarkdown: ({ text }: { text: string }) => <div>{text}</div>,
 }));
+const workspaceStore = { readThreadFile: vi.fn(), readThreadFileBytes: vi.fn() } as unknown as WorkspaceStore;
 afterEach(cleanup);
 it("reconciles planner, task and background usage in the Team usage tab", async () => {
   const usage = { inputTokens: 100, cachedInputTokens: 80, outputTokens: 20, reasoningOutputTokens: 5, totalTokens: 120 };
@@ -39,7 +41,7 @@ it("reconciles planner, task and background usage in the Team usage tab", async 
       calls: 1, reportedCalls: 1, failedCalls: 0, pendingCalls: 0, retryCalls: 0, usage,
     })), invocations: [], nextCursor: null,
   }));
-  render(<TeamDetail run={fixture()} busy={false} loadUsageDetails={loadUsageDetails}
+  render(<TeamDetail workspaceStore={workspaceStore} run={fixture()} busy={false} loadUsageDetails={loadUsageDetails}
     onBack={vi.fn()} onExecute={vi.fn()} onControl={vi.fn()} onRevise={vi.fn()} onOpenThread={vi.fn()} />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "Usage" }));
@@ -134,17 +136,17 @@ it("navigates active work without overriding manual selection when tasks finish"
     onRevise: vi.fn(), onOpenThread: vi.fn(),
   };
   const user = userEvent.setup();
-  const view = render(<TeamDetail {...props} run={fixture()} />);
+  const view = render(<TeamDetail workspaceStore={workspaceStore} {...props} run={fixture()} />);
   const inspector = () => within(screen.getByRole("complementary", { name: "Task details" }));
   expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
-  view.rerender(<TeamDetail {...props} />);
+  view.rerender(<TeamDetail workspaceStore={workspaceStore} {...props} />);
   expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Collect sources");
   expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
   await user.click(inspector().getByRole("button", { name: "View live activity" }));
   expect(props.onOpenThread).toHaveBeenCalledWith("active-thread");
   await user.click(screen.getByRole("button", { name: /02 Synthesize/ }));
   expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
-  view.rerender(<TeamDetail {...props} run={{ ...run, revision: 2 }} />);
+  view.rerender(<TeamDetail workspaceStore={workspaceStore} {...props} run={{ ...run, revision: 2 }} />);
   expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
   await user.click(screen.getByRole("tab", { name: "Result" }));
   await user.click(screen.getByRole("button", { name: "View Researcher's task: Collect sources" }));
@@ -155,7 +157,7 @@ it("navigates active work without overriding manual selection when tasks finish"
       ...r, status: "succeeded", attempts: [{ ...r.attempts[0], status: "succeeded", finishedAt: new Date().toISOString(), output: "Sources gathered" }],
     }),
   };
-  view.rerender(<TeamDetail {...props} run={paused} />);
+  view.rerender(<TeamDetail workspaceStore={workspaceStore} {...props} run={paused} />);
   expect(inspector().getByRole("heading", { level: 2 })).toHaveTextContent("Collect sources");
   expect(inspector().getByText("Sources gathered")).toBeVisible();
   expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
@@ -190,7 +192,7 @@ it("updates elapsed time only during execution and cleans up its timer", () => {
 
 it("keeps the editor controls available and hands keyboard focus back on discard", async () => {
   const user = userEvent.setup();
-  render(<TeamDetail run={fixture()} busy={false} onBack={vi.fn()} onExecute={vi.fn()}
+  render(<TeamDetail workspaceStore={workspaceStore} run={fixture()} busy={false} onBack={vi.fn()} onExecute={vi.fn()}
     onControl={vi.fn()} onRevise={vi.fn()} onOpenThread={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "Edit plan" }));
   expect(screen.getAllByLabelText("Task title")[0]).toHaveFocus();
@@ -225,7 +227,7 @@ it("filters recent runs by workspace and clearly marks the selected project", as
       { path: "D:/other", name: "Other", exists: true, addedAtMs: 0, updatedAtMs: 0 },
     ]), register: vi.fn(), rename: vi.fn(), forget: vi.fn(),
   };
-  render(<TeamsRoute services={{ teamStore: api, workspaceRegistryStore: registry }} onOpenThread={vi.fn()} onNavigate={vi.fn()} />);
+  render(<TeamsRoute services={{ workspaceStore, teamStore: api, workspaceRegistryStore: registry }} onOpenThread={vi.fn()} onNavigate={vi.fn()} />);
   const user = userEvent.setup();
   await screen.findByRole("button", { name: "Workspace: Project" });
   expect(screen.getByRole("button", { name: "Project" })).toHaveAttribute("aria-current", "true");
@@ -313,13 +315,13 @@ it("preserves edits on a revision conflict and keeps attempted task definitions 
     onRevise: vi.fn(),
     onOpenThread: vi.fn(),
   };
-  const view = render(<TeamDetail {...props} />);
+  const view = render(<TeamDetail workspaceStore={workspaceStore} {...props} />);
   await user.click(screen.getByRole("button", { name: "Edit plan" }));
   expect(screen.getAllByLabelText("Task title")[1]).toBeDisabled();
   const title = screen.getAllByLabelText("Task title")[0];
   await user.clear(title);
   await user.type(title, "New synthesis title");
-  view.rerender(<TeamDetail {...props} run={{ ...run, revision: 2 }} />);
+  view.rerender(<TeamDetail workspaceStore={workspaceStore} {...props} run={{ ...run, revision: 2 }} />);
   await user.click(screen.getByRole("button", { name: "Save plan" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Your changes are preserved",
@@ -353,7 +355,7 @@ it("exposes prior attempt records, explicit retry and final output on the same p
     onRevise: vi.fn(),
     onOpenThread,
   };
-  const view = render(<TeamDetail {...props} />);
+  const view = render(<TeamDetail workspaceStore={workspaceStore} {...props} />);
   const user = userEvent.setup();
   await user.click(
     screen.getByRole("button", { name: /Open execution record/ }),
@@ -364,7 +366,7 @@ it("exposes prior attempt records, explicit retry and final output on the same p
   run.tasks[0].status = "succeeded";
   run.tasks[0].attempts[0].output = "Evidence based recommendation";
   view.rerender(
-    <TeamDetail {...props} run={{ ...run, status: "completed" }} />,
+    <TeamDetail workspaceStore={workspaceStore} {...props} run={{ ...run, status: "completed" }} />,
   );
   await user.click(screen.getByRole("tab", { name: "Result" }));
   expect(screen.getByRole("tabpanel")).toHaveTextContent(
@@ -391,7 +393,7 @@ it("prepares a real workspace-bound roster and waits for explicit start", async 
   };
   render(
     <TeamsRoute
-      services={{ teamStore: api, workspaceRegistryStore: registry }}
+      services={{ workspaceStore, teamStore: api, workspaceRegistryStore: registry }}
       onOpenThread={vi.fn()}
       onNavigate={vi.fn()}
     />,
@@ -484,7 +486,7 @@ it("shows shared messages and pages verified artifacts without loading them auto
     .mockResolvedValueOnce({ text: "first", byteOffset: 0, nextByteOffset: 5, totalBytes: 100000, path: "evidence.txt", sha256: "abc" })
     .mockRejectedValueOnce(new Error("Artifact changed since publication"));
   const open = vi.fn(async () => {});
-  render(<TeamDetail run={run} busy={false} onBack={() => {}} onExecute={() => {}} onControl={async () => {}} onRevise={async () => undefined} onOpenThread={open} />);
+  render(<TeamDetail workspaceStore={workspaceStore} run={run} busy={false} onBack={() => {}} onExecute={() => {}} onControl={async () => {}} onRevise={async () => undefined} onOpenThread={open} />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "Message board" }));
   const board = screen.getByRole("tabpanel", { name: "Message board" });

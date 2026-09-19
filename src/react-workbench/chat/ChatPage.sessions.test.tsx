@@ -1431,3 +1431,28 @@ describe("ChatPage", () => {
     expect(stores.sessionStore.archive).toHaveBeenCalledWith("s1");
   });
 });
+
+it("finds a conversation by message text and focuses the matching turn", async () => {
+  const stores = createStores({ sessions: [
+    { id: "s1", title: "First conversation", updatedAtMs: 2 },
+    { id: "s2", title: "Deployment notes", updatedAtMs: 1 },
+  ] });
+  const timeline = timelineFromReactMessages("s2", [
+    { id: "user", role: "user", status: "complete", text: "Investigate the nebula failure", createdAtMs: 1 },
+    { id: "assistant", role: "assistant", status: "complete", text: "The nebula failure is resolved", createdAtMs: 2 },
+  ]);
+  stores.chatStore.load = vi.fn(async (id) => id === "s2" ? timeline : timelineFromReactMessages(id, []));
+  stores.sessionStore.search = vi.fn(async () => ({ hits: [{
+    session: { id: "s2", title: "Deployment notes", updatedAtMs: 1 },
+    turnId: timeline.turns[0].id, snippet: "Investigate the nebula failure",
+  }], hasMore: false }));
+  render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
+  await screen.findByRole("button", { name: "First conversation" });
+  fireEvent.click(screen.getByRole("button", { name: "Search chats" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search chats" }), { target: { value: "nebula" } });
+  expect(await screen.findByText("Investigate the nebula failure")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Deployment notes" }));
+  await waitFor(() => expect(document.activeElement?.getAttribute("data-scroll-anchor")).toBe("turn:" + timeline.turns[0].id));
+  expect(document.activeElement?.getAttribute("data-search-match")).toBe("true");
+  expect(stores.sessionStore.search).toHaveBeenCalledWith("nebula");
+});

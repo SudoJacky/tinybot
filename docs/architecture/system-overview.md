@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e7fd503a1ae9481e2caf13b205bfc5b7967ae946965f536a7585b0d2988cac2b -->
+<!-- tinybot-doc-fingerprint: sha256:2cb1b905c954b76513c4d849019bd6333fc408c82c6c81a0e4991f8909dd5666 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -55,6 +55,12 @@ Before dispatch, Chat asks the native Workspace service to save the original
 bytes. Sidecar presents value/preview comparisons and explicit keep/restore
 actions; native storage owns the baseline and exact-content conflict checks.
 Keeping acknowledges the live file, while restoring atomically replaces it.
+
+Automation and Team result surfaces reuse the read-only Artifact renderer for
+inline text, image and Office previews. Team published artifacts retain their
+separate hash-verified history reads; previewing the current workspace file is
+an explicit action. Chat context and Graph/Automation editor drafts persist
+locally across route changes, without moving canonical execution state out of Rust.
 
 Raster previews use the same revision-bound binary reads; code previews reuse
 the renderer's syntax highlighter. File-type recognition stays in application

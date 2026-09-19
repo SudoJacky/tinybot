@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:159f5242214f1099695a4d0a95a8a1b5965612dd74c3fbe96ae7050013836d1d -->
+<!-- tinybot-module-fingerprint: sha256:6e766c21b358d14b10704672c612bfda5a65710cad38c918094c502189fd24e2 -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
@@ -43,6 +43,11 @@ close event.
 
 The Sidecar header and Chat session bar are both 36px tall including their
 bottom borders. Resource tab selection fills the available header height.
+
+`ArtifactDetails` shares file rendering with the read-only `ResultFilePreview`
+used by Team and Automation results. Only the open file is observed; text can
+load more pages within the same revision and binary URLs are released on close.
+Result consumers provide read capabilities only, without restoration or editing.
 
 `ImageArtifactPreview` displays local raster files proportionally and reports
 decode errors. `CodeArtifactPreview` reuses chat syntax highlighting, themes,

@@ -64,6 +64,7 @@ export function ChatTimeline({
   hookResults,
   interactiveFormIds,
   latestFailedTurnId,
+  highlightedTurnId,
   optimisticMessages,
   providerRetry,
   sessionRunning,
@@ -74,6 +75,7 @@ export function ChatTimeline({
   hookResults: readonly HookExecutionResult[];
   interactiveFormIds: ReadonlySet<string>;
   latestFailedTurnId: string;
+  highlightedTurnId?: string;
   optimisticMessages: readonly ReactChatMessage[];
   providerRetry?: ProviderRetryStatus;
   sessionRunning: boolean;
@@ -94,6 +96,7 @@ export function ChatTimeline({
       {turns.map((turn) => (
         <CanonicalChatTurn
           focusError={turn.id === latestFailedTurnId}
+          searchMatch={turn.id === highlightedTurnId}
           interactiveFormIds={interactiveFormIds}
           key={turn.id}
           hookResults={hooksByTurn.get(turn.id) ?? EMPTY_HOOK_RESULTS}
@@ -130,6 +133,7 @@ async function writeClipboardText(value: string): Promise<void> {
 
 const CanonicalChatTurn = memo(function CanonicalChatTurn({
   focusError,
+  searchMatch,
   hookResults,
   interactiveFormIds,
   onBranch,
@@ -141,6 +145,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
   turn,
 }: {
   focusError: boolean;
+  searchMatch?: boolean;
   hookResults: readonly HookExecutionResult[];
   interactiveFormIds: ReadonlySet<string>;
   onBranch?: (messageId: string) => void;
@@ -169,7 +174,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
   ));
   const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
   return (
-    <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status} data-scroll-anchor={`turn:${turn.id}`}>
+    <section aria-label={t("turn.label")} className="react-canonical-turn" data-search-match={searchMatch || undefined} data-status={turn.status} data-scroll-anchor={`turn:${turn.id}`}>
       {hasUserMessage ? (
         <CanonicalMessage
           messageId={turn.userMessage.id}

@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:a6536f88f0f22d4ebed2127b5fa945ecbdf093e076073e10a936400441a48421 -->
+<!-- tinybot-module-fingerprint: sha256:cd8dc4cc1aeb3752fa84c9671de9ba71fbf87f6ee5bc75c2db209a58abd84fa4 -->
 
 `desktopNativeTokenUsage` exposes the v3 snapshot and paginated usage details.
 Settings and Teams reuse this API; renderer adapters never accumulate counters.
@@ -91,6 +91,8 @@ or oversized payloads fail at these Adapter boundaries.
 
 `desktopNativeThreads` owns typed Thread reads, runtime-state queries,
 effective-capability queries, correlated form resolution, and operation retry.
+Its typed search response carries records, message excerpts with Turn identity,
+and a result-cap indicator; conversation filtering stays in the native store.
 Browser sessions remain a separate native adapter so another desktop surface
 can attach to the same WebView2 runtime used by Agent web tools.
 

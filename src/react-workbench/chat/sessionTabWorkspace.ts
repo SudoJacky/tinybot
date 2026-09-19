@@ -1,3 +1,20 @@
+import type { ComposerFileReference } from "../../components/ui/claude-style-ai-input";
+import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
+import type { SpreadsheetComposerAnnotation } from "./chatSubmission";
+
+export type ComposerDraftContext = {
+  files: ComposerFileReference[];
+  sessionMentionIds: string[];
+  skillIds: string[];
+  artifactReferences: (AgentInputReference & { id: string })[];
+  spreadsheetAnnotations: SpreadsheetComposerAnnotation[];
+};
+export const EMPTY_COMPOSER_CONTEXT: ComposerDraftContext = { files: [], sessionMentionIds: [], skillIds: [], artifactReferences: [], spreadsheetAnnotations: [] };
+export function sessionTabContext(state: Pick<SessionTabWorkspaceState, "contextsBySession">, sessionId: string): ComposerDraftContext {
+  return state.contextsBySession?.[composerDraftKey(sessionId)] ?? EMPTY_COMPOSER_CONTEXT;
+}
+export function hasComposerContext(context: ComposerDraftContext): boolean { return Object.values(context).some((items) => items.length > 0); }
+
 export const CHAT_SESSION_TABS_STORAGE_KEY = "tinybot.ui.chat.session-tabs.v1";
 export const DRAFT_SESSION_KEY = "__tinybot_draft_session__";
 
@@ -18,18 +35,20 @@ export type SessionTabWorkspaceState = {
   activeSessionId: string;
   draftSessionsById: Record<string, DraftSession>;
   draftsBySession: Record<string, string>;
+  contextsBySession?: Record<string, ComposerDraftContext>;
   openSessionIds: string[];
   unreadSessionIds: string[];
 };
 
 export type PersistedSessionTabWorkspace = Pick<
   SessionTabWorkspaceState,
-  "activeSessionId" | "draftsBySession" | "openSessionIds"
+  "activeSessionId" | "draftsBySession" | "openSessionIds" | "contextsBySession"
 > & {
   draftSessionsById?: Record<string, DraftSession>;
 };
 
 export type SessionTabWorkspaceEvent =
+  | { type: "context.changed"; sessionId: string; update: (context: ComposerDraftContext) => ComposerDraftContext }
   | { type: "hydrate"; availableSessionIds: string[]; persisted?: PersistedSessionTabWorkspace }
   | { type: "open"; sessionId: string }
   | { type: "activate"; sessionId: string }
@@ -56,31 +75,43 @@ export function reduceSessionTabWorkspace(
   event: SessionTabWorkspaceEvent,
 ): SessionTabWorkspaceState {
   switch (event.type) {
+    case "context.changed": {
+      const contextsBySession = { ...state.contextsBySession };
+      const key = composerDraftKey(event.sessionId);
+      const context = event.update(sessionTabContext(state, event.sessionId));
+      if (hasComposerContext(context)) contextsBySession[key] = context;
+      else delete contextsBySession[key];
+      return { ...state, contextsBySession };
+    }
     case "hydrate": {
       const hydrated = hydrateWorkspace(event.availableSessionIds, event.persisted);
       const startupDraft = state.draftsBySession[DRAFT_SESSION_KEY];
-      if (!startupDraft) {
+      if (!startupDraft && !hasComposerContext(sessionTabContext(state, ""))) {
         return hydrated;
       }
       return {
         ...hydrated,
+        contextsBySession: { ...hydrated.contextsBySession, ...state.contextsBySession },
         activeSessionId: "",
         draftsBySession: {
           ...hydrated.draftsBySession,
-          [DRAFT_SESSION_KEY]: startupDraft,
+          [DRAFT_SESSION_KEY]: startupDraft ?? "",
         },
       };
     }
     case "startup-draft.materialize": {
       const startupText = sessionTabDraft(state, "");
-      if (state.activeSessionId || !startupText.trim()) {
+      if (state.activeSessionId || (!startupText.trim() && !hasComposerContext(sessionTabContext(state, "")))) {
         return state;
       }
       const draftsBySession = { ...state.draftsBySession };
       delete draftsBySession[DRAFT_SESSION_KEY];
       draftsBySession[event.draft.id] = startupText;
+      const contextsBySession = { ...state.contextsBySession };
+      if (contextsBySession[DRAFT_SESSION_KEY]) { contextsBySession[event.draft.id] = contextsBySession[DRAFT_SESSION_KEY]; delete contextsBySession[DRAFT_SESSION_KEY]; }
       return {
         ...state,
+        contextsBySession,
         activeSessionId: event.draft.id,
         draftSessionsById: {
           ...state.draftSessionsById,
@@ -142,7 +173,9 @@ export function reduceSessionTabWorkspace(
       const closed = reduceSessionTabWorkspace(state, { type: "close", sessionId: event.sessionId });
       const draftsBySession = { ...closed.draftsBySession };
       delete draftsBySession[event.sessionId];
-      return { ...closed, draftsBySession };
+      const contextsBySession = { ...closed.contextsBySession };
+      delete contextsBySession[event.sessionId];
+      return { ...closed, draftsBySession, contextsBySession };
     }
     case "activity":
       if (event.sessionId === state.activeSessionId
@@ -201,7 +234,10 @@ export function reduceSessionTabWorkspace(
       }
       const draftSessionsById = { ...state.draftSessionsById };
       delete draftSessionsById[event.previousSessionId];
+      const contextsBySession = { ...state.contextsBySession };
+      if (contextsBySession[previousDraftKey]) { contextsBySession[event.sessionId] = contextsBySession[previousDraftKey]; delete contextsBySession[previousDraftKey]; }
       return {
+        ...(state.contextsBySession ? { contextsBySession } : {}),
         activeSessionId: state.activeSessionId === event.previousSessionId
           ? event.sessionId
           : state.activeSessionId,
@@ -228,6 +264,7 @@ export function reduceSessionTabWorkspace(
         )),
       );
       return {
+        ...(state.contextsBySession ? { contextsBySession: Object.fromEntries(Object.entries(state.contextsBySession).filter(([id]) => id === DRAFT_SESSION_KEY || available.has(id))) } : {}),
         activeSessionId,
         draftSessionsById: state.draftSessionsById,
         draftsBySession,
@@ -248,7 +285,7 @@ export function persistedSessionTabWorkspace(
   state: SessionTabWorkspaceState,
 ): PersistedSessionTabWorkspace {
   const dirtyDraftSessionIds = new Set(Object.keys(state.draftSessionsById).filter((sessionId) => (
-    Boolean(sessionTabDraft(state, sessionId).trim())
+    Boolean(sessionTabDraft(state, sessionId).trim()) || hasComposerContext(sessionTabContext(state, sessionId))
   )));
   const draftSessionsById = Object.fromEntries(
     Object.entries(state.draftSessionsById).filter(([sessionId]) => dirtyDraftSessionIds.has(sessionId)),
@@ -264,6 +301,7 @@ export function persistedSessionTabWorkspace(
     activeSessionId,
     draftSessionsById,
     draftsBySession: state.draftsBySession,
+    ...(state.contextsBySession ? { contextsBySession: state.contextsBySession } : {}),
     openSessionIds,
   };
 }
@@ -290,6 +328,7 @@ export function readPersistedSessionTabWorkspace(
       draftSessionsById: value.draftSessionsById ?? {},
       draftsBySession: value.draftsBySession,
       openSessionIds: unique(value.openSessionIds),
+      ...(value.contextsBySession ? { contextsBySession: parseComposerContexts(value.contextsBySession) } : {}),
     };
   } catch (error) {
     console.warn("[session-tabs] Failed to restore the saved workspace.", error);
@@ -310,7 +349,7 @@ function hydrateWorkspace(
 ): SessionTabWorkspaceState {
   const draftSessionsById = Object.fromEntries(
     Object.entries(persisted?.draftSessionsById ?? {}).filter(([sessionId]) => (
-      Boolean(persisted?.draftsBySession[sessionId]?.trim())
+      Boolean(persisted?.draftsBySession[sessionId]?.trim()) || hasComposerContext(sessionTabContext(persisted ?? {}, sessionId))
     )),
   );
   const available = new Set([...availableSessionIds, ...Object.keys(draftSessionsById)]);
@@ -328,6 +367,7 @@ function hydrateWorkspace(
     )),
   );
   return {
+    ...(persisted?.contextsBySession ? { contextsBySession: Object.fromEntries(Object.entries(persisted.contextsBySession).filter(([id]) => id === DRAFT_SESSION_KEY || available.has(id))) } : {}),
     activeSessionId,
     draftSessionsById,
     draftsBySession,
@@ -338,7 +378,7 @@ function hydrateWorkspace(
 
 function discardActivePristineDraft(state: SessionTabWorkspaceState): SessionTabWorkspaceState {
   const draft = state.draftSessionsById[state.activeSessionId];
-  if (!draft || sessionTabDraft(state, draft.id).trim()) {
+  if (!draft || sessionTabDraft(state, draft.id).trim() || hasComposerContext(sessionTabContext(state, draft.id))) {
     return state;
   }
   return removeDraftSession(state, draft.id);
@@ -352,9 +392,12 @@ function removeDraftSession(
   delete draftSessionsById[sessionId];
   const draftsBySession = { ...state.draftsBySession };
   delete draftsBySession[sessionId];
+  const contextsBySession = { ...state.contextsBySession };
+  delete contextsBySession[sessionId];
   const openSessionIds = withoutValue(state.openSessionIds, sessionId);
   return {
     ...state,
+    ...(state.contextsBySession ? { contextsBySession } : {}),
     activeSessionId: state.activeSessionId === sessionId
       ? openSessionIds[0] ?? ""
       : state.activeSessionId,
@@ -403,4 +446,13 @@ function isDraftSessionCreateInput(value: unknown): value is DraftSessionCreateI
     }
     return false;
   });
+}
+
+function parseComposerContexts(value: unknown): Record<string, ComposerDraftContext> {
+  if (!isRecord(value)) throw new Error("Invalid saved composer contexts");
+  for (const context of Object.values(value)) {
+    if (!isRecord(context) || !Object.keys(EMPTY_COMPOSER_CONTEXT).every((key) => Array.isArray(context[key]))) throw new Error("Invalid saved composer context");
+    if (![...context.sessionMentionIds as unknown[], ...context.skillIds as unknown[]].every((id) => typeof id === "string")) throw new Error("Invalid saved composer selections");
+  }
+  return value as Record<string, ComposerDraftContext>;
 }

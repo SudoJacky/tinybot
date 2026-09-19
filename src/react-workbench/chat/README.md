@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:1d6407d63fc3c81d5d377dbaa5f6429fa1d359bd5a4d83e94aac691f7e25fa35 -->
+<!-- tinybot-module-fingerprint: sha256:e23ffabac1da86b8d3e0fe966dfb509a65ca5cf2e0b13823480c2f94e4d0a045 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -52,6 +52,16 @@ Escape, pointer cancellation, capture loss, blur, and unmount release the drag.
 The separator supports arrow keys (8 px, or 32 px with Shift), Home/End, and
 double-click reset. Tests cover persistence, bounds, cancellation, focus, and
 render isolation.
+Session drafts persist text, attachments, session mentions, skills, artifact
+references and spreadsheet annotations by session identity. Attachment-only
+drafts survive navigation and materialization; successful submission clears
+only the submitted session. Discarding an unsent local draft asks for confirmation.
+
+Search merges immediate metadata matches with debounced native content matches.
+Results show message excerpts and open, highlight and focus the matching Turn.
+Stale requests cannot replace newer queries; errors expose Retry and capped
+results invite a narrower query.
+
 Inline session search stays mounted within the expanded sidebar so both opening
 and closing can transition, including rapid reversals. The inactive search or
 title controls are inert and hidden from accessibility APIs. Closing clears the

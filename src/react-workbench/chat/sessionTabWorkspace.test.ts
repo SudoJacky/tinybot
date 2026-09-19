@@ -5,6 +5,8 @@ import {
   persistedSessionTabWorkspace,
   reduceSessionTabWorkspace,
   sessionTabDraft,
+  sessionTabContext,
+  EMPTY_COMPOSER_CONTEXT,
 } from "./sessionTabWorkspace";
 
 describe("sessionTabWorkspace", () => {
@@ -290,4 +292,25 @@ describe("sessionTabWorkspace", () => {
       openSessionIds: ["s1", "draft:dirty"],
     });
   });
+});
+
+it("retains attachment-only drafts through switching, restoration, materialization and deletion", () => {
+  const draft = { id: "draft-1", createdAtMs: 1, createInput: {} };
+  const context = { ...EMPTY_COMPOSER_CONTEXT,
+    files: [{ id: "file", name: "notes.md", path: "D:/notes.md", mimeType: "text/markdown", sizeBytes: 20 }],
+    sessionMentionIds: ["s2"], skillIds: ["review"],
+    artifactReferences: [{ kind: "reference" as const, id: "ref", title: "Evidence", detail: "Reference", sourceText: "Important context" }],
+  };
+  let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, { type: "context.changed", sessionId: "", update: () => context });
+  state = reduceSessionTabWorkspace(state, { type: "startup-draft.materialize", draft });
+  state = reduceSessionTabWorkspace(state, { type: "open", sessionId: "s2" });
+  expect(state.draftSessionsById[draft.id]).toEqual(draft);
+  expect(sessionTabContext(state, "s2")).toEqual(EMPTY_COMPOSER_CONTEXT);
+  state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, { type: "hydrate", availableSessionIds: ["s2"], persisted: JSON.parse(JSON.stringify(persistedSessionTabWorkspace(state))) });
+  expect(sessionTabContext(state, draft.id)).toEqual(context);
+  state = reduceSessionTabWorkspace(state, { type: "replace", previousSessionId: draft.id, sessionId: "real-thread" });
+  expect(sessionTabContext(state, "real-thread")).toEqual(context);
+  expect(sessionTabContext(state, draft.id)).toEqual(EMPTY_COMPOSER_CONTEXT);
+  state = reduceSessionTabWorkspace(state, { type: "remove", sessionId: "real-thread" });
+  expect(sessionTabContext(state, "real-thread")).toEqual(EMPTY_COMPOSER_CONTEXT);
 });

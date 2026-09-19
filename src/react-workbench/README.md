@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:b5ed2612550c76079b42c1e74c110acbda8a26186df40afd6ccc3a81f3dbc6be -->
+<!-- tinybot-module-fingerprint: sha256:b6b355289b13eff8ea5f0b18d514b8a6450ba88e0040e03b681f79a00574cb00 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -22,6 +22,8 @@ the optional native pet and quick-chat hosts.
 The session store publishes cached summaries on native session discovery,
 generated titles, and turn completion independently of conversation listeners.
 An empty Chat route can therefore receive pet-created conversations immediately.
+The session store also projects native content search into session summaries,
+message excerpts and Turn navigation targets, with a capped-result indicator.
 The `MemoryStore` seam exposes load and revision-checked mutations through the
 native adapter. The lazy Memory route owns editing, scope selection, search,
 and batch deletion; SQLite ownership stays in Rust.
@@ -29,7 +31,7 @@ Native Chat submission, model resolution, cancellation, compaction, and fork
 lookup are implemented by `chat/desktopChatCommands.ts`, which receives the
 native adapters and event notifications from this composition root.
 
-The standalone [`agent-graph/`](agent-graph/README.md) route owns the in-memory
+The standalone [`agent-graph/`](agent-graph/README.md) route owns the locally recoverable
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
 state. It receives the shared stores only to derive definition and per-Agent
 execution workspace choices and to consume the dedicated `AgentGraphStore`.

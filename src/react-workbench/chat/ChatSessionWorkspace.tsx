@@ -1,3 +1,5 @@
+import { useSessionSearch } from "./useSessionSearch";
+import type { SessionStore } from "../services";
 import {
   useEffect,
   useLayoutEffect,
@@ -95,7 +97,7 @@ export type ChatSessionWorkspaceActions = {
     projectContext?: ProjectSessionContext,
   ) => Promise<SessionSummary | null>;
   onDeleteSession: (session: SessionSummary) => Promise<void>;
-  onSelectSession: (session: SessionSummary) => void;
+  onSelectSession: (session: SessionSummary, turnId?: string) => void;
 };
 
 export type ChatSessionWorkspaceRenderContext = {
@@ -118,7 +120,9 @@ export function ChatSessionWorkspace({
   projectGroupStore,
   sessions,
   workspaceRegistryStore,
+  searchSessions,
 }: {
+  searchSessions?: SessionStore["search"];
   actions: ChatSessionWorkspaceActions;
   activeSessionId: string;
   children: ReactNode | ((context: ChatSessionWorkspaceRenderContext) => ReactNode);
@@ -214,14 +218,16 @@ export function ChatSessionWorkspace({
     workspace,
   ])), [workspaces]);
   const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const contentSearch = useSessionSearch(normalizedSearchQuery, searchSessions);
+  const contentMatches = useMemo(() => new Map(contentSearch.results?.hits.map((hit) => [hit.session.id, hit]) ?? []), [contentSearch.results]);
   const visibleSessions = useMemo(() => (
     normalizedSearchQuery
-      ? sessions.filter((session) => (
+      ? [...new Map([...sessions.filter((session) => (
           [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
             .some((value) => value.toLocaleLowerCase().includes(normalizedSearchQuery))
-        ))
+        )), ...[...contentMatches.values()].map((hit) => hit.session)].map((session) => [session.id, session])).values()]
       : sessions
-  ), [normalizedSearchQuery, sessions]);
+  ), [normalizedSearchQuery, sessions, contentMatches]);
   const projectProjection = useMemo(() => {
     const projection = projectSessionGroups(projectGroups, [...visibleSessions]);
     return {
@@ -531,6 +537,7 @@ export function ChatSessionWorkspace({
         data-motion-role="item"
         data-session-id={session.id}
         data-has-status={Boolean(statusLabel)}
+        data-search-hit={Boolean(contentMatches.get(session.id)?.snippet)}
         data-entering={entranceIndex !== undefined ? "true" : undefined}
         draggable={!dissolving}
         key={session.id}
@@ -561,7 +568,9 @@ export function ChatSessionWorkspace({
           disabled={dissolving}
           onClick={() => {
             setEntrance("settled");
-            actions.onSelectSession(session);
+            const turnId = contentMatches.get(session.id)?.turnId;
+             if (turnId) actions.onSelectSession(session, turnId);
+             else actions.onSelectSession(session);
           }}
           onKeyDown={(event) => {
             if (event.altKey && event.key === "ArrowDown"
@@ -573,7 +582,7 @@ export function ChatSessionWorkspace({
           }}
         >
           <span aria-hidden="true" className="react-session-row__icon-placeholder" />
-          <span className="react-session-row__title">{sessionLabel}</span>
+          <span className="react-session-row__title">{sessionLabel}{contentMatches.get(session.id)?.snippet && <span className="react-session-search-snippet">{contentMatches.get(session.id)!.snippet}</span>}</span>
           <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
         </button>
         {statusLabel ? (
@@ -873,6 +882,9 @@ export function ChatSessionWorkspace({
                 <span>{t("shell.scheduledTasks")}</span>
               </button>
             )}
+            {contentSearch.pending && <p role="status">{t("search.searching")}</p>}
+            {contentSearch.error && <p role="alert">{t("search.failed", { message: contentSearch.error })} <button type="button" onClick={contentSearch.retry}>{t("quickStart.retry")}</button></p>}
+            {contentSearch.results?.hasMore && <p role="status">{t("search.refine")}</p>}
             {displayError ? (
               <p className="react-session-list__error" role="alert">{displayError}</p>
             ) : null}
@@ -1126,7 +1138,7 @@ export function ChatSessionWorkspace({
             );
           })}
           {!rootGroups.length && !collapsed
-            ? <EmptyStateText text={t(normalizedSearchQuery ? "search.noMatches" : "shell.noSessions")} />
+            ? (contentSearch.pending || contentSearch.error ? null : <EmptyStateText text={t(normalizedSearchQuery ? "search.noMatches" : "shell.noSessions")} />)
             : null}
           <p aria-live="polite" className="react-sr-only">{reorderAnnouncement}</p>
         </div>

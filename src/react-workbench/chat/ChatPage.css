@@ -4663,3 +4663,7 @@
 }
 .react-provider-retry > svg { flex: none; margin-top: 3px; }
 .react-provider-retry small { display: block; font-size: 12px; }
+
+.react-session-row[data-search-hit="true"] .react-session-row__select { min-height: 60px; }
+.react-session-search-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; font-size: 12px; font-weight: 400; color: var(--color-text-secondary); }
+.react-canonical-turn[data-search-match="true"] { outline: 2px solid var(--color-accent); outline-offset: 4px; border-radius: 8px; }

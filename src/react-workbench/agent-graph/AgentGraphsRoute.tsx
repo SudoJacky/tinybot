@@ -1,3 +1,5 @@
+import { AddWorkspaceButton } from "../lib/AddWorkspaceButton";
+import { readEditorDraft, writeEditorDraft } from "../lib/editorDraft";
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import { ArrowUpRight, Circle, Eye, GripVertical, PencilLine, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -48,14 +50,17 @@ const STARTER_GRAPH_PREVIEW = createAgentGraphDraft({
   name: "",
   workspacePath: "",
 });
+const DRAFT_KEY = "tinybot.graph-draft.v1";
+type RecoveredGraphDraft = { draft: AgentGraphDefinition; draftRevision: string | null; savedDefinition: string | null; definitionWorkspacePath: string; runInput: string };
 type AgentGraphInteractionMode = "edit" | "view";
 
 export default function AgentGraphsRoute({ services }: { services: AppServices }) {
   const { t } = useTranslation("common");
+  const [recovered] = useState(() => readEditorDraft<RecoveredGraphDraft>(DRAFT_KEY));
   const draftSequence = useRef(0);
   const nodeSequence = useRef(0);
   const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceRegistryEntry[]>([]);
-  const [definitionWorkspacePath, setDefinitionWorkspacePath] = useState("");
+  const [definitionWorkspacePath, setDefinitionWorkspacePath] = useState(recovered?.definitionWorkspacePath ?? "");
   const [workspaceCatalogError, setWorkspaceCatalogError] = useState<string | null>(null);
   const [workspaceCatalogReady, setWorkspaceCatalogReady] = useState(false);
   const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
@@ -69,16 +74,17 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [runsLoading, setRunsLoading] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [runInput, setRunInput] = useState("");
-  const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
-  const [draftRevision, setDraftRevision] = useState<string | null>(null);
-  const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
+  const [runInput, setRunInput] = useState(recovered?.runInput ?? "");
+  const [draft, setDraft] = useState<AgentGraphDefinition | null>(recovered?.draft ?? null);
+  const [draftRevision, setDraftRevision] = useState<string | null>(recovered?.draftRevision ?? null);
+  const [savedDefinition, setSavedDefinition] = useState<string | null>(recovered?.savedDefinition ?? null);
   const [interactionMode, setInteractionMode] = useState<AgentGraphInteractionMode>("edit");
   const [selectedConfigNodeId, setSelectedConfigNodeId] = useState<string | null>(null);
   const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
   const issues = draft ? validateAgentGraphDefinition(draft) : [];
   const draftDirty = Boolean(draft && JSON.stringify(draft) !== savedDefinition);
+  useEffect(() => { writeEditorDraft(DRAFT_KEY, draft ? { draft, draftRevision, savedDefinition, definitionWorkspacePath, runInput } : null); }, [draft, draftRevision, savedDefinition, definitionWorkspacePath, runInput]);
   const selectedInputNode = draft?.nodes.find((node) => (
     node.id === selectedConfigNodeId && node.kind === "input"
   ));
@@ -487,6 +493,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               optionsAriaLabel={t("graphs.workspaceOptions")}
               value={definitionWorkspacePath}
             />
+            <AddWorkspaceButton store={services.workspaceRegistryStore} onAdded={(entry) => { setWorkspaceOptions((current) => [...current.filter((item) => item.path !== entry.path), entry]); setDefinitionWorkspacePath(entry.path); }} />
             {workspaceCatalogError ? (
               <p className="react-agent-graph-workspace__error" role="alert">
                 {t("graphs.workspaceLoadFailed", { message: workspaceCatalogError })}
@@ -612,7 +619,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                     {t("graphs.delete")}
                   </button>
                 ) : null}
-                <button disabled={saving || running} type="button" onClick={closeDraft}>
+                <button disabled={saving || running} type="button" onClick={() => { if (!draftDirty || window.confirm(t("unsavedChanges.discard"))) closeDraft(); }}>
                   <X aria-hidden="true" size={15} />
                   {t(draftRevision ? "graphs.close" : "graphs.discard")}
                 </button>

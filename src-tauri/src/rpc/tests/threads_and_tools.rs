@@ -62,6 +62,15 @@ fn dispatches_thread_store_round_trip_requests() {
     ));
     assert_eq!(search.error, None);
     assert_eq!(
+        search.result.as_ref().unwrap()["matches"][0]["turnId"],
+        "turn-1"
+    );
+    assert_eq!(
+        search.result.as_ref().unwrap()["matches"][0]["snippet"],
+        "Summarize a document"
+    );
+    assert_eq!(search.result.as_ref().unwrap()["hasMore"], false);
+    assert_eq!(
         search.result.as_ref().unwrap()["threads"]
             .as_array()
             .unwrap()

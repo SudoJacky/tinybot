@@ -94,6 +94,8 @@ pub struct ListThreadsResult {
 pub struct SearchThreadsRequest {
     pub query: String,
     #[serde(default)]
+    pub conversations_only: bool,
+    #[serde(default)]
     pub include_archived: bool,
     #[serde(default)]
     pub include_child_threads: bool,
@@ -110,6 +112,16 @@ pub struct SearchThreadsRequest {
 pub struct SearchThreadsResult {
     pub query: String,
     pub threads: Vec<ThreadRecord>,
+    pub matches: Vec<ThreadSearchMatch>,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSearchMatch {
+    pub thread_id: String,
+    pub turn_id: String,
+    pub snippet: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

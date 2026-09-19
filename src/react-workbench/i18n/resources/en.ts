@@ -2,9 +2,12 @@ import { usageEn } from "../../settings/usageTranslations";
 import { teamEn } from "../../teams/teamTranslations";
 export const en = {
   common: {
+    resultPreview: { currentFile: "Preview current file" },
+    unsavedChanges: { discard: "Discard unsaved changes? Cancel to keep editing." },
     teams: teamEn,
     notifications: { dismiss: "Dismiss notification" },
     automations: {
+      confirmDelete: "Delete automation “{{name}}”? Future scheduled runs will stop. Previous runs, conversations and files will be kept.",
       pageTitle: "Scheduled tasks",
       reasoning: "Reasoning effort", frequency: "Frequency", repeat: "Repeat", startsAt: "Starts at",
       unavailableConversation: "Conversation unavailable", nextRun: "Next: {{time}}",
@@ -1219,7 +1222,10 @@ export const en = {
       complete: "Migration complete — install the generated plugin", cleaned: "The temporary migration workspace was cleaned up.",
       validate: "Tinybot will validate the generated package before installing it globally.", installing: "Installing…", install: "Install migrated plugin",
     },
-    search: { label: "Session search", placeholder: "Search sessions…", close: "Close session search", chats: "Chats", noMatches: "No matching sessions.", regular: "General chat", suggested: "Suggested", start: "Start a new chat", openFolder: "Open folder", settings: "Settings", noDate: "No date" },
+    search: {
+      searching: "Searching message content…",
+      failed: "Search failed: {{message}}",
+      refine: "More results are available. Refine your query to narrow the search.", label: "Session search", placeholder: "Search sessions…", close: "Close session search", chats: "Chats", noMatches: "No matching sessions.", regular: "General chat", suggested: "Suggested", start: "Start a new chat", openFolder: "Open folder", settings: "Settings", noDate: "No date" },
     empty: {
       title: "What do you want Tinybot to do?",
       titleWithWorkspace: "What do you want to do with Tinybot in {{workspace}} today?",

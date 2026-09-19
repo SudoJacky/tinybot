@@ -114,7 +114,11 @@ export type ChatEvent = {
   timeline?: ChatTimelineSnapshot;
 };
 
+export type SessionSearchHit = { session: SessionSummary; turnId?: string; snippet?: string };
+export type SessionSearchResults = { hits: SessionSearchHit[]; hasMore: boolean };
+
 export type SessionStore = {
+  search?(query: string): Promise<SessionSearchResults>;
   list(): Promise<SessionSummary[]>;
   subscribe?(listener: (sessions: SessionSummary[]) => void): () => void;
   refresh?(): Promise<SessionSummary[]>;

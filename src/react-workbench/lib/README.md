@@ -1,5 +1,5 @@
 # Renderer Library
-<!-- tinybot-module-fingerprint: sha256:2f0c4685b210132a197936108ac18cad8942a552180ebbffc4c1e6b4e0e9360d -->
+<!-- tinybot-module-fingerprint: sha256:2e1ceeb196f78eff2a1cbecfe2f9eb54aeacbe591a14f30a97ec76f9369b407a -->
 
 `lib` contains small, renderer-only presentation helpers shared by frontend
 modules. Formatting helpers are pure; presentation hooks do not own route state.
@@ -29,3 +29,7 @@ retained in the source. It owns only tile transitions and phrase cycling; reduce
 motion renders a static first phrase, and unmounting clears timers and frames.
 
 `FormControls.css` shares desktop buttons, text inputs, focus rings, and primary/danger actions between Memory and Automations. The `react-form-controls` scope excludes `SettingsChoiceList` controls so their own styles remain authoritative.
+
+`AddWorkspaceButton` shares native folder picking and registry registration, with
+busy and visible error states. `editorDraft` persists route-owned editor snapshots;
+parsing and storage errors remain observable rather than silently discarding edits.

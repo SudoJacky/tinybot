@@ -53,6 +53,10 @@ import {
   readPersistedSessionTabWorkspace,
   reduceSessionTabWorkspace,
   sessionTabDraft,
+  sessionTabContext,
+  hasComposerContext,
+  EMPTY_COMPOSER_CONTEXT,
+  type ComposerDraftContext,
   writePersistedSessionTabWorkspace,
   type DraftSession,
   type DraftSessionCreateInput,
@@ -70,7 +74,6 @@ import type {
 import {
   type SpreadsheetCellChangeRequest,
 } from "../../app-core/chat/officeArtifact";
-import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
 import {
   isThreadCommandInFlight,
@@ -289,16 +292,15 @@ export function ChatPage({
     }
   }, [sidecar.presentation]);
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
-  const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
-  const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
-  const [composerArtifactReferences, setComposerArtifactReferences] = useState<(AgentInputReference & { id: string })[]>([]);
-  const [composerSpreadsheetAnnotations, setComposerSpreadsheetAnnotations] = useState<SpreadsheetComposerAnnotation[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
   const deleteDissolveTimers = useRef<number[]>([]);
+  const [searchTarget, setSearchTarget] = useState<{ sessionId: string; turnId: string; signal: number }>();
+  const lastSearchScroll = useRef<number | undefined>(undefined);
+  const searchSignal = useRef(0);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
   const sessionTabsRef = useRef(sessionTabs);
@@ -312,6 +314,15 @@ export function ChatPage({
   sessionTabsRef.current = sessionTabs;
   sessionsLoadedRef.current = sessionsLoaded;
   const activeSessionId = sessionTabs.activeSessionId;
+  const composerContext = sessionTabContext(sessionTabs, activeSessionId);
+  const { sessionMentionIds: composerSessionMentionIds, skillIds: composerSelectedSkillIds, artifactReferences: composerArtifactReferences, spreadsheetAnnotations: composerSpreadsheetAnnotations } = composerContext;
+  const updateComposerContext = useCallback(function<K extends keyof ComposerDraftContext>(key: K, value: ComposerDraftContext[K] | ((previous: ComposerDraftContext[K]) => ComposerDraftContext[K])) {
+    dispatchSessionTabs({ type: "context.changed", sessionId: activeSessionId, update: (context) => ({ ...context, [key]: typeof value === "function" ? value(context[key]) : value }) });
+  }, [activeSessionId]);
+  const setComposerSessionMentionIds = (value: string[] | ((previous: string[]) => string[])) => updateComposerContext("sessionMentionIds", value);
+  const setComposerSelectedSkillIds = (value: string[] | ((previous: string[]) => string[])) => updateComposerContext("skillIds", value);
+  const setComposerArtifactReferences = useCallback((value: ComposerDraftContext["artifactReferences"] | ((previous: ComposerDraftContext["artifactReferences"]) => ComposerDraftContext["artifactReferences"])) => updateComposerContext("artifactReferences", value), [updateComposerContext]);
+  const setComposerSpreadsheetAnnotations = (value: SpreadsheetComposerAnnotation[] | ((previous: SpreadsheetComposerAnnotation[]) => SpreadsheetComposerAnnotation[])) => updateComposerContext("spreadsheetAnnotations", value);
   const currentDrawer = drawerSessionId === activeSessionId ? drawer : null;
   const readDrawerTransitions = useCallback(() => elementTransitions(drawerElementRef.current, ["opacity", "transform"]), []);
   const presentDrawer = useExitPresence(currentDrawer, activeSessionId, readDrawerTransitions);
@@ -344,7 +355,7 @@ export function ChatPage({
     chatStore, sessions: sessionApplication, settingsStore, artifactReviews: workspaceStore?.artifactReviews,
     sessionId: activeSessionId, session: activeSession, openSessionIds: sessionTabs.openSessionIds,
     contextUsageDefaults, drafts: sessionTabs.draftSessionsById, model: composerSessionModelInput(composerModels, composerModel), now, t,
-    onDraftConsumed(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); },
+    onDraftConsumed(sessionId) { dispatchSessionTabs({ type: "draft.changed", sessionId, value: "" }); dispatchSessionTabs({ type: "context.changed", sessionId, update: () => EMPTY_COMPOSER_CONTEXT }); },
     onBackgroundActivity(sessionId) { dispatchSessionTabs({ type: "activity", sessionId }); },
   });
   const {
@@ -390,7 +401,7 @@ export function ChatPage({
       kind: "file",
       label: annotation.fileTitle,
     }))]
-  ), [composerArtifactReferences, composerSpreadsheetAnnotations, t]);
+  ), [composerArtifactReferences, composerSpreadsheetAnnotations, setComposerArtifactReferences, t]);
   useEffect(() => {
     if (!toolsStore?.loadCatalog) {
       setComposerSkills([]);
@@ -494,12 +505,6 @@ export function ChatPage({
   const activeContextUsage = timelineSummary.contextUsage;
   const latestFailedTurnId = timelineSummary.latestFailedTurnId;
   const floatingPlan = activeSession && timelineLoaded ? timelineSummary.floatingPlan : undefined;
-  useEffect(() => {
-    setComposerSessionMentionIds([]);
-    setComposerSelectedSkillIds([]);
-    setComposerSpreadsheetAnnotations([]);
-    setComposerArtifactReferences([]);
-  }, [activeSessionId]);
 
   useEffect(() => {
     return () => {
@@ -616,6 +621,17 @@ export function ChatPage({
   const handleTimelineContentChanged = useCallback(() => {
     const element = conversationRef.current;
     const view = conversationViewBySessionRef.current.get(activeSessionId);
+    if (element && searchTarget?.sessionId === activeSessionId && timelineSummary.sessionId === activeSessionId && lastSearchScroll.current !== searchTarget.signal) {
+      const turn = [...element.querySelectorAll<HTMLElement>("[data-scroll-anchor]")].find((node) => node.dataset.scrollAnchor === "turn:" + searchTarget.turnId);
+      if (turn) {
+        stickToLatestRef.current = false; pendingConversationRestoreRef.current = "";
+        turn.scrollIntoView({ block: "center" });
+        turn.tabIndex = -1; turn.focus({ preventScroll: true });
+        lastSearchScroll.current = searchTarget.signal;
+        setShowBackToLatest(true);
+        return;
+      }
+    }
     const shouldRestore = Boolean(
       activeSessionId
       && pendingConversationRestoreRef.current === activeSessionId
@@ -632,7 +648,7 @@ export function ChatPage({
     if (stickToLatestRef.current) {
       conversationEndRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [activeSessionId, timelineSummary.sessionId]);
+  }, [activeSessionId, timelineSummary.sessionId, searchTarget]);
 
   async function handleCreateSession(
     workingDirectory?: string,
@@ -656,7 +672,7 @@ export function ChatPage({
       ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
       ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
     };
-    if (!activeSessionId && composerDraft.trim()) {
+    if (!activeSessionId && (composerDraft.trim() || hasComposerContext(composerContext))) {
       dispatchSessionTabs({
         type: "startup-draft.materialize",
         draft: sessionApplication.createDraft({}),
@@ -686,6 +702,10 @@ export function ChatPage({
     const startupDraft = composerDraft;
     const draft = sessionApplication.createDraft({ workingDirectory: normalizedWorkingDirectory });
     dispatchSessionTabs({ type: "session-draft.open", draft });
+    if (hasComposerContext(composerContext)) {
+      dispatchSessionTabs({ type: "context.changed", sessionId: draft.id, update: () => composerContext });
+      dispatchSessionTabs({ type: "context.changed", sessionId: "", update: () => EMPTY_COMPOSER_CONTEXT });
+    }
     if (startupDraft) {
       dispatchSessionTabs({ type: "draft.changed", sessionId: draft.id, value: startupDraft });
       dispatchSessionTabs({ type: "draft.changed", sessionId: "", value: "" });
@@ -900,7 +920,8 @@ export function ChatPage({
     onSessionSidebarCollapsedChange?.(collapsed);
   }
 
-  function handleSelectSession(session: SessionSummary) {
+  function handleSelectSession(session: SessionSummary, turnId?: string) {
+    setSearchTarget(turnId ? { sessionId: session.id, turnId, signal: ++searchSignal.current } : undefined);
     dispatchDelete({ type: "session-selected", sessionId: session.id });
     dispatchSessionTabs({ type: "open", sessionId: session.id });
   }
@@ -911,6 +932,7 @@ export function ChatPage({
   }
 
   function handleCloseSessionTab(sessionId: string) {
+    if (sessionTabs.draftSessionsById[sessionId] && (sessionTabDraft(sessionTabs, sessionId).trim() || hasComposerContext(sessionTabContext(sessionTabs, sessionId))) && !window.confirm(t("unsavedChanges.discard", { ns: "common" }))) return;
     dispatchSessionTabs({ type: "close", sessionId });
     if (sessionId === activeSessionId) {
       setHeaderMenuOpen(false);
@@ -1011,6 +1033,7 @@ export function ChatPage({
         error={sessionWorkspaceError}
         now={now}
         projectGroupStore={projectGroupStore}
+        searchSessions={sessionStore.search}
         sessions={displayedSessions}
         workspaceRegistryStore={workspaceRegistryStore}
       >
@@ -1085,6 +1108,7 @@ export function ChatPage({
           onScroll={handleConversationScroll}
         >
           <LiveChatTimeline
+            highlightedTurnId={searchTarget?.sessionId === activeSessionId ? searchTarget.turnId : undefined}
             source={timelineSource}
             formCount={agentUiForms.length}
             onContentChanged={handleTimelineContentChanged}
@@ -1274,6 +1298,8 @@ export function ChatPage({
           value={composerDraft}
           onSelectFiles={pickDesktopChatFiles}
           onImportFiles={importDesktopChatFiles}
+          files={composerContext.files}
+          onFilesChange={(files) => updateComposerContext("files", files)}
           attachmentContextKey={activeSessionId}
           onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, options) => handleComposerSend(message, files, options)}

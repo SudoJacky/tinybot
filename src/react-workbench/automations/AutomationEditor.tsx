@@ -1,5 +1,5 @@
 import { History, Play, X } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useModalDialog } from "../../components/ui/useModalDialog";
@@ -9,7 +9,8 @@ import type { AppServices, SessionSummary, WorkspaceRegistryEntry } from "../ser
 import type { ProviderModelsSettingsData } from "../../app-core/settings/providerModelsSettings";
 import { AutomationSettings } from "./AutomationSettings";
 
-export function AutomationEditor({ services, draft, workspaces, busy, error, onChange, onClose, onSave, onDelete, onHistory }: {
+export function AutomationEditor({ services, draft, workspaces, busy, error, onChange, onClose, onSave, onDelete, onHistory, workspaceAction }: {
+  workspaceAction?: ReactNode;
   services: AppServices;
   draft: SaveAutomation;
   workspaces: WorkspaceRegistryEntry[];
@@ -54,6 +55,7 @@ export function AutomationEditor({ services, draft, workspaces, busy, error, onC
             <input className="react-form-input automation-name-input" aria-label={t("automations.name")} placeholder={t("automations.namePlaceholder")} data-dialog-initial-focus required value={draft.name} disabled={busy} onChange={(e) => onChange({ ...draft, name: e.target.value })} />
             <textarea className="react-form-input automation-instructions-input" aria-label={t("automations.instructions")} placeholder={t("automations.instructionsPlaceholder")} required rows={3} value={draft.instructions} disabled={busy} onChange={(e) => onChange({ ...draft, instructions: e.target.value })} />
 
+            {workspaceAction}
             {options ? <AutomationSettings draft={draft} workspaces={workspaces} catalog={options.catalog} sessions={options.sessions} busy={busy} onChange={onChange} />
               : <p role={loadError ? "alert" : "status"}>{loadError ?? t("automations.loading")}</p>}
             {error && <p role="alert" className="automation-error">{error}</p>}
