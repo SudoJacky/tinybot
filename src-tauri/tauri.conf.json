@@ -4,9 +4,9 @@
   "version": "1.2.0",
   "identifier": "com.sudojacky.tinybot.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:ripgrep && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:ripgrep && npm run build",
     "frontendDist": "../dist",
     "features": ["native-browser-runtime"]
   },
@@ -36,6 +36,8 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/tinybot-rg"],
+    "resources": ["resources/ripgrep/*"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

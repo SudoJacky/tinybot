@@ -1406,6 +1406,7 @@
 }
 
 .claude-ai-input__toolbar {
+  position: relative;
   justify-content: space-between;
   gap: 10px;
 }
@@ -1588,7 +1589,59 @@
 }
 
 .claude-ai-input__tool-menu {
-  width: min(300px, calc(100vw - 48px));
+  left: clamp(0px, calc(100% - 300px), 40px);
+  width: min(300px, 100%);
+  max-height: none;
+  overflow: hidden;
+  padding: 10px;
+  border-radius: 28px;
+  transform-origin: bottom left;
+  transition: opacity 180ms ease-out, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.claude-ai-input__tool-menu-list {
+  max-height: min(280px, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline) transparent;
+}
+
+.claude-ai-input__tool {
+  position: static;
+}
+
+.claude-ai-input__tool-trigger {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+.claude-ai-input__tool-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.claude-ai-input__tool-trigger:active {
+  transform: scale(0.94);
+}
+
+@starting-style {
+  .claude-ai-input__tool-menu {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-ai-input__tool-menu {
+    transition: none;
+  }
+
+  .claude-ai-input__tool-trigger:active {
+    transform: none;
+  }
 }
 
 .claude-ai-input__model-menu {
@@ -1725,7 +1778,6 @@
   font-size: 12px;
 }
 
-.claude-ai-input__tool-option em,
 .claude-ai-input__model-option em {
   display: inline-flex;
   align-items: center;
@@ -1745,6 +1797,31 @@
 .claude-ai-input__model-option svg {
   justify-self: center;
   color: var(--color-body);
+}
+
+.claude-ai-input__tool-menu .claude-ai-input__tool-option {
+  grid-template-columns: minmax(0, 1fr) 15px;
+  gap: 8px;
+  min-height: 44px;
+  border-radius: 18px;
+  background: transparent;
+}
+
+.claude-ai-input__tool-menu .claude-ai-input__tool-option:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--color-surface-soft);
+}
+
+.claude-ai-input__tool-option strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.claude-ai-input__tool-option small {
+  font-size: 11px;
+}
+
+.claude-ai-input__tool-option[aria-checked="false"] .claude-ai-input__tool-check {
+  visibility: hidden;
 }
 
 .claude-ai-input__attachments {

@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:757e4a09cd915c97b13ae71a13827acd142f48906ba39fe12fcc7a8d235deb08 -->
+<!-- tinybot-doc-fingerprint: sha256:608c5a29b559c620b84914bbed59e91914a068b8333dd9f2ebac5de71b61c22b -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -88,6 +88,11 @@ verified using in-memory inputs. It renders sources in increasing precedence:
 The ordered sources are materialized as system instruction items. The runtime
 records their identifiers, scope roots, hashes, truncation state, warnings,
 and a hash of the complete rendered prompt.
+
+Built-in guidance prefers `search_file_content` for local content searches when
+the tool is available and requires checking scope/truncation before concluding
+absence. This applies to existing workspaces without editing their custom
+`SYSTEM.md` and does not override an explicit tool allowlist.
 
 ## Global workspace profile and project instructions
 

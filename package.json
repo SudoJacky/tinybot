@@ -7,6 +7,7 @@
     "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
+    "prepare:ripgrep": "node tools/ripgrep/prepare.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",

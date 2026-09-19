@@ -56,6 +56,7 @@ export type ChatSubmitOptions = {
   references?: AgentInputReference[];
   selectedSkills?: string[];
   selectedTools?: string[];
+  mcpEnabled?: boolean;
   clientEventId?: string;
 };
 
@@ -357,7 +358,7 @@ export function createDesktopChatSessionController({
     const thread = state.threads.find((candidate) => candidate.threadId === sessionKey);
     if (!thread) throw new Error(`Cannot submit a turn to unknown Thread ${sessionKey}`);
     const clientEventId = options.clientEventId || createClientEventId();
-    const { model, provider, reasoningEffort, references, selectedSkills, selectedTools } = options;
+    const { model, provider, reasoningEffort, references, selectedSkills, selectedTools, mcpEnabled } = options;
     const turnId = createTurnId();
     const threadId = thread.threadId;
     const request: NativeThreadTurnInput = {
@@ -380,6 +381,7 @@ export function createDesktopChatSessionController({
           ...(references?.length ? { references } : {}),
           ...(selectedSkills?.length ? { selectedSkills } : {}),
           ...(selectedTools ? { selectedTools } : {}),
+          ...(mcpEnabled !== undefined ? { mcpEnabled } : {}),
         },
       },
     };

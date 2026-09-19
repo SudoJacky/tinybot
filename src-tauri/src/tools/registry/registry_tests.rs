@@ -437,7 +437,10 @@ impl ToolContributor for DuplicateWorkspaceContributor {
     }
 
     fn contribute(&self) -> Vec<ToolRegistryEntry> {
-        vec![workspace_tool_entries()[0].clone()]
+        vec![workspace_tool_entries()
+            .into_iter()
+            .find(|tool| tool.tool_id == "workspace.write_file")
+            .expect("workspace write tool must be registered")]
     }
 }
 

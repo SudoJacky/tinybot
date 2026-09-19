@@ -1,9 +1,29 @@
 # Workspace Service
-<!-- tinybot-module-fingerprint: sha256:c37e701305b5abdec75a1aa438f2113f0e0db750d25c41a98082506e4e0da2c4 -->
+<!-- tinybot-module-fingerprint: sha256:90b2dab14af87b72324dd4500119ee2a6365d499a4998d8bf33d3918e05f3a1d -->
 
 `workspace` provides capability-checked operations within the active workspace.
 It handles safe path resolution, file reads and writes, directory inspection,
 skill discovery, allowlisted bootstrap-file batch reads, and patch application.
+
+`search_file_content` runs the pinned, bundled ripgrep executable directly with
+`FsWorkspaceRead`; it never resolves PATH or invokes a shell. Search paths are
+relative to the active workspace and must resolve inside it. Directory walks
+do not follow symlinks or junctions and exclude `.git`. The default respects
+project ignore rules and skips hidden/binary files; explicit file paths and
+glob inclusions follow ripgrep's documented overrides. Parent project ignore
+files still apply when searching a subdirectory. Host ripgrep configuration,
+global Git ignore files, and ambient secrets do not influence execution.
+
+Search results contain matching/context lines, relative paths, and one-based
+line numbers. Matching-line and serialized-entry byte limits stop the child
+and mark results incomplete. Bounded JSON records and a bounded producer queue
+keep large lines from growing output memory without limit. Cancellation and the
+30-second deadline terminate and reap the process before returning an error;
+both pipes are drained/joined. Exit 1 is a valid no-match result; stderr, other
+exit failures, unsupported text encoding, and missing bundled executables are
+explicit errors. Diagnostics record duration, counts, stop reason and failure
+category without logging queries or matched content. Real-binary tests live in
+`search/tests.rs`; run `npm run prepare:ripgrep` before direct Cargo tests.
 
 The raw-byte read used by modern Office Artifact previews reuses the same path
 containment boundary, enforces the caller's byte cap before allocation, and may

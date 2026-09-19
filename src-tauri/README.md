@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:aa49cf91e7f54f6ff644a8230f6520ebc00fbc2fa9a5217c5962d4967ad27560 -->
+<!-- tinybot-module-fingerprint: sha256:62320410a13239a494ffdd14618ab97b8467999b4bda18d1681bc256a3f0a868 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -256,6 +256,14 @@ Desktop startup moves canonical Rollouts from the former
 data root without overwriting conflicts, then rebuilds the in-memory index.
 
 ## Test layout
+
+The desktop bundles ripgrep 15.2.0 as `tinybot-rg`, alongside its license files.
+Tauri development/build hooks prepare a target-specific executable using
+`tools/ripgrep/prepare.mjs`; downloads are SHA-256 pinned and cached under
+`target/ripgrep-cache`. Direct Cargo builds/tests first require
+`npm run prepare:ripgrep` from the repository root. Production searches resolve
+the sidecar next to the application executable; debug builds use the prepared
+source-tree binary. Neither path falls back to a system installation.
 
 - Unit tests that require private implementation access live beside their
   owner in `*_tests.rs` or a `tests/` subdirectory. Production modules include

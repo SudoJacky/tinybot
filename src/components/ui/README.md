@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:c1aa7d8e7a40629136ad3924189753e7095ece96fe2cd36d9dc53841017eb90a -->
+<!-- tinybot-module-fingerprint: sha256:697f3967931018cefd4bfd440ce96eabeb1c1c1e162088460d3c7a2223813dc3 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -56,10 +56,11 @@ blocks. Shift+Enter uses structural Enter to continue lists or split paragraphs;
 Enter selects a suggestion or sends. Skills still travel as structured turn options.
 The composer separates full control disabling from temporary send disabling,
 so a route can preserve editable drafts while an asynchronous prerequisite is
-still loading. A route-provided Tools list renders as checked controls and the
-composer submits the complete explicit selection, including an intentional
-empty selection. Tools discovered after mount are enabled by default without
-overwriting prior user toggles. Its context-window indicator also presents the latest Provider
+still loading. The Tools menu exposes only the `mcp.call_tool` catalog entry as
+one default-on MCP switch. Built-in and individual extension tools are not user
+toggles. Submission carries `mcpEnabled`, never a `selectedTools` allowlist;
+an explicit off choice survives asynchronous catalog refreshes. A denied MCP
+entry remains disabled and submits false. Its context-window indicator also presents the latest Provider
 call's prompt-cache hit rate when cached and input Token counts are available,
 and distinguishes a reported zero-percent hit from unavailable usage data.
 Routes may advance the composer's `focusRequestId` after a contextual handoff;
@@ -67,6 +68,10 @@ the shared input then focuses the active editor and places the caret at the end
 without stealing focus again on ordinary controlled-value updates.
 Composer slash, mention, tool, and model menus use the workbench's shared
 popover surface and item states while retaining their richer row layouts.
+The Tools menu follows the workspace action menu's rounded surface and compact,
+transparent rows. A trailing checkmark and `aria-checked` convey selection;
+row fills are reserved for hover/focus. Descriptions remain visible and expose
+their full text on hover, and the list scrolls inside the rounded surface.
 
 Route orchestration and domain-specific state stay in `react-workbench` and
 `app-core`; shared UI receives data and actions through explicit props.

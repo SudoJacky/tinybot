@@ -179,6 +179,7 @@ describe("desktop native chat session controller", () => {
       }],
       selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
       selectedTools: ["agent_graph.run.review"],
+      mcpEnabled: false,
     });
     expect(result).toEqual({
       status: "sent",
@@ -215,6 +216,7 @@ describe("desktop native chat session controller", () => {
           references: [{ kind: "reference", title: "README", detail: "selected file" }],
           selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
           selectedTools: ["agent_graph.run.review"],
+          mcpEnabled: false,
         },
       },
     });

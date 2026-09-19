@@ -623,6 +623,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
         context
             .tool_router
             .configure_for_turn(context.settings.selected_tools.as_deref())?;
+        context
+            .tool_router
+            .configure_mcp_for_turn(context.settings.mcp_enabled)?;
         #[cfg(test)]
         context
             .tool_router

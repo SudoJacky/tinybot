@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:5c55b168763e5810baf98cdd682022a7f951a82bc849bc91c4dfb94875757673 -->
+<!-- tinybot-module-fingerprint: sha256:cf1533db3da048969fae4886616046a1ec96aac37a86b7608021e558a71f5b05 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -55,3 +55,8 @@ dispatch is blocked, every call ID receives a non-empty error result, and the
 provider loop continues. Dispatcher coverage also verifies that retired
 alternative subagent tool names are rejected as unknown instead of reaching
 execution.
+
+Registry coverage permits parallel `search_file_content` calls while keeping
+workspace writes, Shell commands, and subagent mutation tools exclusive.
+MCP switch coverage verifies that Turn metadata reaches the provider registry,
+rejects non-boolean preferences, and preserves built-in tools when MCP is off.

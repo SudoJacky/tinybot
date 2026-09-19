@@ -1610,6 +1610,61 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
 }
 
 #[test]
+fn mcp_switch_metadata_reaches_the_production_provider_registry() {
+    #[derive(Clone)]
+    struct McpSwitchProvider;
+    impl BlockingTestProvider for McpSwitchProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let enabled = context
+                .settings
+                .mcp_enabled
+                .expect("MCP preference must reach runtime settings");
+            assert_eq!(context.tool_router.is_permitted("mcp.call_tool"), enabled);
+            assert!(context.tool_router.is_permitted("search_file_content"));
+            assert!(context.tool_router.is_permitted("apply_patch"));
+            Ok(NativeAgentProviderResponse {
+                final_content: "MCP preference applied".into(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: Vec::new(),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(McpSwitchProvider),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    for enabled in [false, true] {
+        let result = run_native_agent_turn_with_services(
+            &services,
+            json!({
+                "runtime": "rust", "turnId": format!("mcp-{enabled}"), "sessionId": "mcp-switch",
+                "metadata": {"mcpEnabled": enabled},
+                "messages": [{"role": "user", "content": "search local files"}],
+            }),
+        )
+        .unwrap();
+        assert_eq!(result["stopReason"], "final_response");
+    }
+    let error = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust", "turnId": "invalid-mcp-switch", "sessionId": "mcp-switch",
+            "metadata": {"mcpEnabled": "false"},
+            "messages": [{"role": "user", "content": "search local files"}],
+        }),
+    )
+    .expect_err("MCP preference must be a boolean");
+    assert!(error.contains("mcp_enabled"));
+}
+
+#[test]
 fn invalid_request_stops_before_provider_call() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),

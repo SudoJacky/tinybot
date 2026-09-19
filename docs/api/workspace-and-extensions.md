@@ -20,7 +20,7 @@ src-tauri/src/workspace/types.rs
 src-tauri/src/workspace/artifact_review.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:32860ae396d674212029f3048837062ad0513e281c8047507dc35ba63a8f7231 -->
+<!-- tinybot-doc-fingerprint: sha256:da09bbf1cfb5832da159c5063abd634ea301ea3ce29873c3bd9ee06c2366a8cd -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -177,6 +177,8 @@ Lower-level workspace RPC also supports:
 
 - `workspace.resolve_path`
 - `workspace.read_file`
+- `workspace.search_file_content` (the default Agent `search_file_content` tool;
+  see the [search contract](tools-and-processes.md#file-content-search))
 - `workspace.read_file_chunk`
 - `workspace.read_bootstrap_files`
 - `workspace.write_file`

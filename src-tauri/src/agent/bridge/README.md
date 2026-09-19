@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:5b0a8b9979e8c2afb304738199be520a3147e1e09078044a6d013d75f26dfb60 -->
+<!-- tinybot-module-fingerprint: sha256:4ea7c8a8baf3bd9c7ded55a2c3fbc0c915d4b35bf3d17defbf4451890da5631c -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -26,6 +26,9 @@ the dispatcher's asynchronous preparation interface. MCP snapshot cancellation
 retains phase/server/transport diagnostics; unavailable concrete selections are
 removed with the existing generic-MCP suppression rule. Graph discovery requires
 an explicit working directory and remains disabled for Graph node Turns.
+When Turn metadata sets `mcpEnabled` to false, preparation skips MCP discovery;
+the runtime separately removes generic and concrete MCP invocation entries.
+Built-in MCP configuration operations retain their normal capability policy.
 
 ## Responsibilities
 
@@ -114,6 +117,11 @@ Registered subagent lifecycle tools execute through Worker RPC so their state
 is restored from and committed to the canonical Thread store. Only the
 runtime-only `subagent.query` and `subagent.cancel` controls use the direct
 subagent dispatcher fallback; unregistered alternative names fail normally.
+
+File content searches execute the workspace RPC path on a blocking worker so
+the async runtime can deliver cancellation while ripgrep is running. They use
+the Turn's working directory and cancellation handle, and wait for the search
+service to terminate/reap its fixed subprocess before returning.
 
 Running Shell results suggest an empty-input `write_stdin` with the latest
 cursor and the Shell module's default 30-second wait, so progress collection

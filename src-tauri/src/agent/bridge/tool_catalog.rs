@@ -29,31 +29,32 @@ pub(super) async fn prepare_tools(
         .cancellation
         .clone()
         .map(|c| Arc::new(c) as Arc<dyn crate::protocol::WorkerRequestCancellation>);
-    let mcp_snapshot =
-        if capability_policy.allows(&crate::protocol::capability::WorkerCapability::McpCall) {
-            match mcp_runtime
-                .registry_snapshot(mcp_workspace_root, config_snapshot, cancellation)
-                .await
-            {
-                Ok(snapshot) => Some(snapshot),
-                Err(error) if error.cancelled => {
-                    return Ok(NativeAgentToolPreparation::Cancelled {
-                        phase: "mcp_discovery".into(),
-                        server: Some(error.server),
-                        transport: Some(error.transport),
-                    })
-                }
-                Err(error) => {
-                    return Err(format!(
-                        "MCP registry snapshot failed for server `{}` over {}: {}",
-                        error.server, error.transport, error.message
-                    )
-                    .into())
-                }
+    let mcp_snapshot = if context.settings.mcp_enabled != Some(false)
+        && capability_policy.allows(&crate::protocol::capability::WorkerCapability::McpCall)
+    {
+        match mcp_runtime
+            .registry_snapshot(mcp_workspace_root, config_snapshot, cancellation)
+            .await
+        {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) if error.cancelled => {
+                return Ok(NativeAgentToolPreparation::Cancelled {
+                    phase: "mcp_discovery".into(),
+                    server: Some(error.server),
+                    transport: Some(error.transport),
+                })
             }
-        } else {
-            None
-        };
+            Err(error) => {
+                return Err(format!(
+                    "MCP registry snapshot failed for server `{}` over {}: {}",
+                    error.server, error.transport, error.message
+                )
+                .into())
+            }
+        }
+    } else {
+        None
+    };
     preparation.next("graph_tool_discovery");
     let mut contributors: Vec<Arc<dyn ToolContributor>> = Vec::new();
     let graph_node_turn = ["graphRunId", "graph_run_id"]

@@ -1,10 +1,14 @@
 # RPC Tests
-<!-- tinybot-module-fingerprint: sha256:4dc83324cecfbea93c87ea70d56e5d2f3900e0da66b309d05f41b395d61ab735 -->
+<!-- tinybot-module-fingerprint: sha256:155128fe0c83eed281761414660f915f345b40fd25e8a8acad832fd82ef1b3fa -->
 
 This directory groups end-to-end router tests by service family. The suites
 cover request validation and dispatch for automation, collaboration, threads,
 tools, workspaces, shell operations, retained-process continuation through the
 generic tool executor, and schema v2 Config-store writes.
+
+File-search cases use the bundled executable through the real tool executor,
+verify default catalog selection with only read permission, reject invalid or
+denied requests, and confirm cancellation reaches the workspace search service.
 
 `action_fusion.rs` exercises actual patch-before-command execution, preflight
 rejection without edits, patch failure without a command, nonzero command exit

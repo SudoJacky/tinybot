@@ -216,7 +216,7 @@ function buildComposerSkillOptions(
 }
 
 function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOption[] {
-  return tools.map((tool) => {
+  return tools.filter((tool) => tool.id === "mcp.call_tool").map((tool) => {
     const allowed = tool.allowed ?? tool.enabled ?? true;
     const defaultSelected = tool.defaultSelected ?? allowed;
     return {

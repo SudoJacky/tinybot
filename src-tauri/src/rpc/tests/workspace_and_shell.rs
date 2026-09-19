@@ -1,6 +1,106 @@
 use super::*;
 
 #[test]
+fn file_search_executes_with_read_permission_and_forwards_cancellation() {
+    let fixture = WorkspaceFixture::new();
+    fixture.write("notes/a.txt", "hello\nneedle\n");
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        20,
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+    );
+    let request = WorkerRequest::new(
+        "search",
+        "search-trace",
+        "tool_executor.execute",
+        json!({
+            "toolId": "search_file_content",
+            "arguments": {"pattern": "needle", "path": "notes"},
+            "sessionId": "session", "turnId": "turn", "toolCallId": "call",
+        }),
+    );
+    let response = router.dispatch(&request);
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let result = response.result.unwrap();
+    assert_eq!(result["result"]["entries"][0]["line"], 2);
+    assert_eq!(result["result"]["entries"][0]["path"], "notes/a.txt");
+    assert_eq!(
+        result["permission"]["effects"]["filesystem"]["writeRoots"],
+        json!([])
+    );
+    let cancellation = Arc::new(TestCancellation::default());
+    cancellation.cancel();
+    let response = router.dispatch(&request.with_cancellation(Some(cancellation)));
+    assert_eq!(response.error.unwrap().details["cancelled"], true);
+}
+
+#[test]
+fn file_search_catalog_defaults_and_rpc_validation_are_consistent() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        20,
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+    );
+    let catalog = router
+        .dispatch(&WorkerRequest::new(
+            "catalog",
+            "trace",
+            "tools.webui_catalog",
+            json!({}),
+        ))
+        .result
+        .unwrap();
+    let search = catalog["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == "search_file_content")
+        .unwrap();
+    assert_eq!(search["defaultSelected"], true);
+    assert_eq!(search["allowed"], true);
+    for arguments in [
+        json!({}),
+        json!({"pattern": "a", "maxResults": 0}),
+        json!({"pattern": "a", "contextLines": 6}),
+    ] {
+        assert!(router
+            .dispatch(&WorkerRequest::new(
+                "invalid",
+                "trace",
+                "workspace.search_file_content",
+                arguments
+            ))
+            .error
+            .is_some());
+    }
+    let mut denied = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        20,
+        CapabilityPolicy::default(),
+    );
+    for (method, arguments) in [
+        ("workspace.search_file_content", json!({"pattern": "a"})),
+        (
+            "tool_executor.execute",
+            json!({"toolId": "search_file_content", "arguments": {"pattern": "a"}}),
+        ),
+    ] {
+        assert_eq!(
+            denied
+                .dispatch(&WorkerRequest::new("denied", "trace", method, arguments))
+                .error
+                .unwrap()
+                .code,
+            crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+    }
+}
+
+#[test]
 fn workspace_write_executes() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(

@@ -10,6 +10,7 @@ export type DesktopChatInput = {
   references?: AgentInputReference[];
   selectedSkills?: string[];
   selectedTools?: string[];
+  mcpEnabled?: boolean;
 };
 
 export type DesktopTurnSubmitCommand = {

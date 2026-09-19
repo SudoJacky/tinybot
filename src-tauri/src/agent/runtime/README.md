@@ -1,5 +1,14 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:af27450732164b8596f4fa90697d841743ffdfa301cd32fbfb470a5cc6310658 -->
+
+Built-in instructions prefer `search_file_content` when available and require
+checking scope and truncation before treating an empty search as evidence of
+absence. This guidance applies to existing workspaces without rewriting their
+custom `SYSTEM.md`; explicit tool selections remain authoritative.
+The composer controls only the optional `mcpEnabled` boolean. False removes
+generic and concrete MCP calls while retaining built-in defaults; true exposes
+the available generic entry when no concrete MCP tools are present. Explicit
+backend selections and capability restrictions still bound this preference.
+<!-- tinybot-module-fingerprint: sha256:0b147b8750d5d1f3fd6e83c80fdc825021490154665b2067710b19bd015706c0 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its

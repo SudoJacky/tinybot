@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2b0408dae0d0e31c0893926f53fb7cb146d21c931ed2607f6ba41205cd768c40 -->
+<!-- tinybot-doc-fingerprint: sha256:843ac52f75bb14f3225967ffc73766b371e305b94f247aaee463a3d4e8ac8f1d -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -101,6 +101,12 @@ The dispatcher prepares application tool contributions asynchronously through
 with checkpoint details. `bridge::tool_catalog` owns Graph and MCP discovery;
 the provider loop consumes the result without holding those application resources.
 
+The composer exposes one MCP switch and passes `mcpEnabled` in Turn metadata.
+It does not build an allowlist of system tools. An off preference skips MCP
+discovery and removes generic/concrete MCP invocation entries from the final
+router; ordinary built-ins and MCP configuration tools retain backend policy.
+An on preference never widens an explicit backend selection or capability policy.
+
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. For ordinary workspace-backed Chat Turns, they
 also assemble one deferred tool per saved Agent Graph in that exact canonical
@@ -148,6 +154,17 @@ concrete MCP registry entries. The generic deferred `mcp.call_tool` fallback is
 not selected by default; a concrete MCP selection suppresses it defensively.
 
 ## Permission enforcement
+
+`search_file_content` is a default model-visible, parallel-safe read tool. The
+bridge routes it to the active working directory's workspace service on a
+blocking worker, preserving cancellation without blocking the async scheduler.
+That service requires `FsWorkspaceRead`, bounds paths to the workspace, and
+executes only the pinned bundled ripgrep binary with typed arguments. It grants
+no general Shell authority and never falls back to PATH or a shell command.
+Limits produce explicitly incomplete results; errors, cancellation, and timeout
+remain failures. The service terminates/reaps the child and joins its bounded
+pipe readers before returning. The request and result contract is documented
+under [file content search](../api/tools-and-processes.md#file-content-search).
 
 The active permission profile supplies a `CapabilityPolicy`. The registry uses
 that policy to mark tools available, and the executor evaluates the registered

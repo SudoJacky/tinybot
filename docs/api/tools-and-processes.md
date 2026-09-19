@@ -10,6 +10,10 @@ src-tauri/src/rpc/tool_dispatch.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 src-tauri/src/rpc/tests/action_fusion.rs
 src-tauri/src/rpc/workspace_dispatch.rs
+src-tauri/src/workspace/search/mod.rs
+src-tauri/src/workspace/search/process.rs
+src-tauri/src/workspace/search/tests.rs
+src-tauri/src/tools/registry/contributors.rs
 src-tauri/src/tools/action_fusion.rs
 src-tauri/src/config/experiments.rs
 src-tauri/src/agent/bridge/command_hooks.rs
@@ -19,7 +23,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:eda609ed082b8dfe3fb914b0a8d4a74fb88dc067de4d35b6ef09b5bd79b1bd65 -->
+<!-- tinybot-doc-fingerprint: sha256:2a95aa636e338424f1d71e87b83056b37530cc31e693a1507e015e57c4f52580 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -41,6 +45,44 @@ follow the [desktop automation contract](desktop.md#saved-workspace-automations)
 Success returns `{ definition, nextRunAt }` with a local RFC 3339 timestamp.
 Tinybot must be running for scheduling; recurrences use the computer's local
 wall clock. Creation errors return to the model without claiming success.
+
+## File content search
+
+The default model tool `search_file_content` maps to
+`workspace.search_file_content` and requires `fs.workspace.read`, independently
+of Shell enablement. Paths resolve under the active Turn working directory.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `pattern` | required | Literal query, 1-4096 UTF-8 bytes |
+| `path` | `.` | Relative file or directory within the workspace |
+| `regex` | `false` | Rust regex syntax; no look-around/backreferences |
+| `ignoreCase` | `false` | Case-insensitive matching |
+| `glob` | omitted | One ripgrep glob, e.g. `*.rs` or `!*.lock` |
+| `contextLines` | `0` | Lines before/after matches, range 0-5 |
+| `maxResults` | `200` | Maximum matching lines across all files, range 1-1000 |
+| `includeHidden` | `false` | Include hidden paths during traversal |
+| `includeIgnored` | `false` | Disable project ignore rules during traversal |
+
+Results contain `entries: [{ path, line, text, kind }]`, where `kind` is
+`match` or `context` and `line` is one-based; `matchCount` counts matching lines,
+not individual regex occurrences. `scope` reports the effective filters,
+explicit-file mode and byte budget. `truncated` accompanies `stopReason`:
+`complete`, `result_limit`, or `output_limit`. Serialized entries are limited
+to 64 KiB and a single upstream JSON record to 256 KiB. Result ordering is not
+guaranteed across files. Narrow the query after truncation; there is no cursor
+or total-match claim for an incomplete scan.
+
+By default searches respect project ignore files, skip hidden/binary files,
+and do not follow symlinks/junctions. `.git` is always excluded. An explicit
+file path bypasses hidden/ignore filtering; positive glob inclusions use
+ripgrep override semantics. Parent project ignore files still apply to a
+subdirectory search; host ripgrep configuration and global Git ignore files
+are disabled. Exit 1 is a successful empty result. Missing binaries, invalid
+regex/globs, unreadable paths, unsupported text encoding, cancellation, and
+the 30-second timeout are errors, never a no-match result. Partial matches
+must not hide stderr or process failures. Search errors use the ordinary RPC
+error envelope; cancellation/timeout details include `cancelled`/`timedOut`.
 
 ## Owned Shell Processes
 
