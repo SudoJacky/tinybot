@@ -17,7 +17,7 @@ describe("prepareChatSubmission", () => {
         model: "gpt-5",
         provider: "openai",
         reasoningEffort: "high",
-        selectedTools: [],
+        mcpEnabled: false,
       },
       selectedSkillIds: ["apple-design"],
       selectedSessionIds: ["session-2"],
@@ -30,7 +30,7 @@ describe("prepareChatSubmission", () => {
       provider: "openai",
       reasoningEffort: "high",
       selectedSkills: ["apple-design"],
-      selectedTools: [],
+      mcpEnabled: false,
       text: "Review these references\n\npasted detail",
     });
     expect(prepared.turnInput.references).toEqual([

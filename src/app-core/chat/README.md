@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:5efe0804ade814af5f10046684dc236a715c5daf2345baf8ab3f4e9bfea1018e -->
+<!-- tinybot-module-fingerprint: sha256:fe1cab633c1d0ae60da10f3874017ff94893fd0ab768a70bd1eb46f35a8b59da -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -61,10 +61,10 @@ send destination from mutable active-session state, so the main Chat window
 and the desktop pet quick-chat window can submit concurrently without routing
 one surface's message into the other surface's Thread.
 
-Submissions may also preserve an explicit `selectedTools` allowlist from the
-composer. Omission keeps backend default tool exposure, while an explicit empty
-list intentionally disables optional tools; this distinction survives the
-desktop command boundary.
+Composer submissions preserve the independent `mcpEnabled` boolean through
+desktop commands and native Turn metadata, including explicit false. They do
+not submit a built-in tool allowlist. Programmatic `selectedTools` remains an
+exact backend selection for scoped workflows; omission keeps default exposure.
 
 The main Chat composer and desktop-pet quick chat share one persisted reasoning
 effort preference. A missing or invalid preference starts at `high`; an

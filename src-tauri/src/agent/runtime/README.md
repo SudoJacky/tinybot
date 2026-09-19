@@ -4,7 +4,11 @@ Built-in instructions prefer `search_file_content` when available and require
 checking scope and truncation before treating an empty search as evidence of
 absence. This guidance applies to existing workspaces without rewriting their
 custom `SYSTEM.md`; explicit tool selections remain authoritative.
-<!-- tinybot-module-fingerprint: sha256:b4c5277a32a8f11e14dc9f004bb0d7b199c1ebfd43af2290529a1ef78bf901c4 -->
+The composer controls only the optional `mcpEnabled` boolean. False removes
+generic and concrete MCP calls while retaining built-in defaults; true exposes
+the available generic entry when no concrete MCP tools are present. Explicit
+backend selections and capability restrictions still bound this preference.
+<!-- tinybot-module-fingerprint: sha256:0b147b8750d5d1f3fd6e83c80fdc825021490154665b2067710b19bd015706c0 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its

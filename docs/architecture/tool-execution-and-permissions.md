@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7e8f7967d4af4063c22b3abf74f82e1a0df53d24d3ae3eb895a2da8ff1205d12 -->
+<!-- tinybot-doc-fingerprint: sha256:843ac52f75bb14f3225967ffc73766b371e305b94f247aaee463a3d4e8ac8f1d -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -100,6 +100,12 @@ The dispatcher prepares application tool contributions asynchronously through
 `prepare_tools`, returning a catalog plus the effective selection or a cancellation
 with checkpoint details. `bridge::tool_catalog` owns Graph and MCP discovery;
 the provider loop consumes the result without holding those application resources.
+
+The composer exposes one MCP switch and passes `mcpEnabled` in Turn metadata.
+It does not build an allowlist of system tools. An off preference skips MCP
+discovery and removes generic/concrete MCP invocation entries from the final
+router; ordinary built-ins and MCP configuration tools retain backend policy.
+An on preference never widens an explicit backend selection or capability policy.
 
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. For ordinary workspace-backed Chat Turns, they

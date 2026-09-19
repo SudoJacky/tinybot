@@ -120,6 +120,36 @@ impl NativeToolRouter {
         Ok(())
     }
 
+    pub(super) fn configure_mcp_for_turn(&mut self, enabled: Option<bool>) -> Result<(), String> {
+        match enabled {
+            Some(false) => {
+                self.entries.retain(|entry| {
+                    entry.method != MCP_CALL_TOOL_METHOD
+                        && !matches!(&entry.execution_target, ToolExecutionTarget::Mcp { .. })
+                });
+                self.activated_tool_ids
+                    .retain(|id| self.entries.iter().any(|entry| &entry.tool_id == id));
+            }
+            Some(true) => {
+                let has_concrete_mcp = self.entries.iter().any(|entry| {
+                    entry.available
+                        && matches!(&entry.execution_target, ToolExecutionTarget::Mcp { .. })
+                });
+                if !has_concrete_mcp
+                    && !self.activated_tool_ids.contains(MCP_CALL_TOOL_METHOD)
+                    && self
+                        .entries
+                        .iter()
+                        .any(|entry| entry.available && entry.method == MCP_CALL_TOOL_METHOD)
+                {
+                    self.activate_for_turn(&[MCP_CALL_TOOL_METHOD.to_string()])?;
+                }
+            }
+            None => {}
+        }
+        Ok(())
+    }
+
     pub(super) fn resolve_provider_name(&self, provider_name: &str) -> Result<String, String> {
         if let Some(entry) = self
             .visible_entries(&self.activated_tool_ids)
@@ -528,5 +558,69 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(names.contains(&"mcp_4_docs_6_search".to_string()));
         assert!(!names.contains(&"mcp_call_tool".to_string()));
+    }
+
+    #[test]
+    fn mcp_switch_preserves_builtins_and_gates_all_external_calls() {
+        use crate::tools::registry::{McpToolContributor, WorkerToolRegistryRpc};
+        use std::sync::Arc;
+
+        for enabled in [false, true] {
+            let registry = WorkerToolRegistryRpc::new(
+                crate::protocol::capability::default_desktop_capability_policy(),
+            )
+            .with_contributor(Arc::new(
+                McpToolContributor::from_discovery(
+                    "docs",
+                    &json!({}),
+                    &[json!({ "name": "search", "inputSchema": { "type": "object" } })],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+            let mut router = NativeToolRouter::new(registry.list_tools().tools);
+            router.configure_for_turn(None).unwrap();
+            router.configure_mcp_for_turn(Some(enabled)).unwrap();
+            assert!(router.is_permitted("search_file_content"));
+            assert!(router.is_permitted("apply_patch"));
+            assert!(router.is_permitted("update_plan"));
+            assert!(router.is_permitted("mcp.config.list"));
+            assert_eq!(router.is_permitted("mcp.4:docs.6:search"), enabled);
+            assert!(!router.is_permitted(MCP_CALL_TOOL_METHOD));
+        }
+    }
+
+    #[test]
+    fn mcp_switch_respects_permissions_and_explicit_backend_selection() {
+        let mut default_router = router();
+        default_router.configure_for_turn(None).unwrap();
+        default_router.configure_mcp_for_turn(Some(true)).unwrap();
+        assert!(default_router.is_permitted(MCP_CALL_TOOL_METHOD));
+
+        let mut selected = router();
+        selected
+            .configure_for_turn(Some(&[MCP_CALL_TOOL_METHOD.into()]))
+            .unwrap();
+        selected.configure_mcp_for_turn(Some(true)).unwrap();
+        assert!(selected.is_permitted(MCP_CALL_TOOL_METHOD));
+
+        let mut restricted = router();
+        restricted
+            .configure_for_turn(Some(&["apply_patch".into()]))
+            .unwrap();
+        restricted.configure_mcp_for_turn(Some(true)).unwrap();
+        assert!(!restricted.is_permitted(MCP_CALL_TOOL_METHOD));
+        assert!(restricted.is_permitted("apply_patch"));
+
+        let mut denied = router();
+        denied
+            .entries
+            .iter_mut()
+            .find(|entry| entry.method == MCP_CALL_TOOL_METHOD)
+            .unwrap()
+            .available = false;
+        denied.configure_for_turn(None).unwrap();
+        denied.configure_mcp_for_turn(Some(true)).unwrap();
+        assert!(!denied.is_permitted(MCP_CALL_TOOL_METHOD));
     }
 }

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a31cb95e3248f6d8de29c3660ed71184ae979b9ce0ca1fb0b03d209985685580 -->
+<!-- tinybot-module-fingerprint: sha256:4c1002f21622ad3a61b78c169a592ef5a6f91e7424d8ba959a09dfcca1845f14 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -71,6 +71,9 @@ The workspace action menu stays mounted so pointer dismissal can reverse its
 expansion. Closed actions are immediately inert and hidden from accessibility
 APIs. Keyboard opening focuses an enabled item; arrows and Home/End navigate,
 Escape restores trigger focus, and moving focus outside dismisses the menu.
+The composer Tools menu uses the workspace action menu's 28px icon target,
+rounded surface, and pill-shaped hover rows. Checked tools show a checkmark
+without a persistent row fill; descriptions and bounded scrolling remain.
 Session rows retain native drag transport and their existing container-scoped
 persisted order. `sessionReorderMotion` owns the floating row, velocity-based
 skin deformation, sibling slot previews, edge scrolling, and release settling.
@@ -309,13 +312,12 @@ unchanged.
 Chat header, session, composer, model, tool, and Sidecar resource menus share
 the workbench popover shell and interaction states; scenario-owned CSS defines
 only placement and rich-row layout.
-Chat also maps the active workspace's callable catalog into composer tool
-controls. Saved Agent Graphs appear only when the conversation has that exact
-working directory. The submitted `selectedTools` list preserves every toggle,
-including the explicit empty selection needed to disable optional tools.
-Catalog availability, policy allowance, default selection, and current
-composer selection remain separate states; opaque tool IDs are submitted
-unchanged.
+Chat maps only the active workspace catalog's `mcp.call_tool` entry into the
+composer Tools menu. One default-on switch submits `mcpEnabled`, including an
+explicit false, through the desktop command boundary. Built-in tools have no
+composer switches or frontend allowlist; backend registry policy determines
+their exposure. Individual MCP and saved Graph tools do not appear in this menu.
+The MCP switch remains disabled when its catalog entry is unavailable or denied.
 The composer context indicator derives its cache hit rate from the latest
 projected Provider-call usage rather than cumulative Thread totals.
 Before a Turn reports its effective per-model window, Chat uses the legacy

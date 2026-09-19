@@ -79,7 +79,7 @@ export interface ComposerSendOptions {
   model?: string;
   provider?: string;
   reasoningEffort?: ReasoningEffort;
-  selectedTools?: string[];
+  mcpEnabled?: boolean;
 }
 
 export interface ComposerSessionMentionOption {
@@ -243,10 +243,8 @@ export function ClaudeStyleAiInput({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuView, setModelMenuView] = useState<ModelMenuView>("advanced");
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
-  const [selectedToolIds, setSelectedToolIds] = useState<string[]>(() => tools
-    .filter((tool) => tool.selected ?? tool.defaultSelected ?? tool.enabled)
-    .map((tool) => tool.id));
-  const knownToolIdsRef = useRef(new Set(tools.map((tool) => tool.id)));
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const mcpTool = tools.find((tool) => tool.id === "mcp.call_tool");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [selectingFiles, setSelectingFiles] = useState(false);
@@ -300,7 +298,6 @@ export function ClaudeStyleAiInput({
   const selectedReasoningEffortLabel = reasoningEffortLabel(selectedReasoningEffort, effortOptions);
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage, t), [contextUsage, t]);
   const resolvedPlaceholder = placeholder ?? t("composer.placeholder");
-  const selectedToolIdSet = useMemo(() => new Set(selectedToolIds), [selectedToolIds]);
   const selectedSessionMentionIdSet = useMemo(
     () => new Set(selectedSessionMentionIds),
     [selectedSessionMentionIds],
@@ -310,21 +307,6 @@ export function ClaudeStyleAiInput({
     [selectedSessionMentionIdSet, sessionMentionOptions],
   );
 
-  useEffect(() => {
-    const selectableToolIds = new Set(tools.filter((tool) => !tool.disabled).map((tool) => tool.id));
-    const previousToolIds = knownToolIdsRef.current;
-    setSelectedToolIds((current) => {
-      const next = current.filter((id) => selectableToolIds.has(id));
-      for (const tool of tools) {
-        const initiallySelected = tool.selected ?? tool.defaultSelected ?? tool.enabled;
-        if (initiallySelected && !tool.disabled && !previousToolIds.has(tool.id) && !next.includes(tool.id)) {
-          next.push(tool.id);
-        }
-      }
-      return next;
-    });
-    knownToolIdsRef.current = new Set(tools.map((tool) => tool.id));
-  }, [tools]);
   const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds), [selectedSkillIds]);
   const selectedSkills = useMemo(
     () => skillOptions.filter((option) => selectedSkillIdSet.has(option.id)),
@@ -544,10 +526,8 @@ export function ClaudeStyleAiInput({
         ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
         ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
         reasoningEffort: selectedReasoningEffort,
-        ...(tools.length ? {
-          selectedTools: tools
-            .filter((tool) => !tool.disabled && selectedToolIdSet.has(tool.id))
-            .map((tool) => tool.id),
+        ...(mcpTool || !mcpEnabled ? {
+          mcpEnabled: mcpEnabled && !mcpTool?.disabled,
         } : {}),
       });
       updateMessage("");
@@ -897,18 +877,6 @@ export function ClaudeStyleAiInput({
     onReasoningEffortChange?.(effort);
   }
 
-  function toggleTool(tool: ComposerToolOption) {
-    if (tool.disabled) {
-      return;
-    }
-    setSelectedToolIds((current) => {
-      if (current.includes(tool.id)) {
-        return current.filter((id) => id !== tool.id);
-      }
-      return [...current, tool.id];
-    });
-  }
-
   function handlePanelPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const panel = panelRef.current;
     if (!panel) {
@@ -1239,8 +1207,8 @@ export function ClaudeStyleAiInput({
                 aria-expanded={toolMenuOpen}
                 aria-haspopup="menu"
                 aria-label={t("composer.tools")}
-                className="claude-ai-input__icon-button"
-                disabled={disabled || !tools.length}
+                className="claude-ai-input__icon-button claude-ai-input__tool-trigger"
+                disabled={disabled || !mcpTool}
                 title={t("composer.tools")}
                 type="button"
                 onClick={() => {
@@ -1250,30 +1218,27 @@ export function ClaudeStyleAiInput({
                   setModelMenuOpen(false);
                 }}
               >
-                <SlidersHorizontal aria-hidden="true" size={18} />
+                <SlidersHorizontal aria-hidden="true" size={15} />
               </button>
-              {toolMenuOpen ? (
+              {toolMenuOpen && mcpTool ? (
                 <div className="react-popover-surface claude-ai-input__tool-menu" role="menu" aria-label={t("composer.tools")}>
-                  {tools.map((tool) => {
-                    const checked = selectedToolIdSet.has(tool.id);
-                    return (
-                      <button
-                        aria-checked={checked}
-                        className="react-popover-item claude-ai-input__tool-option"
-                        disabled={tool.disabled}
-                        key={tool.id}
-                        role="menuitemcheckbox"
-                        type="button"
-                        onClick={() => toggleTool(tool)}
-                      >
-                        <span>
-                          <strong>{tool.name}</strong>
-                          {tool.description ? <small>{tool.description}</small> : null}
-                        </span>
-                        <em>{checked ? t("composer.on") : t("composer.off")}</em>
-                      </button>
-                    );
-                  })}
+                  <div className="claude-ai-input__tool-menu-list">
+                    <button
+                      aria-checked={mcpEnabled && !mcpTool.disabled}
+                      className="react-popover-item claude-ai-input__tool-option"
+                      disabled={mcpTool.disabled}
+                      role="menuitemcheckbox"
+                      title={mcpTool.description}
+                      type="button"
+                      onClick={() => setMcpEnabled((enabled) => !enabled)}
+                    >
+                      <span>
+                        <strong>{mcpTool.name}</strong>
+                        {mcpTool.description ? <small>{mcpTool.description}</small> : null}
+                      </span>
+                      <Check aria-hidden="true" className="claude-ai-input__tool-check" size={15} />
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>

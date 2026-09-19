@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:92a31ae219e285692ded642ada012368db78230ce64e888604bc52e0964eb43c -->
+<!-- tinybot-module-fingerprint: sha256:cf1533db3da048969fae4886616046a1ec96aac37a86b7608021e558a71f5b05 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -58,3 +58,5 @@ execution.
 
 Registry coverage permits parallel `search_file_content` calls while keeping
 workspace writes, Shell commands, and subagent mutation tools exclusive.
+MCP switch coverage verifies that Turn metadata reaches the provider registry,
+rejects non-boolean preferences, and preserves built-in tools when MCP is off.

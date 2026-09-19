@@ -49,6 +49,7 @@ pub struct AgentTurnSettings {
     pub working_directory: Option<PathBuf>,
     pub permission_profile: Option<String>,
     pub selected_tools: Option<Vec<String>>,
+    pub mcp_enabled: Option<bool>,
     pub parallel_tool_calls: Option<bool>,
     validation_errors: Vec<String>,
 }
@@ -157,6 +158,14 @@ impl AgentTurnSettings {
             "selected_tools",
             &mut validation_errors,
         );
+        let mcp_enabled = optional_bool_setting(
+            spec,
+            metadata,
+            defaults,
+            &["mcpEnabled", "mcp_enabled"],
+            "mcp_enabled",
+            &mut validation_errors,
+        );
         let parallel_tool_calls = optional_bool_setting(
             spec,
             metadata,
@@ -181,6 +190,7 @@ impl AgentTurnSettings {
             working_directory,
             permission_profile,
             selected_tools,
+            mcp_enabled,
             parallel_tool_calls,
             validation_errors,
         }

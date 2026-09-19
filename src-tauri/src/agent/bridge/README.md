@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:a3050ee646077d71a05ecabe70544c3001d2fe607239cd55d7bb2c7f268d55bf -->
+<!-- tinybot-module-fingerprint: sha256:4ea7c8a8baf3bd9c7ded55a2c3fbc0c915d4b35bf3d17defbf4451890da5631c -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -26,6 +26,9 @@ the dispatcher's asynchronous preparation interface. MCP snapshot cancellation
 retains phase/server/transport diagnostics; unavailable concrete selections are
 removed with the existing generic-MCP suppression rule. Graph discovery requires
 an explicit working directory and remains disabled for Graph node Turns.
+When Turn metadata sets `mcpEnabled` to false, preparation skips MCP discovery;
+the runtime separately removes generic and concrete MCP invocation entries.
+Built-in MCP configuration operations retain their normal capability policy.
 
 ## Responsibilities
 

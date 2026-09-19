@@ -86,6 +86,7 @@ export function createDesktopChatCommands({ initialize, controller, nativeThread
       ...(input.references?.length ? { references: input.references } : {}),
       ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
       ...(input.selectedTools ? { selectedTools: input.selectedTools } : {}),
+      ...(input.mcpEnabled !== undefined ? { mcpEnabled: input.mcpEnabled } : {}),
       clientEventId: command.commandId,
     });
     const optimisticText = result.status === "sent" ? result.content : "";

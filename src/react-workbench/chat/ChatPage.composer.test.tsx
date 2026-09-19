@@ -158,6 +158,20 @@ describe("ChatPage", () => {
         id: "agent_graph.run.incident-analysis",
         name: "agent_graph.run.incident-analysis",
         source: "agent_graph",
+      }, {
+        available: true,
+        allowed: true,
+        id: "mcp.call_tool",
+        name: "mcp.call_tool",
+        displayName: "Call MCP",
+        source: "builtin",
+      }, {
+        available: true,
+        allowed: true,
+        id: "search_file_content",
+        name: "search_file_content",
+        displayName: "Search files",
+        source: "builtin",
       }],
     }));
     render(
@@ -172,7 +186,12 @@ describe("ChatPage", () => {
     await screen.findByRole("textbox", { name: /message/i });
     await waitFor(() => expect(loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
     await user.click(screen.getByRole("button", { name: "Tools" }));
-    expect(screen.getByRole("menuitemcheckbox", { name: /Incident analysis/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getAllByRole("menuitemcheckbox")).toHaveLength(1);
+    const mcp = screen.getByRole("menuitemcheckbox", { name: "Call MCP" });
+    expect(mcp.getAttribute("aria-checked")).toBe("true");
+    await user.click(mcp);
+    expect(screen.queryByText("Incident analysis")).toBeNull();
+    expect(screen.queryByText("Search files")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Tools" }));
     const input = screen.getByRole("textbox", { name: /message/i });
     await user.type(input, "/");
@@ -194,7 +213,7 @@ describe("ChatPage", () => {
     expectTurnSubmit(stores.chatStore, "s1", {
       reasoningEffort: "high",
       selectedSkills: ["apple-design"],
-      selectedTools: ["agent_graph.run.incident-analysis"],
+      mcpEnabled: false,
       text: "Polish this interaction",
     });
     expect(screen.queryByText("Apple Design")).toBeNull();
