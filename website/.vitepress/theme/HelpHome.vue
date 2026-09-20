@@ -8,6 +8,13 @@ const chapters = [
   { number: '04', title: '接入新的能力', text: '了解插件、Skills 和 MCP 各自的用途。', link: '/guide/extensions.html', tag: '扩展能力' },
   { number: '05', title: '搭建可复用的流程', text: '从三个节点开始创建 Agent Graph。', link: '/guide/agent-graph.html', tag: '进阶使用' },
   { number: '06', title: '让它待在你身边', text: '调整桌面宠物的显示、尺寸和外观。', link: '/guide/desktop-pet.html', tag: '桌面伙伴' },
+  { number: '07', title: '让团队分工完成目标', text: '检查计划、启动 Teams，查看交接与结果。', link: '/guide/teams.html', tag: '团队协作' },
+  { number: '08', title: '安排重复工作', text: '保存定时任务，查看报告和手动补跑。', link: '/guide/automations.html', tag: '自动化' },
+  { number: '09', title: '检查并修改产物', text: '文件预览、批注、版本对比和浏览器标注。', link: '/guide/sidecar.html', tag: '右侧面板' },
+  { number: '10', title: '管理长期记忆', text: '维护偏好与项目事实，了解何时生效。', link: '/guide/memory.html', tag: '记忆' },
+  { number: '11', title: '看清模型用量', text: '区分缓存、推理、后台调用和重试消耗。', link: '/guide/token-usage.html', tag: 'Token 统计' },
+  { number: '12', title: '调整输入与执行方式', text: '配置自定义指令、上下文策略和快捷键。', link: '/guide/settings.html', tag: '进阶设置' },
+  { number: '13', title: '在任务阶段运行脚本', text: '创建、审查和测试可信 Hooks。', link: '/guide/hooks.html', tag: '脚本扩展' },
 ]
 </script>
 

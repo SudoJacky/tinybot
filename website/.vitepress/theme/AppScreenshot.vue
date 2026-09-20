@@ -21,9 +21,9 @@ const shot = computed(() => {
     <div v-else class="screenshot-placeholder" role="img" :aria-label="`截图待补充：${shot.title}。${shot.alt}`">
       <div class="screenshot-label"><span class="screenshot-number">{{ shot.number }}</span> 应用截图 · 待补充</div>
       <strong>{{ shot.title }}</strong>
-      <p>{{ shot.alt }}</p>
+      <p>{{ shot.capture }}</p>
       <span class="screenshot-frame" aria-hidden="true">▧</span>
     </div>
-    <figcaption>图 {{ shot.number }} · {{ shot.title }}<span v-if="shot.available"> · 点击图片查看原图</span></figcaption>
+    <figcaption>图 {{ shot.number }} · {{ shot.title }}<span v-if="shot.available"> · 点击图片查看原图</span><span v-else> · 文件名：<code>{{ id }}.webp</code></span></figcaption>
   </figure>
 </template>

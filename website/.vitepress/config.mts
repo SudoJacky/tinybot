@@ -27,11 +27,22 @@ export default defineConfig({
       { text: '日常操作', items: [
         { text: '对话、附件与结果', link: '/guide/chat' },
         { text: '工作区与项目', link: '/guide/workspaces' },
+        { text: '右侧面板与文件预览', link: '/guide/sidecar' },
         { text: '桌面宠物与外观', link: '/guide/desktop-pet' },
+      ] },
+      { text: '协作与自动化', items: [
+        { text: 'Teams 多智能体协作', link: '/guide/teams' },
+        { text: '定时任务与手动补跑', link: '/guide/automations' },
+        { text: '创建 Agent Graph', link: '/guide/agent-graph' },
+      ] },
+      { text: '记忆、用量与设置', items: [
+        { text: '记忆管理', link: '/guide/memory' },
+        { text: '查看 Token 用量', link: '/guide/token-usage' },
+        { text: '输入与 Agent 设置', link: '/guide/settings' },
       ] },
       { text: '扩展与进阶', items: [
         { text: '插件、Skills 与 MCP', link: '/guide/extensions' },
-        { text: '创建 Agent Graph', link: '/guide/agent-graph' },
+        { text: 'Hooks 脚本', link: '/guide/hooks' },
       ] },
       { text: '遇到问题', items: [{ text: '排查与反馈', link: '/faq' }] },
     ],
