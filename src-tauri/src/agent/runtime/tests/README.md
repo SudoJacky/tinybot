@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:cf1533db3da048969fae4886616046a1ec96aac37a86b7608021e558a71f5b05 -->
+<!-- tinybot-module-fingerprint: sha256:933561abb2d0e283d96314b3cd66a9cbf0c3919c9a88bc224d4fa7e0a312c2de -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -17,6 +17,9 @@ shared Chat Completions/Responses normalization of nested cache and reasoning
 usage details. It distinguishes missing usage from an explicit zero and also
 verifies known-model context defaults, the legacy unknown-model fallback, and
 Provider Profile per-model overrides.
+Responses replay cases verify that compaction events and checkpoints, as well
+as trimming events, report the replacement request estimate rather than the
+discarded native history. Ordinary request preparation retains native replay.
 Compaction fixtures allow room for the structured handoff prompt while still
 exercising multi-request summaries, unsplittable-unit failures, and durable
 checkpoint installation. Fixture model output validates runtime behavior;

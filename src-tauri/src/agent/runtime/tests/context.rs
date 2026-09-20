@@ -703,6 +703,92 @@ fn manual_context_compaction_bypasses_threshold_and_finishes_without_a_normal_re
 }
 
 #[test]
+fn compaction_estimate_uses_replacement_history_instead_of_responses_replay() {
+    let messages = json!([
+        { "role": "user", "content": "keep working on the report" },
+        { "role": "assistant", "content": "earlier analysis ".repeat(300) },
+        { "role": "user", "content": "finish the report" }
+    ]);
+    let mut spec = json!({
+        "runtime": "rust",
+        "apiMode": "responses",
+        "turnId": "turn-compact-replay-estimate",
+        "sessionId": "session-compact-replay-estimate",
+        "contextCompaction": {
+            "trigger": "manual",
+            "reason": "user_requested",
+            "phase": "standalone_turn"
+        },
+        "messages": messages,
+        "responseItems": messages
+    });
+    let config = json!({
+        "agents": { "defaults": {
+            "provider": "fixture",
+            "model": "fixture-model",
+            "contextWindowTokens": 8_000,
+            "compactSummaryMaxTokens": 64
+        } },
+        "providers": { "fixture": { "responses": [
+            { "content": "Report analysis is complete; write the final report." }
+        ] } }
+    });
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::default(),
+        spec.clone(),
+        config.clone(),
+    )
+    .expect("manual compaction with Responses replay should complete");
+
+    assert_eq!(result["stopReason"], "context_compacted");
+    let event = result["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compacted")
+        .expect("compaction event should be emitted");
+    let payload = &event["payload"];
+    let before = payload["estimatedTokensBefore"].as_i64().unwrap();
+    let after = payload["estimatedTokensAfter"].as_i64().unwrap();
+    assert!(payload["droppedMessageCount"].as_u64().unwrap() > 0);
+    assert!(
+        after < before,
+        "compaction reused the old estimate: {before} -> {after}"
+    );
+
+    let replacement = &result["contextCheckpoint"]["replacementHistory"];
+    assert_eq!(replacement.as_array().unwrap().len(), 3);
+    assert!(!replacement.to_string().contains("earlier analysis"));
+    spec.as_object_mut().unwrap().remove("contextCompaction");
+    spec["messages"] = replacement.clone();
+    spec["turnId"] = json!("turn-after-compact-replay-estimate");
+    // The bridge hydrates Responses replay separately from canonical messages.
+    // Correlate the current user so input decoding does not append it twice.
+    let mut replay = super::super::responses_adapter::ResponsesAdapter::encode_history(
+        replacement.as_array().unwrap(),
+        None,
+    )
+    .unwrap();
+    replay[1]["turnId"] = spec["turnId"].clone();
+    spec["responseItems"] = replay;
+    let resumed =
+        run_native_agent_turn_with_config(&NativeAgentRuntimeServices::default(), spec, config)
+            .expect("the replacement history should resume normally");
+    let resumed_usage = resumed["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["eventName"] == "agent.usage")
+        .expect("the resumed provider request should report its estimate");
+    assert_eq!(
+        resumed_usage["payload"]["usage"]["estimatedContextTokens"],
+        after
+    );
+    assert_eq!(result["contextCheckpoint"]["estimatedTokensAfter"], after);
+    assert_eq!(payload["agentItem"]["estimatedTokensAfter"], after);
+}
+
+#[test]
 fn manual_and_auto_compaction_install_the_same_role_aware_history() {
     let messages = json!([
         { "role": "system", "content": "historical system instruction" },
@@ -1358,6 +1444,47 @@ fn context_estimate_uses_the_fully_assembled_provider_request() {
         estimate_context_tokens_for_request(&context).unwrap(),
         expected
     );
+}
+
+#[test]
+fn trim_estimate_uses_replacement_history_instead_of_responses_replay() {
+    let messages = json!([
+        { "role": "user", "content": "old question ".repeat(200) },
+        { "role": "assistant", "content": "old answer ".repeat(200) },
+        { "role": "user", "content": "continue" }
+    ]);
+    let mut context = AgentTurnContext::from_spec(
+        json!({
+            "apiMode": "responses",
+            "model": "fixture-model",
+            "messages": messages,
+            "responseItems": messages
+        }),
+        json!({ "agents": { "defaults": {
+            "contextWindowTokens": 100,
+            "contextWindowStrategy": "discard"
+        } } }),
+    );
+    context.tool_router = NativeToolRouter::new(Vec::new());
+    let projection = context_window_projection(&context).expect("history should be trimmed");
+    let payload = context_window_action_payload(&context, 0, projection.action.as_ref().unwrap());
+    assert_eq!(payload.dropped_message_count, 2);
+    assert!(payload.estimated_tokens_after < payload.estimated_tokens_before);
+
+    let mut projected =
+        super::super::usage::context_with_projected_messages(&context, projection.messages)
+            .unwrap();
+    // Ordinary provider iterations must retain native replay; only a context
+    // replacement switches the request to the projected canonical history.
+    assert!(projected.responses_input_items.is_some());
+    super::super::provider_protocol::ProviderProtocolAdapter::Responses
+        .reset_replay_after_context_projection(&mut projected)
+        .unwrap();
+    assert_eq!(
+        payload.estimated_tokens_after,
+        estimate_context_tokens_for_request(&projected).unwrap()
+    );
+    assert!(context.responses_input_items.is_some());
 }
 
 #[test]

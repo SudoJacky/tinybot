@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:608c5a29b559c620b84914bbed59e91914a068b8333dd9f2ebac5de71b61c22b -->
+<!-- tinybot-doc-fingerprint: sha256:fc1b70410a5a7ce00f88a529292c502b6aff03f973149ab30509b616b18bd6ac -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -183,6 +183,11 @@ strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit
 `discard` remains available and keeps the newest messages that fit without
 creating a summary.
+
+Compaction and trimming events estimate their replacement request with the
+previous Responses-native replay cleared on a projected context copy, matching
+the replay reset at commit. Ordinary provider iterations retain native replay.
+The before/after counts are local estimates, not additional provider usage.
 
 The compaction prompt asks for a structured continuation handoff covering the
 active goal, user constraints and corrections, decisions and rationale, work

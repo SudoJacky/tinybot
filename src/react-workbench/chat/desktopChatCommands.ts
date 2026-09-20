@@ -162,7 +162,7 @@ export function createDesktopChatCommands({ initialize, controller, nativeThread
         threadId: sessionId,
         clientEventId: command.commandId,
       });
-      const timeline = await controller.loadTimeline(sessionId);
+      const timeline = await controller.reloadTimeline(sessionId);
       notifySession(sessionId, { type: "timeline.patch", timeline });
       notifyTerminalTimelineState(sessionId, timeline);
       return;

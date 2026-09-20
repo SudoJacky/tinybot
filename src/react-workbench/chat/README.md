@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:4c1002f21622ad3a61b78c169a592ef5a6f91e7424d8ba959a09dfcca1845f14 -->
+<!-- tinybot-module-fingerprint: sha256:8d7a4903f9c5e3aded991c92a6d7f0e612a9e03edc176f08721cc5e37460ae3e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -102,6 +102,9 @@ mounting page layout or Sidecar resources.
 session-scoped `chatTimelineSource`. `LiveChatTimeline` subscribes to full content;
 `useChatTimelineSummary` gives the route stable lifecycle, plan and usage state.
 Text-only updates do not rerender the composer or historical Turn components.
+Standalone compaction reloads the durable terminal boundary before publishing
+completion. Applying a loaded snapshot cancels pending streaming frames; a live
+update received during a load invalidates that older load before rendering.
 Canonical Turn memoization relies on preserved model references and grouped Hook
 results. The timeline notifies the page after content commits so follow-to-bottom
 and saved scroll anchors continue working independently of page renders.

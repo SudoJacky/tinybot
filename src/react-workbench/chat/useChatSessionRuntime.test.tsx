@@ -239,6 +239,56 @@ test("a terminal snapshot cancels a pending streaming frame", async () => {
   expect(onEffect).toHaveBeenCalledOnce();
 });
 
+test("a completed compaction reload cannot be overwritten by a queued running frame", async () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => { frames.delete(id); });
+  let receive!: (event: ChatEvent) => void;
+  const pending = runningTimeline("session-1", "turn-compact");
+  const completed = { ...pending, turns: [{ ...pending.turns[0], status: "completed" as const }] };
+  const store = runtimeStore({
+    load: vi.fn().mockResolvedValueOnce(timeline("session-1")).mockResolvedValue(completed),
+    subscribe: vi.fn((_id, listener) => { receive = listener; return () => {}; }),
+  });
+  const { result } = renderHook(() => useChatSessionRuntime({ chatStore: store, sessionId: "session-1" }));
+  await waitFor(() => expect(result.current.state.status).toBe("ready"));
+  act(() => receive({ type: "timeline.patch", timeline: pending }));
+  await act(async () => result.current.actions.reload());
+  expect(result.current.timelineSource.getSnapshot()).toBe(completed);
+  act(() => { for (const callback of frames.values()) callback(0); frames.clear(); });
+  expect(result.current.timelineSource.getSnapshot()).toBe(completed);
+});
+
+test("a live update received during reload invalidates that load before its frame renders", async () => {
+  let renderFrame!: FrameRequestCallback;
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    renderFrame = callback;
+    return 1;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+  let receive!: (event: ChatEvent) => void;
+  let resolveLoad!: (snapshot: ChatTimelineSnapshot) => void;
+  const initial = timeline("session-1");
+  const store = runtimeStore({
+    load: vi.fn().mockResolvedValueOnce(initial).mockImplementation(() => new Promise<ChatTimelineSnapshot>((resolve) => { resolveLoad = resolve; })),
+    subscribe: vi.fn((_id, listener) => { receive = listener; return () => {}; }),
+  });
+  const { result } = renderHook(() => useChatSessionRuntime({ chatStore: store, sessionId: "session-1" }));
+  await waitFor(() => expect(result.current.state.status).toBe("ready"));
+  let reload!: Promise<void>;
+  act(() => { reload = result.current.actions.reload(); });
+  const live = runningTimeline("session-1", "turn-new");
+  act(() => receive({ type: "timeline.patch", timeline: live }));
+  await act(async () => { resolveLoad(timeline("session-1")); await reload; });
+  expect(result.current.timelineSource.getSnapshot()).toBe(initial);
+  act(() => renderFrame(0));
+  expect(result.current.timelineSource.getSnapshot()).toBe(live);
+});
+
 test("switching sessions cancels pending streaming content and isolates subscriptions", async () => {
   const listeners = new Map<string, (event: ChatEvent) => void>();
   const store = runtimeStore({ subscribe: vi.fn((id, listener) => {

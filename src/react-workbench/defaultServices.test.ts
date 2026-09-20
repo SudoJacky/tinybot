@@ -1110,6 +1110,36 @@ describe("desktop native app services", () => {
     });
   });
 
+  test("reloads the durable terminal boundary after compaction instead of publishing cached running state", async () => {
+    const invoke = mocks.invoke.getMockImplementation()!;
+    let status = "running";
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "thread_list_turns") return { turns: [{ turnId: "turn-compact" }] };
+      if (command === "thread_get_turn_runtime_state") {
+        const state = canonicalRuntimeState("turn-compact");
+        return { ...state, status, ...(status === "completed" ? {
+          completedAt: "2026-07-14T00:00:03.000Z", stopReason: "context_compacted",
+        } : {}), timeline: { ...state.timeline, items: [{
+          ...state.timeline.items[0], itemId: "compact-1", kind: "context_compaction",
+          status: "running", data: { type: "context_compaction", id: "compact-1", summary: "compact", droppedItemCount: 3 },
+        }] } };
+      }
+      if (command === "worker_compact_thread") { status = "completed"; return {}; }
+      return invoke(command, args);
+    });
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    await services.chatStore.load("thread-1");
+    const events: ChatEvent[] = [];
+    const unsubscribe = services.chatStore.subscribe("thread-1", (event) => events.push(event));
+    await services.chatStore.dispatch(createDesktopCompactCommand({
+      sessionId: "thread-1", source: { control: "slash-compact", surface: "chat" },
+    }));
+    expect([...events].reverse().find((event) => event.timeline)?.timeline?.turns[0].status).toBe("completed");
+    expect(events.some((event) => event.eventType === "agent.turn.completed")).toBe(true);
+    unsubscribe();
+  });
+
   test("forks a completed canonical turn into a registered Thread at the selected message boundary", async () => {
     const branchThread = {
       ...thread,
