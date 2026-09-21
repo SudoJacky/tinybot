@@ -144,27 +144,63 @@ fn empty_stdin_long_wait_returns_promptly_when_cancelled() {
 #[cfg(target_os = "windows")]
 #[test]
 fn windows_termination_stops_descendant_processes() {
+    assert_windows_descendant_termination(0);
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_termination_waits_for_a_slow_descendant_startup() {
+    assert_windows_descendant_termination(3_000);
+}
+
+#[cfg(target_os = "windows")]
+fn assert_windows_descendant_termination(startup_delay_ms: u64) {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+
     let fixture = ProcessFixture::new();
     let rpc = shell_rpc(&fixture);
+    struct Cleanup<'a>(&'a WorkerShellRpc);
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            let report = self.0.shutdown();
+            if !report.failures.is_empty() {
+                eprintln!("descendant fixture cleanup failed: {report:?}");
+            }
+        }
+    }
+    let _cleanup = Cleanup(&rpc);
     let child_started = fixture.root.join("unsandboxed-child-started.txt");
-    let child_survived = fixture.root.join("unsandboxed-child-survived.txt");
+    let child_pid = fixture.root.join("unsandboxed-child-pid.txt");
     std::fs::write(
         fixture.root.join("unsandboxed-child.ps1"),
-        concat!(
-            "Set-Content -LiteralPath 'unsandboxed-child-started.txt' -Value 'started'\r\n",
-            "Start-Sleep -Seconds 2\r\n",
-            "Set-Content -LiteralPath 'unsandboxed-child-survived.txt' -Value 'survived'\r\n"
+        format!(
+            concat!(
+                "$ErrorActionPreference = 'Stop'\r\n",
+                "Start-Sleep -Milliseconds {}\r\n",
+                "Set-Content -LiteralPath 'unsandboxed-child-pid.txt' -Value $PID\r\n",
+                "Set-Content -LiteralPath 'unsandboxed-child-started.txt' -Value 'started'\r\n",
+                "while ($true) {{ Start-Sleep -Seconds 1 }}\r\n"
+            ),
+            startup_delay_ms
         ),
     )
     .expect("unsandboxed child fixture should be written");
     std::fs::write(
         fixture.root.join("unsandboxed-parent.ps1"),
         concat!(
+            "$ErrorActionPreference = 'Stop'\r\n",
             "$child = Start-Process -FilePath 'powershell.exe' ",
             "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','unsandboxed-child.ps1' ",
+            "-WorkingDirectory $PSScriptRoot ",
+            "-RedirectStandardOutput 'unsandboxed-child-stdout.txt' ",
+            "-RedirectStandardError 'unsandboxed-child-stderr.txt' ",
             "-PassThru -WindowStyle Hidden\r\n",
-            "Set-Content -LiteralPath 'unsandboxed-child-pid.txt' -Value $child.Id\r\n",
-            "while ($true) { Start-Sleep -Seconds 1 }\r\n"
+            "$child.WaitForExit()\r\n",
+            "exit $child.ExitCode\r\n"
         ),
     )
     .expect("unsandboxed parent fixture should be written");
@@ -187,14 +223,45 @@ fn windows_termination_stops_descendant_processes() {
         .expect("unsandboxed process tree should start");
     assert!(started.running, "{started:?}");
 
-    let child_start_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    // Startup can include multiple cold PowerShell processes on a busy runner.
+    // Wait for readiness, with a bounded diagnostic failure rather than a speed assertion.
+    let child_start_deadline = std::time::Instant::now() + Duration::from_secs(30);
     while !child_started.exists() {
-        assert!(
-            std::time::Instant::now() < child_start_deadline,
-            "unsandboxed descendant should start before termination"
-        );
-        std::thread::sleep(Duration::from_millis(10));
+        let output = rpc
+            .poll(ShellProcessPollParams {
+                process_id: started.process_id.clone(),
+                owner_id: Some("turn-unsandboxed-tree".to_string()),
+                cursor: Some(0),
+                yield_time_ms: Some(100),
+            })
+            .expect("descendant startup should remain observable");
+        if !output.running || std::time::Instant::now() >= child_start_deadline {
+            panic!(
+                "descendant did not become ready; delay={startup_delay_ms}ms; process={output:?}; child_stdout={:?}; child_stderr={:?}",
+                std::fs::read_to_string(fixture.root.join("unsandboxed-child-stdout.txt")),
+                std::fs::read_to_string(fixture.root.join("unsandboxed-child-stderr.txt")),
+            );
+        }
     }
+
+    let child_id: u32 = std::fs::read_to_string(child_pid)
+        .expect("ready descendant should have written its PID")
+        .trim()
+        .parse()
+        .expect("descendant PID should be numeric");
+    // Hold the original process handle so PID reuse cannot affect the exit check.
+    let child_handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, child_id) };
+    assert!(
+        !child_handle.is_null(),
+        "could not open descendant {child_id}: {}",
+        std::io::Error::last_os_error()
+    );
+    let child_handle = unsafe { OwnedHandle::from_raw_handle(child_handle) };
+    assert_eq!(
+        unsafe { WaitForSingleObject(child_handle.as_raw_handle(), 0) },
+        WAIT_TIMEOUT,
+        "descendant must still be alive before termination"
+    );
 
     let terminated = rpc
         .terminate(ShellProcessIdParams {
@@ -203,9 +270,9 @@ fn windows_termination_stops_descendant_processes() {
         })
         .expect("unsandboxed process tree should terminate");
     assert_eq!(terminated.status, "terminated", "{terminated:?}");
-    std::thread::sleep(Duration::from_secs(3));
-    assert!(
-        !child_survived.exists(),
+    assert_eq!(
+        unsafe { WaitForSingleObject(child_handle.as_raw_handle(), 5_000) },
+        WAIT_OBJECT_0,
         "an unsandboxed descendant escaped task-tree termination"
     );
 }

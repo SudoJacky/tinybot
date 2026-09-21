@@ -1,5 +1,5 @@
 # Shell Tools
-<!-- tinybot-module-fingerprint: sha256:10fc13c0c9ee955355f59aaa75b27a3a3a7a1b65117c3a6c35059ebd17269771 -->
+<!-- tinybot-module-fingerprint: sha256:5a854cb9971c54f4506f36460de5ac53007437a68b99ec96b9ae3b99c2350bf1 -->
 
 `shell` runs commands for agents and RPC clients in a validated working
 directory. Relative paths resolve from the configured workspace; an existing
@@ -33,6 +33,9 @@ Runtime metrics record `process.wait.durationMs`, `process.wait.stillRunning`,
 `process.wait.finished`, and `process.wait.emptyOutput` to diagnose polling churn.
 
 Platform-specific process containment is implemented separately where needed.
+Windows process-tree tests wait for descendant readiness, including delayed
+startup, then verify exit through an owned process handle. Startup failures
+report parent state and child output; fixture cleanup also runs on assertion failure.
 On Windows, the Job Object helper is also reused by trusted subprocess runners
 such as command hooks so closing the job terminates inherited descendants.
 `WorkerShellRuntime` instances have independent process registries. The desktop
