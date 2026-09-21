@@ -28,8 +28,9 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 架构和维护文档请从 [Tinybot 工程文档地图](docs/README.md) 开始阅读；帮助网页的本地预览与发布方式见 [网站维护说明](website/README.md)。
 
-我们已经支持了Agent graph的编排和高自由度的定义，未来将会支持由Agent负责和调用的Graph。
-我们支持了灵动的宠物系统，Tinybot将以宠物的形式在工作中陪伴，同时可以将文字内容拖动给宠物并快速唤起会话，多模态和文件的支持将在未来实现（应该很快）。
+Tinybot 支持创建、编辑和运行可复用的 Agent Graph。在已选择工作区的会话中，Chat Agent 也可以将该工作区中保存的 Graph 作为工具调用，并使用最终输出继续完成任务。配置和使用方法见 [Agent Graph 指南](https://sudojacky.github.io/tinybot/guide/agent-graph.html)。
+
+在 Windows 上，Tinybot 的动态桌面宠物提供快捷对话入口。将文字、图片或本地文件拖给宠物，即可打开带有可编辑草稿和附件的快捷聊天。你也可以直接在快捷聊天窗口添加附件，并在主窗口继续同一会话。图片理解需要选择支持图片输入的模型。详细操作见 [桌面宠物指南](https://sudojacky.github.io/tinybot/guide/desktop-pet.html)。
 
 <img width="418" height="236" alt="image" src="https://github.com/user-attachments/assets/59ffe250-d52a-4c8f-ad11-ab7ae6e86551" />
 

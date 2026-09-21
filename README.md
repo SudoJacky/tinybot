@@ -31,8 +31,9 @@ Architecture and maintainer documentation starts at the
 [Tinybot engineering documentation map](docs/README.md).
 The [help website guide](website/README.md) covers local preview and GitHub Pages deployment.
 
-We have already supported the orchestration of Agent graphs and the definition of high degrees of freedom. In the future, we will support graphs managed and called by Agents.
-We support a dynamic pet system, where Tinybot will accompany pets at work in the form of pets, while also being able to drag text content to pets and quickly initiate conversations. Multimodal and file support will be implemented in the future (which should be soon).
+Tinybot supports creating, editing, and running reusable Agent Graphs. In a conversation with a selected workspace, the Chat Agent can also call saved Graphs from that workspace as tools and use their final output to continue the task. See the [Agent Graph guide](https://sudojacky.github.io/tinybot/guide/agent-graph.html) for setup and usage.
+
+On Windows, Tinybot's animated desktop pet provides quick access to conversations. Drag text, images, or local files onto the pet to open quick chat with an editable draft and attachments. You can also add attachments in the quick-chat window and continue the same conversation in the main window. Image understanding requires a model that supports image input. See the [desktop pet guide](https://sudojacky.github.io/tinybot/guide/desktop-pet.html) for details.
 
 <img width="418" height="236" alt="image" src="https://github.com/user-attachments/assets/dc8755a3-c9ff-45d9-aa72-8a7257822787" />
 
