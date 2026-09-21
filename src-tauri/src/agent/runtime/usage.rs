@@ -323,7 +323,14 @@ fn estimate_context_tokens_for_messages(
     context: &AgentTurnContext,
     messages: Vec<Value>,
 ) -> Result<i64, String> {
-    estimate_context_tokens_for_request(&context_with_projected_messages(context, messages)?)
+    let mut projected = context_with_projected_messages(context, messages)?;
+    let adapter = ProviderProtocolAdapter::for_runtime_request(&projected)?;
+    // Match the replay reset performed when the replacement is committed.
+    // Otherwise Responses ignores these messages and estimates the old history.
+    adapter.reset_replay_after_context_projection(&mut projected)?;
+    let request =
+        adapter.build_request_from_window(&projected, projected.messages.to_legacy_messages()?)?;
+    Ok(estimate_message_tokens(&request))
 }
 
 pub(super) fn enrich_usage_with_context_window(

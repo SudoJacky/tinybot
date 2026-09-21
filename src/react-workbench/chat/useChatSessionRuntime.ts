@@ -105,6 +105,11 @@ export function useChatSessionRuntime({
         );
         return;
       }
+      if (streamingFrame !== null) {
+        window.cancelAnimationFrame(streamingFrame);
+        streamingFrame = null;
+        pendingStreamingTimeline = null;
+      }
       timelineEpoch += 1;
       timelineSource.publish(timeline);
       setState((current) => {
@@ -154,6 +159,8 @@ export function useChatSessionRuntime({
       await Promise.all([loadTimeline(), loadAgentUiForms()]);
     };
     const scheduleStreamingTimeline = (timeline: ChatTimelineSnapshot) => {
+      // A received update invalidates older loads before its next-frame publish.
+      timelineEpoch += 1;
       pendingStreamingTimeline = timeline;
       if (streamingFrame !== null) return;
       streamingFrame = window.requestAnimationFrame(() => {
@@ -204,11 +211,6 @@ export function useChatSessionRuntime({
         if (shouldFrameBatchTimeline(event.timeline)) {
           scheduleStreamingTimeline(event.timeline);
         } else {
-          if (streamingFrame !== null) {
-            window.cancelAnimationFrame(streamingFrame);
-            streamingFrame = null;
-            pendingStreamingTimeline = null;
-          }
           applyTimeline(event.timeline, true);
         }
         return;
