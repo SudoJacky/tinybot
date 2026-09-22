@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createDesktopAppServices } from "./defaultServices";
+import * as sessionController from "../app-core/chat/desktopChatSessionController";
 import { useChatSessions } from "./chat/useChatSessions";
 import type { ChatEvent } from "./services";
 import { createDesktopCompactCommand, createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
@@ -117,6 +118,22 @@ describe("desktop native app services", () => {
 
     const commands = mocks.invoke.mock.calls.map(([command]) => command);
     expect(commands).toContain("worker_threads_list");
+  });
+
+  test("observes a Team Thread without changing the selected Chat session", async () => {
+    const factory = vi.spyOn(sessionController, "createDesktopChatSessionController");
+    try {
+      const services = createDesktopAppServices();
+      await services.chatStore.load("thread-1");
+      const controller = factory.mock.results[0].value;
+      expect(controller.state.activeThreadId).toBe("thread-1");
+      const snapshot = await services.chatStore.readTimeline!("team-worker");
+      expect(snapshot.sessionId).toBe("team-worker");
+      expect(controller.state.activeThreadId).toBe("thread-1");
+      expect(mocks.invoke).toHaveBeenCalledWith("thread_list_turns", { input: { body: { threadId: "team-worker" } } });
+    } finally {
+      factory.mockRestore();
+    }
   });
 
   test("maps operation retry commands to the typed native Thread input", async () => {

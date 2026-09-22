@@ -21,9 +21,13 @@ import type {
 } from "../../app-core/native/desktopNativeTeams";
 import { canExecute, orderedTasks, taskState } from "./teamPresentation";
 import { TeamElapsedTime, TeamTaskStatus } from "./TeamTaskStatus";
+import { TeamFiles } from "./TeamFiles";
+import { TeamActivity } from "./TeamActivity";
+import { useTeamActivity, type TeamActivitySource } from "./useTeamActivity";
 
 type Props = {
   workspaceStore: PreviewWorkspaceStore;
+  activitySource?: TeamActivitySource;
   loadUsageDetails?: UsageDetailsLoader;
   run: TeamRun;
   busy: boolean;
@@ -40,6 +44,7 @@ type Props = {
 };
 export function TeamDetail({
   workspaceStore,
+  activitySource,
   loadUsageDetails,
   run,
   busy,
@@ -63,6 +68,7 @@ export function TeamDetail({
   // Follow active work until the user explicitly chooses a task to inspect.
   const record = run.tasks.find((r) => r.task.id === selected) ?? runningTasks[0] ?? final ?? tasks[0];
   const latestAttempt = record.attempts.slice(-1)[0];
+  const { activity, refresh: refreshActivity } = useTeamActivity(activitySource, run, record.task.id);
   const inspectorRef = useRef<HTMLElement>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
   const backToTasksRef = useRef<HTMLButtonElement>(null);
@@ -244,7 +250,7 @@ export function TeamDetail({
                 )
                   return;
                 event.preventDefault();
-                const tabs = ["tasks", "board", "result", "usage"];
+                const tabs = ["tasks", "files", "board", "result", "usage"];
                 const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[tabs.length - 1]
                   : tabs[(tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
                 setTab(next);
@@ -265,6 +271,9 @@ export function TeamDetail({
               >
                 {t("teams.tasks")}
               </button>
+              <button role="tab" id="team-files-tab" disabled={editing}
+                tabIndex={tab === "files" ? 0 : -1} aria-controls="team-files-panel"
+                aria-selected={tab === "files"} onClick={() => setTab("files")}>{t("teams.files")}</button>
               <button role="tab" id="team-board-tab" disabled={editing}
                 tabIndex={tab === "board" ? 0 : -1} aria-controls="team-board-panel"
                 aria-selected={tab === "board"} onClick={() => setTab("board")}>{t("teams.board")}</button>
@@ -317,7 +326,11 @@ export function TeamDetail({
           >
             <span style={{ transform: `scaleX(${completedCount / tasks.length})` }} />
           </div>
-          {tab === "usage" ? (
+          {tab === "files" ? (
+            <section role="tabpanel" id="team-files-panel" aria-labelledby="team-files-tab" className="team-result">
+              <TeamFiles run={run} workspaceStore={workspaceStore} onSelectTask={selectTask} onOpenThread={(id) => void openRecord(id)} />
+            </section>
+          ) : tab === "usage" ? (
             <section role="tabpanel" id="team-usage-panel" aria-labelledby="team-usage-tab" className="team-result">
               {loadUsageDetails ? <UsageHistory key={run.id} load={loadUsageDetails} teamRunId={run.id} tasks={Object.fromEntries(run.tasks.map(r => [r.task.id, r.task.title]))} /> : <p>{usageText("profile.unavailable")}</p>}
             </section>
@@ -403,6 +416,12 @@ export function TeamDetail({
                                 .join(" · ")
                             : t("teams.noDependencies")}
                         </span>
+                        {r.status === "running" && r.attempts.slice(-1)[0] && (
+                          <span className="team-task-activity" title={activity[r.attempts.slice(-1)[0]!.threadId]?.items.slice(-1)[0]?.text}>
+                            {activity[r.attempts.slice(-1)[0]!.threadId]?.error ? t("teams.activityUnavailable")
+                              : activity[r.attempts.slice(-1)[0]!.threadId]?.items.slice(-1)[0]?.text ?? t("teams.noActivity")}
+                          </span>
+                        )}
                       </span>
                       {r.status !== "running" && <span className="team-owner" title={run.spec.members.find((m) => m.id === r.task.memberId)!.displayName}>
                         {
@@ -471,7 +490,6 @@ export function TeamDetail({
                   <strong>{t("teams.workingNow")}</strong>
                   {latestAttempt && <TeamElapsedTime key={latestAttempt.threadId} attempt={latestAttempt} />}
                 </div>
-                <p>{t("teams.runningHint")}</p>
                 {latestAttempt && (
                   <button onClick={() => void openRecord(latestAttempt.threadId)}>
                     {t("teams.viewLiveRecord")}<ArrowRight size={15} />
@@ -479,6 +497,8 @@ export function TeamDetail({
                 )}
               </div>
             )}
+            {latestAttempt && activitySource?.readTimeline && <TeamActivity key={latestAttempt.threadId}
+              activity={activity[latestAttempt.threadId]} onRefresh={refreshActivity} />}
             <section>
               <h3>{t("teams.instructions")}</h3>
               <p>{record.task.instructions}</p>
@@ -515,10 +535,11 @@ export function TeamDetail({
             {!!record.attempts.length && (
               <section>
                 <h3>{t("teams.attempts")}</h3>
-                {record.attempts.map((attempt, i) => (
+                <p>{t("teams.currentAttempt")}</p>
+                {record.attempts.slice(-1).map((attempt) => (
                   <div className="team-attempt" key={attempt.threadId}>
                     <button onClick={() => void openRecord(attempt.threadId)}>
-                      {i + 1} · {t(`teams.status.${attempt.status}`)}
+                      {record.attempts.length} · {t(`teams.status.${attempt.status}`)}
                       <ArrowRight size={16} />
                       <span className="react-sr-only">{t("teams.openRecord")}</span>
                     </button>
@@ -527,6 +548,16 @@ export function TeamDetail({
                     )}
                   </div>
                 ))}
+                {record.attempts.length > 1 && <details key={latestAttempt!.threadId} className="team-attempt-history">
+                  <summary>{t("teams.earlierAttempts", { count: record.attempts.length - 1 })}</summary>
+                  {record.attempts.slice(0, -1).map((attempt, index) => <div className="team-attempt" key={attempt.threadId}>
+                    <button onClick={() => void openRecord(attempt.threadId)}>
+                      {index + 1} · {t(`teams.status.${attempt.status}`)}<ArrowRight size={16} />
+                      <span className="react-sr-only">{t("teams.openRecord")}</span>
+                    </button>
+                    {attempt.error && <p className="team-error">{attempt.error}</p>}
+                  </div>)}
+                </details>}
               </section>
             )}
             {editable &&

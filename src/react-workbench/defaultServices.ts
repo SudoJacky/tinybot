@@ -359,6 +359,10 @@ export function createDesktopAppServices(
     chatStore: {
       browserRuntime: nativeBrowser,
       terminalRuntime: nativeTerminal,
+      async readTimeline(sessionId) {
+        await initialize();
+        return controller.reloadTimeline(sessionId);
+      },
       async load(sessionId) {
         await initialize();
         const thread = controller.state.threads.find((item) => item.threadId === sessionId);

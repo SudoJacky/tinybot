@@ -957,3 +957,16 @@
 .team-artifacts small { margin-left: 12px; opacity: .65; }
 .team-artifact-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
 .team-artifact-preview button { margin-right: 12px; }
+
+.team-activity ol { list-style: none; padding: 0; margin: 8px 0; }
+.team-activity li { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; padding-block: 6px; }
+.team-activity li > span:last-child { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.team-activity .team-status { align-self: start; padding-top: 2px; }
+.team-files > p + p { margin-top: 16px; }
+.team-file-group { padding-block: 18px; border-bottom: 1px solid var(--color-hairline); }
+.team-file-group h3 button { text-align: left; overflow-wrap: anywhere; }
+.team-file-group > p { margin-top: 6px; }
+.team-activity summary, .team-attempt-history summary, .team-files summary { cursor: pointer; padding-block: 10px; color: var(--color-muted); }
+.team-activity summary:focus-visible, .team-attempt-history summary:focus-visible, .team-files summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.team-task-title > .team-task-activity { color: var(--color-ink); }
+.team-task-toolbar > [role="tablist"] { min-width: 0; overflow-x: auto; flex-shrink: 1; }

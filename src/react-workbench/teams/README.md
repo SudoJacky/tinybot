@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:e454f75e9fb9b6c82eff5b790b12c0d5d1a4cfb494b242348f3e95244faccfd5 -->
+<!-- tinybot-module-fingerprint: sha256:ec7d80cd7eb18dccaf6cae09c1ce2db91a8195399b689e59c290d2f1301b978e -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -15,6 +15,16 @@ fields use the full form width. Planning exposes an explicit busy state.
 `TeamDetail` keeps one page through plan confirmation, execution and results.
 Dependency rows retain topological order. The inspector exposes real task
 instructions, prerequisites, output, errors and every attempt's standard Thread.
+The latest attempt is visible by default; earlier attempts are folded with their
+original errors and Thread links. `useTeamActivity` observes only running tasks
+and the inspected task through Chat's canonical timeline and shared event
+subscription. Its read path does not select a Chat session. Recent activity
+shows the last five entries, with up to 35 earlier entries on disclosure and
+the complete execution record one click away. User input, private reasoning
+and raw tool payloads are excluded. Live patches supersede late initial reads;
+read and stream errors remain visible with an explicit refresh action.
+Updates are batched and subscriptions are disposed when the observed attempts
+change or the view unmounts.
 Markdown file links open a shared inline Artifact preview in the result surface.
 The Message board tab lists all completed attempts with author, time, summary,
 unresolved issues, artifact references, and execution-record navigation.
@@ -24,6 +34,11 @@ preview, and failures remove stale content and show the backend error. A separat
 Preview current file action supports images, Office documents and paginated text
 through the shared workspace reader; it does not replace verified historical
 artifact reads. Result previews omit Chat editing and restoration actions.
+The Files tab aggregates reported artifacts by task and attempt, including the
+producer, attempt number and completion time. Latest-attempt artifacts are
+visible first; historical attempts are collapsed. Task links return to the
+inspector. It reuses `TeamArtifacts` for verified reads and current-file previews,
+performs no eager file reads, and discards late reads after changing preview mode.
 The result tab renders the successful final task output, including when the
 run stopped after producing that output.
 
@@ -37,7 +52,7 @@ final-task selection for an idle run. Attempted definitions are locked. The
 editor captures its starting revision and preserves edits on save conflicts;
 backend validation enforces an acyclic plan and complete final synthesis.
 Editing focuses the first field, keeps Save/Discard visible in short windows,
-and disables the Message board, Result and Usage tabs until editing ends. Closing restores trigger focus.
+and disables Files, Message board, Result and Usage until editing ends. Closing restores trigger focus.
 
 `useTeamRuns` separates long-running execute invocations from polling and
 revision-checked controls. Older snapshots cannot replace newer revisions.
@@ -51,7 +66,9 @@ requeues one failed/interrupted/cancelled task; all such tasks must be handled
 before Resume becomes available.
 
 `teamPresentation` derives pending labels from the containing run and dependency
-states. No estimated progress, invented activity or live tool stream is shown.
+states. No estimated progress or invented activity is shown. Running rows display
+the latest reported activity; the inspector exposes the same recent activity
+without navigating away from Teams.
 Running task rows show a reduced-motion-aware spinner and actual attempt elapsed
 time. Member and running-count shortcuts select and reveal the task. A polite
 status summary announces progress without announcing every timer tick.

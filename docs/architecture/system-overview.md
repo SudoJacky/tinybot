@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7b15c5cd15b9e5f260e03320c3e920b2bcbee14a33627daae9561d0eeb0d328f -->
+<!-- tinybot-doc-fingerprint: sha256:345127281a42c0cb9402b33d579e5a8c741cee28331043311cb5a3f07738628b -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -307,6 +307,11 @@ existing application window.
   before execution and downstream dispatch respectively. Native Threads own
   tool/runtime events; the Team store owns dependency and run state. Restart
   reconciliation marks uncertain work interrupted and requires explicit retry.
+  The Team renderer reads worker timelines without changing the selected Chat
+  session and subscribes to canonical activity for running and inspected tasks.
+  Recent activity and latest attempts are shown first, with older records folded.
+  Its Files view groups reported artifacts by producer task and attempt, reusing
+  verified artifact reads and the separate current-workspace file preview.
   See the [Team module](../../src-tauri/src/teams/README.md) and [Team API](../api/teams.md).
 
 - A user message follows the [Agent Turn lifecycle](agent-turn-lifecycle.md).

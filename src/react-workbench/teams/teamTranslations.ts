@@ -1,4 +1,10 @@
 export const teamEn = {
+  files: "Files", filesHint: "Artifacts grouped by task and attempt. Open a recorded artifact or preview the current workspace file.",
+  noFiles: "No artifacts in the latest attempts yet.", attemptNumber: "Attempt {{number}}",
+  currentAttempt: "Latest attempt", earlierAttempts: "Earlier attempts ({{count}})",
+  recentActivity: "Recent activity", earlierActivity: "Earlier activity ({{count}})",
+  noActivity: "No activity reported yet.", activityUnavailable: "Activity unavailable · open task details to refresh",
+  activityStatus: { pending: "Pending", running: "Running", blocked: "Blocked", completed: "Completed", failed: "Failed", cancelled: "Stopped" },
   board: "Message board", emptyBoard: "Completed tasks will leave their findings here.",
   unresolved: "Unresolved", readMore: "Next section", closePreview: "Close preview",
   subtitle: "Several minds. One shared goal.",
@@ -94,6 +100,12 @@ export const teamEn = {
   },
 };
 export const teamZh: typeof teamEn = {
+  files: "产物", filesHint: "按任务和执行尝试汇总产物。可读取已记录的产物，或预览工作区中的当前文件。",
+  noFiles: "当前尝试尚未产生文件。", attemptNumber: "第 {{number}} 次尝试",
+  currentAttempt: "当前尝试", earlierAttempts: "历史尝试（{{count}}）",
+  recentActivity: "最近活动", earlierActivity: "较早活动（{{count}}）",
+  noActivity: "尚未收到活动记录。", activityUnavailable: "活动不可用 · 打开任务详情刷新",
+  activityStatus: { pending: "待执行", running: "执行中", blocked: "受阻", completed: "已完成", failed: "失败", cancelled: "已停止" },
   board: "留言板", emptyBoard: "任务完成后，会在这里留下结论与产物。",
   unresolved: "未解决事项", readMore: "下一段", closePreview: "关闭预览",
   subtitle: "多位成员，共同完成一个目标。",

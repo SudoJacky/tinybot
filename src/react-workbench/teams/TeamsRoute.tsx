@@ -29,7 +29,7 @@ export default function TeamsRoute({
   onOpenThread,
   onNavigate,
 }: {
-  services: Pick<AppServices, "teamStore" | "workspaceRegistryStore" | "workspaceStore">;
+  services: Pick<AppServices, "teamStore" | "workspaceRegistryStore" | "workspaceStore"> & Partial<Pick<AppServices, "chatStore">>;
   onOpenThread: (id: string) => Promise<void>;
   onNavigate: (route: AppRoute) => void;
 }) {
@@ -208,6 +208,7 @@ export default function TeamsRoute({
           {state.run ? (
             <TeamDetail
               workspaceStore={services.workspaceStore}
+              activitySource={services.chatStore}
               loadUsageDetails={services.teamStore.loadUsageDetails}
               key={state.run.id}
               run={state.run}

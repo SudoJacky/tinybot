@@ -144,6 +144,8 @@ export type ChatStore = {
   browserRuntime?: NativeBrowserRuntimeApi;
   terminalRuntime?: NativeTerminalRuntimeApi;
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
+  /** Observe a Thread without selecting it as the active Chat session. */
+  readTimeline?(sessionId: string): Promise<ChatTimelineSnapshot>;
   loadEffectiveCapabilities(threadId: string): Promise<ThreadEffectiveCapabilities>;
   dispatch(command: DesktopCommand): Promise<void>;
   listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
