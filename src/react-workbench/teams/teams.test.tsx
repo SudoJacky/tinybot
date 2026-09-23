@@ -472,15 +472,23 @@ it("prepares a real workspace-bound roster and waits for explicit start", async 
     screen.getByRole("textbox", { name: "Team goal" }),
     "Research tools",
   );
+  await user.click(screen.getByRole("button", { name: "Configure members · 3" }));
+  await user.click(screen.getByRole("checkbox", { name: "Analyst" }));
+  await user.click(screen.getByRole("button", { name: "Edit Researcher" }));
+  await user.clear(screen.getByRole("textbox", { name: "Display name" }));
+  await user.type(screen.getByRole("textbox", { name: "Display name" }), "Lead researcher");
+  await user.click(screen.getByRole("button", { name: "Done" }));
   await user.click(screen.getByRole("button", { name: "Generate plan" }));
   await screen.findByRole("button", { name: "Confirm and start" });
   expect(api.prepare).toHaveBeenCalledWith({
     spec: expect.objectContaining({
       goal: "Research tools",
       workspacePath: "D:/project",
-      members: expect.arrayContaining([
-        expect.objectContaining({ displayName: "Researcher" }),
-      ]),
+      maxConcurrency: 2,
+      members: [
+        expect.objectContaining({ id: "research", displayName: "Lead researcher" }),
+        expect.objectContaining({ id: "editor", displayName: "Editor" }),
+      ],
     }),
   });
   expect(api.execute).not.toHaveBeenCalled();

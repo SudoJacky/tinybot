@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:345127281a42c0cb9402b33d579e5a8c741cee28331043311cb5a3f07738628b -->
+<!-- tinybot-doc-fingerprint: sha256:4054864884dd0962a1867252d83c524800842e86d0fb256cc80c35bb751da9b6 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -302,6 +302,9 @@ existing application window.
 ## Cross-module flows
 
 - Team preparation accepts a supplied plan or a tool-free model proposal.
+  The renderer submits the selected roster from its pixel-avatar member picker.
+  Planning follows configured responsibilities; each attempt receives its own
+  member role as instructions and the saved team roster as task context.
   The Team scheduler validates the dependency graph and dispatches ready tasks
   to the native Thread/Turn bridge. Attempt identities and results are committed
   before execution and downstream dispatch respectively. Native Threads own

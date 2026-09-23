@@ -34,6 +34,14 @@ export const teamEn = {
   progressAnnouncement: "{{status}}. {{done}} of {{total}} completed. {{running}} running.",
   editingHint: "Editing plan · Save or discard your changes before switching views.",
   configureMembers: "Configure members",
+  chooseMembers: "Choose your team",
+  selectedMembers: "{{count}} selected",
+  searchMembers: "Search members…",
+  noMatchingMembers: "No matching members.",
+  keepOneMember: "Keep at least one member on the team.",
+  editMember: "Edit {{name}}",
+  closeMembers: "Close member picker",
+  doneMembers: "Done",
   workspaceEmpty: "No team runs in this workspace yet.",
   runningCount: "{{count}} running",
   locateRunning: "Locate next running task",
@@ -79,11 +87,11 @@ export const teamEn = {
   analyst: "Analyst",
   editor: "Editor",
   researchInstructions:
-    "Gather reliable sources and evidence. Cite sources and identify uncertainties.",
+    "You are the team's researcher. Build a reliable evidence base for the assigned question.\nMethod: Review relevant dependency results before gathering more material. Prefer primary sources, record source locations and dates when relevant, and distinguish verified facts from assumptions or conflicting accounts. Report missing evidence explicitly.\nDeliverable: Organize findings with traceable sources and uncertainties so teammates can verify and reuse them. Put detailed evidence in artifacts; summarize the key findings and open questions in your handoff.",
   analystInstructions:
-    "Compare evidence, examine tradeoffs and verify claims. State assumptions.",
+    "You are the team's analyst. Turn evidence into a defensible assessment of the assigned question.\nMethod: Inspect relevant findings and artifacts from dependencies. Compare options using explicit criteria, check calculations and claims against their sources, and distinguish evidence from inference. Explain tradeoffs, assumptions, contradictions and gaps instead of filling them with guesses.\nDeliverable: Provide a reasoned assessment or recommendation with supporting evidence, limitations and unresolved questions that teammates can use in the final deliverable.",
   editorInstructions:
-    "Synthesize the team's evidence into a clear, actionable deliverable. Check consistency and cite sources.",
+    "You are the team's editor. Turn the assigned material into a coherent deliverable suited to the user's goal and audience.\nMethod: Read the relevant dependency results and artifacts. Reconcile terminology and conflicting claims, check that conclusions follow from the evidence, preserve source references and uncertainty, and remove duplication. Identify missing support rather than inventing it.\nDeliverable: Produce the requested document or synthesis, check its completeness and consistency against the assignment, and hand off the artifact with a concise summary and any remaining limitations.",
   status: {
     pending: "Pending",
     planned: "Ready to start",
@@ -134,6 +142,14 @@ export const teamZh: typeof teamEn = {
   progressAnnouncement: "{{status}}。{{total}} 项任务中已完成 {{done}} 项，{{running}} 项执行中。",
   editingHint: "正在编辑计划 · 请先保存或放弃修改，再切换视图。",
   configureMembers: "配置成员",
+  chooseMembers: "选择团队成员",
+  selectedMembers: "已选 {{count}} 人",
+  searchMembers: "搜索成员…",
+  noMatchingMembers: "没有找到匹配的成员。",
+  keepOneMember: "团队至少需要一位成员。",
+  editMember: "编辑{{name}}",
+  closeMembers: "关闭成员选择",
+  doneMembers: "完成",
   workspaceEmpty: "这个工作区还没有团队任务。",
   runningCount: "{{count}} 项执行中",
   locateRunning: "定位下一个执行中任务",
@@ -177,10 +193,12 @@ export const teamZh: typeof teamEn = {
   research: "研究员",
   analyst: "分析员",
   editor: "编辑",
-  researchInstructions: "收集可靠来源和证据，标注出处与不确定性。",
-  analystInstructions: "对比证据、分析取舍并核实结论，明确假设。",
+  researchInstructions:
+    "你是团队的研究员，负责为分配的问题建立可靠的证据基础。\n工作方法：收集新资料前，先查看相关前置任务的结果。优先采用一手来源，记录出处及相关日期，区分已核实事实、假设与相互矛盾的说法，明确指出缺失的证据。\n交付标准：整理可追溯来源的发现及其不确定性，便于队友核实和复用。详细证据放入产物文件，交接时概述关键发现和待解决的问题。",
+  analystInstructions:
+    "你是团队的分析员，负责围绕分配的问题，将证据转化为有依据的判断。\n工作方法：检查相关前置任务的发现和产物，按明确标准比较方案，依据来源核实计算和论断，区分证据与推断。说明取舍、假设、矛盾和信息缺口，不用猜测填补空白。\n交付标准：给出有推理依据的分析或建议，保留支撑证据、适用限制和待解决的问题，让队友能够用于最终交付。",
   editorInstructions:
-    "综合团队证据，形成清晰、可执行的交付结果。检查一致性并标注来源。",
+    "你是团队的编辑，负责将分配的材料组织成符合用户目标和受众需要的完整交付物。\n工作方法：阅读相关前置任务的结果和产物，统一术语，核对相互冲突的论断，检查结论是否有证据支撑，保留来源和不确定性，消除重复。遇到依据不足时明确标注，不编造补全。\n交付标准：完成要求的文档或综合结果，对照任务检查完整性和一致性，交接产物并简述成果及剩余限制。",
   status: {
     pending: "待执行",
     planned: "待开始",

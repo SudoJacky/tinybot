@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:ec7d80cd7eb18dccaf6cae09c1ce2db91a8195399b689e59c290d2f1301b978e -->
+<!-- tinybot-module-fingerprint: sha256:97ca9d26911ea485145a193dc5c2f3676f8efe39242bdf7981b6e2d9fd458809 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -9,8 +9,19 @@ are not synthesized.
 
 Home lists runs for the selected workspace and identifies their workspace in each
 row. The workspace chooser can register and select a folder directly.
-Workspace and member configuration precede submission; expanded member
-fields use the full form width. Planning exposes an explicit busy state.
+Workspace and member configuration precede submission. `TeamMemberPicker`
+opens a searchable selection panel from overlapping pixel portraits. At least
+one member stays selected; only selected members and their concurrency count
+are submitted. Inline name and responsibility edits survive deselection.
+The panel is portaled to the document body to avoid container clipping, restores
+trigger focus on Escape, and closes on outside interaction. Planning disables
+the picker and exposes an explicit busy state.
+
+`TeamMemberAvatar` uses the bundled twelve-portrait atlas. Default roles have
+fixed portraits; other member IDs map deterministically into the same atlas.
+Renaming or reordering members preserves their portraits in Home and details.
+Picker tests cover keyboard search, selection bounds, edit retention and busy
+state; the route test verifies the selected roster reaches plan preparation.
 
 `TeamDetail` keeps one page through plan confirmation, execution and results.
 Dependency rows retain topological order. The inspector exposes real task

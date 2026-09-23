@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:a30085015dbb812d1a987609d499dc3b7b520e7d97d9ba2a621afa61ef7d4f35 -->
+<!-- tinybot-module-fingerprint: sha256:d37aec34e37beb31d3ad56f49d1ffcee55827cda8403f714d2009c40b50665f8 -->
 
 The command allocates the run ID before invoking the planner and passes it to
 `prepare_with_id`; planner usage therefore shares the eventual board identity.
@@ -14,7 +14,9 @@ services and exposes the module to the main desktop window.
 ## Interface and ownership
 
 - `plan` makes one tool-free provider request, parses strict JSON, and validates
-  member assignments, dependencies, and the final task. Callers may instead
+  member assignments, dependencies, and the final task. Assignments follow each
+  member's configured responsibilities and specify downstream deliverables and
+  evidence. Callers may instead
   supply a plan directly. Invalid output is an error, with no repair or fallback.
 - `prepare` validates and snapshots the specification and plan in a new run.
 - `get` and `list` return the durable board, including attempt histories,
@@ -42,9 +44,16 @@ The test executor controls completion and cancellation without a model service.
 Plans contain 1–64 tasks and 1–8 members. The task graph is acyclic and every
 task contributes to a designated final synthesis/review task. A task starts
 only after every direct dependency succeeds. Its input contains the goal,
-assigned task, and dependency message IDs with an aggregate bounded summary budget. Successful tasks
+assigned task, the saved team roster (member IDs, display names and responsibilities),
+and dependency message IDs with an aggregate bounded summary budget. Successful tasks
 are never automatically rerun. Members receive separate task conversations;
 this version has no persistent member chat or peer mailbox.
+
+The native adapter supplies the acting member's identity and role instructions
+through `agentRole`, with shared collaboration and completion guidance. Other
+members' responsibilities remain roster context in the task input, not additional
+instructions for the acting member. IDs determine identity even when display
+names repeat. The native execution test checks these boundaries at the provider.
 
 The configured limit (1–8) bounds concurrent Team tasks, and a member runs at
 most one task at a time. Native workers inherit ordinary workspace capabilities,

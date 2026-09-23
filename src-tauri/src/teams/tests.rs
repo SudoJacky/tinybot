@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 static EXECUTION_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-#[derive(Default)]
 struct BoardProvider {
     calls: std::sync::Mutex<HashMap<String, usize>>,
+    members: Vec<TeamMember>,
 }
 impl crate::agent::runtime::test_support::BlockingTestProvider for BoardProvider {
     fn complete(
@@ -22,8 +22,52 @@ impl crate::agent::runtime::test_support::BlockingTestProvider for BoardProvider
         let task = context.metadata["teamTaskId"].as_str().unwrap();
         let mut calls = self.calls.lock().unwrap();
         let step = calls.entry(task.into()).or_default();
-        let messages =
-            serde_json::to_string(&context.messages.to_legacy_messages().unwrap()).unwrap();
+        let legacy_messages = context.messages.to_legacy_messages().unwrap();
+        if *step == 0 {
+            let member = self
+                .members
+                .iter()
+                .find(|member| context.metadata["teamMemberId"] == member.id)
+                .unwrap();
+            let role = context
+                .system_instruction_prompt()
+                .expect("the member role must reach the model as an instruction");
+            let identity: serde_json::Value = serde_json::from_str(
+                role.lines()
+                    .find_map(|line| line.strip_prefix("Your identity: "))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(identity["memberId"], member.id);
+            assert_eq!(identity["displayName"], member.display_name);
+            assert!(role.contains(&member.instructions));
+            for teammate in self.members.iter().filter(|other| other.id != member.id) {
+                assert!(
+                    !role.contains(&teammate.instructions),
+                    "teammate responsibilities must not become the acting member's instructions"
+                );
+            }
+            let input = legacy_messages
+                .iter()
+                .filter(|message| message["role"] == "user")
+                .filter_map(|message| message["content"].as_str())
+                .filter_map(|content| serde_json::from_str::<serde_json::Value>(content).ok())
+                .find(|input| input.get("teamMembers").is_some())
+                .expect("each task must receive the configured team roster");
+            assert_eq!(input["task"]["memberId"], member.id);
+            let roster = input["teamMembers"].as_array().unwrap();
+            assert_eq!(roster.len(), self.members.len());
+            for expected in &self.members {
+                let entry = roster
+                    .iter()
+                    .find(|entry| entry["memberId"] == expected.id)
+                    .unwrap();
+                assert_eq!(entry["displayName"], expected.display_name);
+                assert_eq!(entry["responsibilities"], expected.instructions);
+                assert_eq!(entry.as_object().unwrap().len(), 3);
+            }
+        }
+        let messages = serde_json::to_string(&legacy_messages).unwrap();
         let id = format!("{}-a-1", context.metadata["teamRunId"].as_str().unwrap());
         let (name, arguments) = match (task, *step) {
             ("a", 0) => (
@@ -673,8 +717,24 @@ async fn native_executor_creates_real_threads_and_persists_origin() {
     use crate::agent::bridge::TestApplicationServices;
     use crate::agent::runtime::NativeAgentRuntimeServices;
     let f = Fixture::new();
-    let run = f.prepare();
-    let provider = Arc::new(BoardProvider::default());
+    let mut spec = f.spec();
+    // Custom responsibilities and duplicate display names must survive the
+    // scheduler, persisted run, and instruction assembly without name matching.
+    spec.members[0].display_name = "证据专家".into();
+    spec.members[0].instructions = "Collect source documents and flag evidence gaps.".into();
+    spec.members[1].display_name = "证据专家".into();
+    spec.members[1].instructions = "Audit the evidence and explain conflicting conclusions.".into();
+    spec.members.push(TeamMember {
+        id: "archivist".into(),
+        display_name: "Archivist".into(),
+        instructions: "Index published artifacts for later retrieval.".into(),
+        model: None,
+    });
+    let run = prepare(&f.root, spec, fork_plan()).unwrap();
+    let provider = Arc::new(BoardProvider {
+        calls: Default::default(),
+        members: run.spec.members.clone(),
+    });
     let services = NativeAgentRuntimeServices::new(
         provider.clone(),
         Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),

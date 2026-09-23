@@ -288,7 +288,11 @@ fn begin_attempt(run: &mut TeamRun, index: usize) -> TaskJob {
         workspace_path: run.spec.workspace_path.clone(),
         thread_id: thread_id.clone(),
         turn_id: turn_id.clone(),
-        input: json!({"goal": run.spec.goal, "task": record.task, "dependencyResults": dependencies,
+        input: json!({"goal": run.spec.goal, "task": record.task,
+            "teamMembers": run.spec.members.iter().map(|member| json!({
+                "memberId": member.id, "displayName": member.display_name, "responsibilities": member.instructions
+            })).collect::<Vec<_>>(),
+            "dependencyResults": dependencies,
             "board": {"runId":run.id,"instructions":"Use team.list_messages and team.read_message for other results or omitted summaries. Read only needed artifact ranges. Finish with team.complete_task."}}),
     };
     let record = &mut run.tasks[index];

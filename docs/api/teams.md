@@ -4,13 +4,14 @@ src-tauri/src/desktop_commands/teams.rs
 src-tauri/src/teams/board.rs
 src-tauri/src/teams/tools.rs
 src-tauri/src/teams/native.rs
+src-tauri/src/teams/planner.rs
 src-tauri/src/teams/model.rs
 src-tauri/src/teams/mod.rs
 src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:03da07b70a6272af26a531ba50455bc981363733aa91f3e31816834fe5e0682b -->
+<!-- tinybot-doc-fingerprint: sha256:90fae5668bfc0a2b6393a8b4e9d2a9e8d38f2b88f1404b8b69f2e5663042c39d -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
 object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
@@ -64,6 +65,18 @@ planner cannot call tools. Optional `plannerModel` and each member's optional
 `model` use `{ modelId, providerId?, reasoningEffort? }`. Effort values are `low`,
 `medium`, `high`, `xhigh`, or `max`, subject to provider support. Otherwise the
 existing default model/provider applies. A supplied plan does not call a model.
+
+The planner matches assignments to each member's configured `instructions` and
+specifies the deliverable and evidence needed by downstream tasks. Every attempt
+receives its member ID, display name, role instructions, and common collaboration
+and handoff instructions through `agentRole`. The task input includes `teamMembers`
+entries with `memberId`, `displayName`, and `responsibilities`, generated from the
+run's saved member configuration. This roster is context about the team, not
+additional instructions to perform other members' work. Display names need not be
+unique; member IDs determine identity and ownership. Each attempt has its own
+conversation and uses dependency results and the shared board for evidence.
+Detailed evidence belongs in artifacts, with a concise summary and unresolved
+issues published through `team.complete_task`. Member tool permissions are shared.
 
 Member/task IDs contain ASCII letters, digits, `_`, or `-`, up to 120 characters.
 Plans have 1–64 tasks and 1–8 members; concurrency is 1–8, with one active task

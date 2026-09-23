@@ -1,3 +1,4 @@
+import { TeamMemberAvatar } from "./TeamMemberAvatar";
 import type { PreviewWorkspaceStore } from "../sidecar/ResultFilePreview";
 import { UsageHistory } from "../settings/UsageBreakdown";
 import type { UsageDetailsLoader } from "../../app-core/settings/tokenUsage";
@@ -217,10 +218,9 @@ export function TeamDetail({
               aria-label={active ? t("teams.viewMemberTask", { member: m.displayName, task: active.task.title }) : undefined}
               onClick={() => active && selectTask(active.task.id)}
             >
-              <span className="team-avatar">
-                <UserRound size={22} />
+              <TeamMemberAvatar memberId={m.id}>
                 {active && <span className="team-member-dot" />}
-              </span>
+              </TeamMemberAvatar>
               <span className="team-member-copy">
                 <strong title={m.displayName}>{m.displayName}</strong>
                 <span title={active?.task.title}>

@@ -123,36 +123,74 @@
   min-width: 0;
   gap: 7px;
 }
-.team-roster-control > button {
+.team-roster-control { grid-column: 1 / -1; }
+.team-layout .team-picker-trigger {
   justify-content: flex-start;
-}
-.team-roster-control > button > span {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  min-height: 66px;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 22px;
   text-align: left;
 }
-.team-roster-control > button > svg {
-  flex-shrink: 0;
+.team-avatar-stack { display: flex; flex-shrink: 0; padding-left: 0; }
+.team-avatar-stack .team-avatar {
+  width: 38px;
+  height: 38px;
+  border: 3px solid var(--color-panel);
+  box-sizing: content-box;
+  transition: transform 180ms ease;
 }
-.team-roster-control > button[aria-expanded="true"] > svg:last-child {
-  transform: rotate(180deg);
-}
-.team-member-editor {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
-  gap: 16px;
-  margin-top: 0;
+.team-avatar-stack .team-avatar + .team-avatar { margin-left: -10px; }
+.team-picker-trigger:hover .team-avatar { transform: translateY(-2px); }
+.team-picker-summary { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.team-picker-summary strong { font-weight: 500; color: var(--color-ink); }
+.team-picker-summary > span { color: var(--color-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-picker-trigger > svg { flex-shrink: 0; color: var(--color-muted); transition: transform 180ms ease; }
+.team-picker-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.team-picker-panel {
+  display: block;
+  height: auto;
+  position: fixed;
+  z-index: 1100;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
   border: 1px solid var(--color-hairline);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 22px;
   background: var(--color-panel);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 14%);
+  animation: team-picker-enter 160ms ease-out;
 }
-.team-member-editor > p {
-  grid-column: 1 / -1;
-}
-.team-member-editor fieldset {
-  margin: 0;
-  padding: 12px;
+.team-picker-heading, .team-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.team-picker-heading { padding: 0 2px 10px 8px; }
+.team-layout .team-picker-icon { min-height: 32px; width: 32px; padding: 0; border: 0; background: transparent; color: var(--color-muted); flex-shrink: 0; }
+.team-picker-search { display: flex; gap: 8px; align-items: center; padding: 0 12px; border: 1px solid var(--color-hairline); border-radius: 10px; color: var(--color-muted); }
+.team-picker-search:focus-within { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.team-picker-search input { min-width: 0; width: 100%; height: 38px; border: 0; background: transparent; color: var(--color-ink); font: inherit; }
+.team-picker-search input:focus-visible { outline: none; }
+.team-picker-list { display: grid; gap: 4px; margin-block: 10px; }
+.team-picker-row { display: flex; align-items: center; gap: 2px; padding-right: 6px; border-radius: 12px; }
+.team-picker-row[data-selected="true"] { background: var(--color-surface-soft); }
+.team-picker-choice { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 9px; border-radius: 12px; cursor: pointer; position: relative; }
+.team-picker-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.team-picker-choice:has(input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.team-picker-choice:has(input:disabled) { cursor: default; }
+.team-picker-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.team-picker-check { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border: 1px solid var(--color-hairline); border-radius: 6px; }
+.team-picker-choice input:checked ~ .team-picker-check { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); }
+.team-picker-editor { display: grid; gap: 12px; padding: 12px 8px; }
+.team-picker-editor label { display: grid; gap: 6px; }
+.team-picker-editor textarea { resize: vertical; min-height: 120px; line-height: 1.6; }
+.team-picker-footer { border-top: 1px solid var(--color-hairline); padding: 10px 4px 0; color: var(--color-muted); font-size: 12px; }
+.team-layout .team-picker-footer button { min-height: 32px; border-radius: 10px; }
+.team-layout .team-picker-hint { font-size: 11px; margin: 8px 4px 0; }
+.team-picker-empty { text-align: center; padding: 20px 0; }
+@keyframes team-picker-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .team-picker-panel { animation: none; }
+  .team-avatar-stack .team-avatar, .team-picker-trigger > svg { transition: none; }
+  .team-picker-trigger:hover .team-avatar { transform: none; }
 }
 .team-layout .react-form-input {
   font-weight: 400;
@@ -372,6 +410,11 @@
   border-radius: 50%;
   background: var(--color-surface-soft);
   color: var(--color-muted);
+}
+.team-avatar--pixel {
+  background-size: 400% 300%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
 }
 .team-workspace {
   display: grid;
