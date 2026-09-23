@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:4054864884dd0962a1867252d83c524800842e86d0fb256cc80c35bb751da9b6 -->
+<!-- tinybot-doc-fingerprint: sha256:574ce81844fef4d933ba84ad8e3afd12a60b9dfebfc86de0b70f3e9aad88e421 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -313,6 +313,9 @@ existing application window.
   The Team renderer reads worker timelines without changing the selected Chat
   session and subscribes to canonical activity for running and inspected tasks.
   Recent activity and latest attempts are shown first, with older records folded.
+  Overall progress and the selected member's work use separate panes linked by
+  task selection and a persistent bottom member dock. Public messages and tool
+  activity reuse Chat renderers; reading positions remain per task attempt.
   Its Files view groups reported artifacts by producer task and attempt, reusing
   verified artifact reads and the separate current-workspace file preview.
   See the [Team module](../../src-tauri/src/teams/README.md) and [Team API](../api/teams.md).

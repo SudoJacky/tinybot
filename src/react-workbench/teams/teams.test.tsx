@@ -6,6 +6,7 @@ import "@testing-library/jest-dom/vitest";
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   renderHook,
   screen,
@@ -65,6 +66,60 @@ it("shows recent progress in the task and inspector while folding earlier activi
   await user.click(inspector.getByText("Earlier attempts (1)"));
   await user.click(inspector.getByRole("button", { name: /1 · Failed/ }));
   expect(onOpenThread).toHaveBeenCalledWith("old");
+});
+
+it("opens the most recent completed member task and restores reading positions across tasks", async () => {
+  const run = fixture();
+  run.status = "completed";
+  run.tasks.forEach((record) => {
+    record.status = "succeeded";
+    record.attempts = [{ threadId: record.task.id, turnId: "turn", status: "succeeded",
+      startedAt: record.task.id === "final" ? "2026-09-16T12:00:00Z" : "2026-09-16T11:00:00Z",
+      finishedAt: "2026-09-16T13:00:00Z", output: `Output for ${record.task.id}`, error: null }];
+  });
+  render(<TeamDetail workspaceStore={workspaceStore} run={run} busy={false}
+    onBack={vi.fn()} onExecute={vi.fn()} onControl={vi.fn()} onRevise={vi.fn()} onOpenThread={vi.fn()} />);
+  const user = userEvent.setup();
+  const dock = within(screen.getByRole("navigation", { name: "Team members" }));
+  await user.click(dock.getByRole("button", { name: "View Researcher's task: Synthesize" }));
+  const inspector = screen.getByRole("complementary", { name: "Task details" });
+  expect(within(inspector).getByRole("heading", { level: 2 })).toHaveTextContent("Synthesize");
+  inspector.scrollTop = 240;
+  fireEvent.scroll(inspector);
+  await user.click(within(inspector).getByText("Member tasks (2)"));
+  const memberTasks = within(within(inspector).getByRole("group", { name: "Member tasks (2)" }));
+  await user.click(memberTasks.getByRole("button", { name: "Collect sources Completed" }));
+  expect(inspector.scrollTop).toBe(0);
+  inspector.scrollTop = 80;
+  fireEvent.scroll(inspector);
+  await user.click(dock.getByRole("button", { name: "View Researcher's task: Synthesize" }));
+  expect(inspector.scrollTop).toBe(240);
+  await user.click(memberTasks.getByRole("button", { name: "Collect sources Completed" }));
+  expect(inspector.scrollTop).toBe(80);
+  expect(within(inspector).getByRole("heading", { level: 2 })).toHaveTextContent("Collect sources");
+});
+
+it("shows dependency, member and capacity waits without marking a member with pending work complete", () => {
+  const run = fixture();
+  run.status = "running";
+  const source = run.tasks[1];
+  source.status = "running";
+  run.spec.maxConcurrency = 1;
+  run.spec.members.push({ id: "b", displayName: "Reviewer", instructions: "Review" });
+  run.tasks.push({ task: { ...source.task, id: "extra", title: "Extra research" }, status: "pending", attempts: [] },
+    { task: { ...source.task, id: "review", title: "Review", memberId: "b" }, status: "pending", attempts: [] });
+  const props = { workspaceStore, busy: false, onBack: vi.fn(), onExecute: vi.fn(), onControl: vi.fn(), onRevise: vi.fn(), onOpenThread: vi.fn() };
+  const view = render(<TeamDetail {...props} run={run} />);
+  expect(screen.getByText("Waiting for: Collect sources")).toBeVisible();
+  expect(screen.getByText("Member is working on: Collect sources")).toBeVisible();
+  expect(screen.getByText("Waiting for an execution slot")).toBeVisible();
+  const updated = structuredClone(run);
+  updated.tasks[1].status = "succeeded";
+  updated.tasks[1].attempts = [{ threadId: "source", turnId: "turn", status: "succeeded", startedAt: "2026-09-16",
+    finishedAt: "2026-09-16", output: "Evidence", error: null }];
+  view.rerender(<TeamDetail {...props} run={updated} />);
+  const dock = within(screen.getByRole("navigation", { name: "Team members" }));
+  expect(dock.getByRole("button", { name: "View Researcher's task: Collect sources" })).toHaveTextContent("Queued");
 });
 
 it("aggregates artifacts with their producer and attempt, keeps history folded and reads only on request", async () => {

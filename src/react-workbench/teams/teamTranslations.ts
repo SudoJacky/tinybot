@@ -1,4 +1,10 @@
 export const teamEn = {
+  overallProgress: "Overall progress", progressHint: "Follow the work. Select a task to see its activity.",
+  workActivity: "Work activity", loadEarlierActivity: "Load earlier activity",
+  memberTasks: "Member tasks ({{count}})", assignment: "Assignment & prerequisites", idleMember: "No assigned tasks",
+  waitDependencies: "Waiting for: {{task}}", waitMember: "Member is working on: {{task}}",
+  waitCapacity: "Waiting for an execution slot", waitDispatch: "Ready · waiting to start",
+  artifactCount: "{{count}} artifacts", startedAt: "Started", finishedAt: "Finished",
   files: "Files", filesHint: "Artifacts grouped by task and attempt. Open a recorded artifact or preview the current workspace file.",
   noFiles: "No artifacts in the latest attempts yet.", attemptNumber: "Attempt {{number}}",
   currentAttempt: "Latest attempt", earlierAttempts: "Earlier attempts ({{count}})",
@@ -108,6 +114,12 @@ export const teamEn = {
   },
 };
 export const teamZh: typeof teamEn = {
+  overallProgress: "整体进展", progressHint: "查看工作如何推进，选择任务了解详情。",
+  workActivity: "工作过程", loadEarlierActivity: "加载更早的活动",
+  memberTasks: "成员任务（{{count}}）", assignment: "任务说明与前置工作", idleMember: "暂无分配任务",
+  waitDependencies: "等待完成：{{task}}", waitMember: "成员正在处理：{{task}}",
+  waitCapacity: "等待空闲执行名额", waitDispatch: "已就绪，等待派发",
+  artifactCount: "{{count}} 个产物", startedAt: "开始", finishedAt: "结束",
   files: "产物", filesHint: "按任务和执行尝试汇总产物。可读取已记录的产物，或预览工作区中的当前文件。",
   noFiles: "当前尝试尚未产生文件。", attemptNumber: "第 {{number}} 次尝试",
   currentAttempt: "当前尝试", earlierAttempts: "历史尝试（{{count}}）",

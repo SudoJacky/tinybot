@@ -78,4 +78,16 @@ it("reads only running or inspected attempts and ignores other turns and private
   const tool = { ...snapshot.turns[0].steps[0], id: "tool", kind: "tool_call", toolCall: { id: "call", name: "read_file", argsPreview: "secret input", resultPreview: "secret output" } } satisfies ChatStep;
   snapshot.turns[0].steps.push(tool);
   expect(projectTeamActivity(snapshot, "turn")[1].text).toBe("read_file");
+  expect(JSON.stringify(projectTeamActivity(snapshot, "turn"))).not.toContain("secret");
+});
+
+it("retains full public messages and older activity for reading on demand", () => {
+  const text = "Verified detail. ".repeat(100);
+  const snapshot = timeline("worker", text);
+  snapshot.turns[0].steps = Array.from({ length: 60 }, (_, index) => ({
+    ...snapshot.turns[0].steps[0], id: String(index), sequence: index,
+  }));
+  const activity = projectTeamActivity(snapshot, "turn");
+  expect(activity).toHaveLength(60);
+  expect(activity[0].text).toBe(text);
 });

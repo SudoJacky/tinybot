@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { ChatStepStatus } from "../../app-core/chat/chatTurnContracts";
+import type { ChatStepKind, ChatStepStatus } from "../../app-core/chat/chatTurnContracts";
 import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 import type { ChatStore } from "../services";
 import { subscribeChatEvents } from "../chat/chatEventSource";
 
 export type TeamActivitySource = Pick<ChatStore, "readTimeline" | "subscribe">;
-export type TeamActivityItem = { id: string; text: string; status: ChatStepStatus };
+export type TeamActivityItem = { id: string; kind: ChatStepKind; text: string; status: ChatStepStatus };
 export type TeamActivity = { items: TeamActivityItem[]; loading: boolean; error?: string };
 
 export function projectTeamActivity(snapshot: ChatTimelineSnapshot, turnId: string): TeamActivityItem[] {
@@ -14,12 +14,13 @@ export function projectTeamActivity(snapshot: ChatTimelineSnapshot, turnId: stri
   // Use the canonical projection, not user input, reasoning or guessed progress.
   return (turn?.steps ?? []).filter((step) =>
     ["message", "tool_call", "plan", "delegate", "error"].includes(step.kind),
-  ).slice(-40).map((step) => ({
+  ).map((step) => ({
     id: step.id,
+    kind: step.kind,
     text: (step.kind === "tool_call" ? step.toolCall?.name ?? step.title
       : step.kind === "message" ? step.summary || step.title
       : step.kind === "plan" ? step.plan?.currentStep || step.title
-      : step.title).slice(0, 500),
+      : step.title),
     status: step.status,
   }));
 }

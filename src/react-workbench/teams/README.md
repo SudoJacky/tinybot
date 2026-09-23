@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:97ca9d26911ea485145a193dc5c2f3676f8efe39242bdf7981b6e2d9fd458809 -->
+<!-- tinybot-module-fingerprint: sha256:31b77e7d5b13bf3c487ce500534cf65bfd2ca4f0d1e12b88b1dcb2970e44e352 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -24,18 +24,30 @@ Picker tests cover keyboard search, selection bounds, edit retention and busy
 state; the route test verifies the selected roster reaches plan preparation.
 
 `TeamDetail` keeps one page through plan confirmation, execution and results.
-Dependency rows retain topological order. The inspector exposes real task
+`TeamTaskFeed` presents overall progress in dependency order, with reported
+summaries, artifact counts, attempt times and explicit dependency/member/capacity
+wait reasons. The inspector exposes real task
 instructions, prerequisites, output, errors and every attempt's standard Thread.
 The latest attempt is visible by default; earlier attempts are folded with their
 original errors and Thread links. `useTeamActivity` observes only running tasks
 and the inspected task through Chat's canonical timeline and shared event
-subscription. Its read path does not select a Chat session. Recent activity
-shows the last five entries, with up to 35 earlier entries on disclosure and
-the complete execution record one click away. User input, private reasoning
+subscription. Its read path does not select a Chat session. `TeamActivity` reuses
+Chat Markdown and tool activity components. It retains full public messages and
+shows the last five entries, loading earlier entries into the view in groups of
+20 on request. The complete execution record remains one click away. User input, private reasoning
 and raw tool payloads are excluded. Live patches supersede late initial reads;
 read and stream errors remain visible with an explicit refresh action.
 Updates are batched and subscriptions are disposed when the observed attempts
-change or the view unmounts.
+change or the view unmounts. Activity file links use the same inline current-file
+preview as results, scoped to the selected attempt.
+
+`TeamMemberDock` stays below the workspace and selects active work or the member's
+most recently started attempt, falling back to the first assigned task. Completed
+members remain selectable. A member with pending work is not labeled completed.
+The inspector's member-task disclosure selects earlier assignments. Explicit
+selection survives live updates. Task/attempt scroll positions and activity
+disclosure state survive switching tasks within this detail view; retries get
+their own reading state. Assignment details collapse once an attempt exists.
 Markdown file links open a shared inline Artifact preview in the result surface.
 The Message board tab lists all completed attempts with author, time, summary,
 unresolved issues, artifact references, and execution-record navigation.
@@ -77,8 +89,8 @@ requeues one failed/interrupted/cancelled task; all such tasks must be handled
 before Resume becomes available.
 
 `teamPresentation` derives pending labels from the containing run and dependency
-states. No estimated progress or invented activity is shown. Running rows display
-the latest reported activity; the inspector exposes the same recent activity
+states. No estimated progress or invented coordinator messages are shown. Running rows display
+an excerpt of the latest reported activity; the inspector exposes the full public activity
 without navigating away from Teams.
 Running task rows show a reduced-motion-aware spinner and actual attempt elapsed
 time. Member and running-count shortcuts select and reveal the task. A polite
@@ -101,8 +113,8 @@ another generic control skin or fixed role palette.
 
 The detail route reserves the remaining window height for independently scrolling
 list and inspector panes; task count and report length do not grow the page.
-The bounded header exposes the full goal through a disclosure, and the roster
-keeps long member names inside a horizontally scrolling strip. Projects scroll
+The bounded header exposes the full goal through a disclosure, and the bottom
+member dock keeps long names inside a horizontally scrolling strip. Projects scroll
 inside the sidebar while navigation and Settings remain available.
 
 A container query uses the available main-pane width, including sidebar resizing.
@@ -110,7 +122,6 @@ Below 680px, selecting a task opens its detail in the same area. Back restores
 focus to the selected task. Result and plan editing use the full workspace width;
 plan fields scroll above persistent Save/Discard controls. Shared fixed-position
 choice menus choose an opening direction without being clipped by the panes.
-Task panes narrower than 460px put state below the title rather than squeezing
-the title between columns. Completed states mix semantic green with foreground
+Progress cards put state below the title and summary. Completed states mix semantic green with foreground
 ink to remain readable in both light and dark themes.
 Markdown continues to use the existing Chat renderer and its table/code scrolling.
