@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:298a9de48bf7178696665353f3fef3911df3172729390cf1e97d9bc66145f3ee -->
+<!-- tinybot-doc-fingerprint: sha256:d0620580a1a2da667848c0eb08db564c3e3b5e6255d3753800f3de8c20ce0ffa -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -312,4 +312,9 @@ reconstruct the updated log before recovery decisions are made.
 - [Agent runtime tests](../../src-tauri/src/agent/runtime/tests/README.md)
 - [Agent runtime API](../api/agent-runtime.md)
 
-For active Team attempts, a successful sole team.complete_task call commits its observation, emits the terminal summary, and ends the Turn without another model request. The outer Team scheduler persists publication before releasing dependent tasks. Invalid submissions remain correctable tool errors.
+For active Team attempts, a successful sole `team.complete_task` call commits its
+observation, emits the terminal summary, and ends the Turn without another model
+request. The summary event includes a typed assistant response item for Responses
+Rollout persistence and replay as well as the ordinary Chat Completions projection.
+The outer Team scheduler persists publication before releasing dependent tasks.
+Invalid submissions remain correctable tool errors.

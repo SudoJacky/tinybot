@@ -127,7 +127,17 @@ impl crate::agent::runtime::test_support::BlockingTestProvider for BoardProvider
                 arguments_json: arguments.to_string(),
                 result: json!({}),
             }],
-            response_items: vec![],
+            response_items: if context.responses_input_items.is_some() {
+                vec![json!({
+                    "type": "function_call",
+                    "id": format!("item-board-{task}-{step}"),
+                    "call_id": format!("board-{task}-{step}"),
+                    "name": name,
+                    "arguments": arguments.to_string(),
+                })]
+            } else {
+                vec![]
+            },
         })
     }
 }
@@ -713,6 +723,15 @@ async fn crash_reconciliation_never_automatically_replays_attempts() {
 
 #[tokio::test]
 async fn native_executor_creates_real_threads_and_persists_origin() {
+    assert_native_executor_persistence("chat_completions").await;
+}
+
+#[tokio::test]
+async fn native_executor_persists_responses_completion() {
+    assert_native_executor_persistence("responses").await;
+}
+
+async fn assert_native_executor_persistence(api_mode: &str) {
     let _serial = EXECUTION_TESTS.lock().await;
     use crate::agent::bridge::TestApplicationServices;
     use crate::agent::runtime::NativeAgentRuntimeServices;
@@ -757,7 +776,7 @@ async fn native_executor_creates_real_threads_and_persists_origin() {
             workspace_root: f.root.clone(),
             config: json!({
                 "agents": {"defaults": {"provider": "fixture", "model": "fixture-model"}},
-                "providers": {"fixture": {"responses": [{"content": "Team fixture result"}]}}
+                "providers": {"fixture": {"apiMode": api_mode, "responses": [{"content": "Team fixture result"}]}}
             }),
         }),
     )
@@ -788,6 +807,7 @@ async fn native_executor_creates_real_threads_and_persists_origin() {
             .find(|thread| thread["threadId"] == record.attempts[0].thread_id)
             .unwrap();
         assert_eq!(thread["source"], "team");
+        assert_eq!(thread["metadata"]["extra"]["apiMode"], api_mode);
         assert_eq!(
             thread["metadata"]["workingDirectory"],
             result.spec.workspace_path
@@ -797,6 +817,31 @@ async fn native_executor_creates_real_threads_and_persists_origin() {
         assert_eq!(
             record.attempts[0].output.as_deref(),
             Some("Team fixture result")
+        );
+        let history = crate::rpc::call_rust_state_service(
+            &thread_store,
+            json!({}),
+            crate::protocol::WorkerRequest::new(
+                "team-test-history",
+                "team-test-history",
+                "thread.history",
+                json!({"threadId": record.attempts[0].thread_id, "limit": 80}),
+            ),
+            "Team test history",
+        )
+        .unwrap();
+        let completions = history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| {
+                message["role"] == "assistant" && message["content"] == "Team fixture result"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            completions.len(),
+            1,
+            "completion must survive history reload"
         );
     }
 }

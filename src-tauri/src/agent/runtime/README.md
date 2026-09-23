@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:fa926e0be0d4fea88183df7fbdf0aaef40c5cd98a8519ce89382100759f19bcc -->
+<!-- tinybot-module-fingerprint: sha256:a7b3c48a7d44ee00f970ff1f21783f6cc0a327d4074496c1641e3a958ec7bc3e -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -59,6 +59,11 @@ causes. String conversion is reserved for legacy response boundaries and diagnos
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
+
+A successful `team.complete_task` ends the Turn locally. Its completion event
+includes the summary as a typed assistant response item so both Chat Completions
+and Responses Threads can persist and replay the final answer without another
+provider call.
 
 Provider streaming and tool dispatch require explicit asynchronous implementations
 in both production and tests. The production traits have no synchronous test

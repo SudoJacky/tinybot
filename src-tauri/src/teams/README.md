@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:d37aec34e37beb31d3ad56f49d1ffcee55827cda8403f714d2009c40b50665f8 -->
+<!-- tinybot-module-fingerprint: sha256:1216586d567dc0f2afe560b8a622160490358cb787607246723d4903208636a7 -->
 
 The command allocates the run ID before invoking the planner and passes it to
 `prepare_with_id`; planner usage therefore shares the eventual board identity.
@@ -104,6 +104,8 @@ Tests exercise dependency validation, parallel fan-out/fan-in, hard concurrency
 limits, per-member exclusion, failure cleanup, explicit retry, pause/resume,
 revision conflicts, interruption recovery, dropped callers, and native Thread
 creation using the deterministic provider. No live provider credentials are needed.
+Native execution covers Chat Completions and Responses, including completion
+summary reload and dependent task release without an extra provider call.
 See [Team API](../../../docs/api/teams.md) for invocation examples.
 
 Schema version 2 requires human-readable member display names and task titles.
