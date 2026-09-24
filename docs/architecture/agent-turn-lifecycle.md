@@ -22,11 +22,15 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c3a4972ed1f6f7c53d73f4b9dc9cc5e2bb2fbced06d553c94078111fb958ee01 -->
+<!-- tinybot-doc-fingerprint: sha256:3607779c85951682f7696cc60f8a9411e6666549efe60e26cf291578135e6ce5 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
 outcome that follow. Resolving a form continues the same Turn identity.
+The form checkpoint preserves effective settings, controls, workspace, instructions,
+coordinator metadata and native Responses replay. Restoration precedes service
+preparation and retains the new form command correlation. Legacy snapshots without
+execution context fail explicitly instead of continuing with application defaults.
 
 Input decoding captures a monotonic receipt time for `modelTiming.timeToRequestMs`.
 Application-only `agent.preparation` summaries cover bridge setup, task ownership,

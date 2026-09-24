@@ -54,6 +54,8 @@ pub struct AgentCheckpoint {
     pub thread_id: Option<String>,
     #[serde(default)]
     pub trace_context: Option<AgentTraceContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution: Option<CheckpointExecution>,
     pub phase: AgentCheckpointPhase,
     #[serde(default)]
     pub iteration: Option<i64>,
@@ -74,6 +76,18 @@ pub struct AgentCheckpoint {
     #[serde(default)]
     #[serde(with = "super::items::legacy_history")]
     pub messages: super::AgentItemHistory,
+}
+
+/// Effective execution state, without provider credentials or mutable application config.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckpointExecution {
+    settings: super::AgentTurnSettings,
+    controls: super::turn_input::AgentTurnControls,
+    metadata: Value,
+    api_mode: Option<String>,
+    responses_input_items: Option<Vec<Value>>,
+    instructions: Option<super::ComposedInstructions>,
 }
 
 fn schema_version() -> u32 {
@@ -179,6 +193,7 @@ impl AgentCheckpoint {
             session_id: session_id.into(),
             thread_id: None,
             trace_context: None,
+            execution: None,
             phase: stop_reason.into(),
             iteration: None,
             max_iterations: 0,
@@ -213,6 +228,14 @@ impl AgentCheckpoint {
             session_id: context.session_id.clone(),
             thread_id: context.thread_id.clone(),
             trace_context: Some(context.trace_context.clone()),
+            execution: Some(CheckpointExecution {
+                settings: context.settings.clone(),
+                controls: context.controls.clone(),
+                metadata: context.metadata.clone(),
+                api_mode: context.api_mode.clone(),
+                responses_input_items: context.responses_input_items.clone(),
+                instructions: context.instructions.clone(),
+            }),
             phase,
             iteration: input.iteration,
             max_iterations: context.max_iterations,
@@ -224,6 +247,42 @@ impl AgentCheckpoint {
             payload: input.payload,
             messages: input.messages.unwrap_or_else(|| context.messages.clone()),
         }
+    }
+
+    pub(crate) fn restore_execution(
+        &self,
+        input: &mut super::AgentTurnInput,
+    ) -> Result<super::ComposedInstructions, super::AgentError> {
+        let saved = self.execution.as_ref().ok_or_else(|| super::AgentError::invalid_input(
+            "This older form checkpoint has no execution settings. Cancel the waiting turn and start a new turn; continuing with application defaults is unsafe."
+        ))?;
+        saved
+            .settings
+            .validate()
+            .map_err(super::AgentError::invalid_input)?;
+        let instructions = saved.instructions.clone().ok_or_else(|| {
+            super::AgentError::invalid_input("Form checkpoint is missing its instruction context")
+        })?;
+        let continuation_metadata = input
+            .metadata
+            .as_object()
+            .ok_or("Form continuation metadata must be an object")?
+            .clone();
+        input.settings = saved.settings.clone();
+        input.controls = saved.controls.clone();
+        input.metadata = saved.metadata.clone();
+        input
+            .metadata
+            .as_object_mut()
+            .ok_or("Checkpoint metadata must be an object")?
+            .extend(continuation_metadata);
+        input.api_mode = saved.api_mode.clone();
+        input.responses_input_items = saved.responses_input_items.clone();
+        input.messages = self.messages.clone();
+        if let Some(trace) = &self.trace_context {
+            input.trace_context = trace.clone();
+        }
+        Ok(instructions)
     }
 
     pub(crate) fn from_wire(value: Value) -> Result<Self, super::AgentError> {

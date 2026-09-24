@@ -2,6 +2,7 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop_commands/teams.rs
 src-tauri/src/teams/board.rs
+src-tauri/src/teams/assignment_guidance.md
 src-tauri/src/teams/coordinator.rs
 src-tauri/src/teams/tools.rs
 src-tauri/src/teams/native.rs
@@ -12,7 +13,7 @@ src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:fde171318893eb3b6bf408110e8152f2c6e868b0e6c533fb307bb27d6b031587 -->
+<!-- tinybot-doc-fingerprint: sha256:d892025795940a154f4ad6a2e5666c385f93fbe60dfd84d10a7b13cbe58dfe00 -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
 object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
@@ -155,25 +156,26 @@ Active Team attempts receive these model tools (ordinary Threads do not):
 | --- | --- | --- |
 | `team.complete_task` | `{ summary, artifacts: string[], unresolved }` | Validate and finish the Turn; call alone after all work |
 | `team.list_messages` | `{ afterSequence?, offset?, limit?, taskId? }` | Completed-message index and summaries; up to 8 entries per page |
-| `team.read_message` | `{ entryId, byteOffset?, maxBytes? }` | One bounded message; legacy output uses byte paging |
+| `team.read_message` | `{ entryId, byteOffset?, maxBytes? }` | One complete message; legacy output uses byte paging |
 | `team.read_artifact` | `{ entryId, artifactIndex, byteOffset?, maxBytes? }` | Verify content identity and return selected UTF-8 bytes |
 
-Limits are UTF-8 bytes: summary and unresolved each at most 1024, persisted
-message at most 4096 (including reserved sequence space), at most 8 artifacts,
-path at most 512, and each file at most 32 MiB. Oversized/malformed submissions
-return tool errors for correction; a plain final response fails the Team task.
+Summary and unresolved text have no character or byte limit, and no aggregate
+message-size limit. The summary must be nonblank. Artifact limits remain: at most
+8 files, paths of at most 512 UTF-8 bytes, and each file at most 32 MiB. Invalid
+submissions return tool errors for correction; a plain final response fails the Team task.
 Successful completion ends the native loop without another provider request.
 
 Downstream `dependencyResults` contain entry/task/member IDs, sequence, a legacy
-flag, and optional summaries. The total automatically included summary text is
-at most 8192 bytes; remaining summaries are available through read_message.
-No artifact bodies, unresolved details, or old full outputs are auto-injected.
+flag, and the complete summary, unresolved issues and artifact references for
+committed messages. Parent notifications use the same handoff envelope. Text is
+not truncated or omitted based on size. Artifact bodies and old legacy outputs
+are not auto-injected; read verified artifact ranges when evidence is needed.
 Other completed tasks in the same run are discoverable through list_messages.
 The board is run-scoped collaboration data, not long-term memory extraction.
 
 Lists return `nextOffset` and `revision`; keep afterSequence fixed while paging,
 then use the returned completed revision when checking for newer messages.
-Reads default to 8192 bytes, accept maxBytes from 4 to 8192, and return `text`,
+Artifact and legacy-output reads default to 8192 bytes, accept maxBytes from 4 to 8192, and return `text`,
 `byteOffset`, `nextByteOffset`, and `totalBytes`. Offsets must be valid UTF-8
 boundaries. Artifacts also return path and sha256. Missing, changed, binary,
 unauthorized, or invalid references are explicit errors; bytes are never silently
@@ -199,9 +201,9 @@ coordination tools require the current Thread to own that run.
 | Tool | Contract |
 | --- | --- |
 | `team.recruit` | New run: `goal, members, tasks, maxConcurrency?` (default 4). Append: `runId, members, tasks`. Returns immediately after starting or accepting work. |
-| `team.wait` | `runId, afterSequence?`; up to 30 seconds, at most eight committed summaries and the next cursor. Timeout can mean work is still running. |
+| `team.wait` | `runId, afterSequence?, waitFor?`; `next_result` (default) waits for new committed results; `all_tasks` waits for the run to stop. Both return on failure and have no empty timeout. Returns at most eight complete handoffs and the next cursor. |
 | `team.inspect` | Same cursor input; immediate status and result page. |
-| `team.read_result` | `runId, entryId, artifactIndex?, byteOffset?, maxBytes?`; bounded message or verified artifact range. |
+| `team.read_result` | `runId, entryId, artifactIndex?, byteOffset?, maxBytes?`; complete message or verified artifact range. |
 | `team.control` | `runId, action, taskIds?`; pause, cancel or explicit retry. |
 | `team.resume` | `runId`; start a paused or explicitly retried run in the background. |
 
@@ -211,8 +213,35 @@ Members inherit the parent's model, provider, reasoning and tool options.
 Chat runs leave `finalTaskId` empty: the parent integrates results in its existing
 Turn. Standalone plans still require a final task covering all tasks.
 
+Recruitment guidance is built into the coordinator and standalone planner.
+Member instructions define role/responsibility boundaries; task instructions
+define the concrete outcome, scope, deliverable and owned paths, evidence/checks,
+observable completion criteria, and stopping or gap-reporting conditions. The
+employee and coordinator use those criteria when handing off and integrating.
+No extra JSON fields, skill activation, summary-length limits or runtime quality
+gate are introduced. A delivered result may still report unmet criteria in
+`unresolved`; the final answer must make those limitations explicit.
+
+Waiting remains inside the existing parent Turn and is cooperatively cancellable.
+State-change notifications without a matching result stay inside the runtime;
+they do not generate tool responses or model requests. UI progress reads remain
+independent. `all_tasks` does not advance the message cursor while waiting; when
+`hasMore` is true, drain the remaining pages with `team.inspect` and the returned
+`afterSequence`. Neither mode creates a second parent Turn or replays interrupted
+work after restart. A failure is delivered even while sibling attempts drain.
+
+Use committed handoffs for final integration and `team.read_result` for verified
+file reads; mutable employee drafts are not published results. Assign distinct
+output paths to concurrent employees and assemble shared indexes in the parent.
+
 Attempt Rollouts live in `team-runs/<run-id>/conversations/`; the board remains
 `team-runs/<run-id>.json`. Main Chat lists do not load worker history. The collapsed
 Chat card performs no board reads; expansion loads status and employee selection
-loads the selected attempt. Parent cancellation reaches runs started by that Turn.
+opens a side inspector and loads the selected attempt. The inspector reuses the
+standalone Team activity, result and member-dock components. Parent cancellation reaches runs started by that Turn.
 Restart never automatically replays interrupted work.
+
+Form continuation restores the original coordinator metadata, model/tool settings,
+instructions and working directory from its durable checkpoint. The direct
+`subagent.*` lifecycle RPC controls are not exposed to the model: their registration
+manager has no execution loop. Team tasks run through the native Team executor.

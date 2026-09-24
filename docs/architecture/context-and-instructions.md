@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:04352c40db01a083ae3617ce79c827f00b0512241d2ed74b772902603684c203 -->
+<!-- tinybot-doc-fingerprint: sha256:b16b6ac0896143ae4b8ada14f052a5a72988443bfebcabe258b8fcbc3ee85929 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -237,3 +237,8 @@ asks for a broad plan, useful dynamic recruitment, detailed task contracts,
 DAG dependencies and final integration by the parent. Completion tools return
 bounded summaries and evidence references; employee conversation transcripts
 are not automatically injected into the parent's context.
+
+Form continuation restores the checkpoint's effective settings and composed
+instructions, including coordinator metadata and the working directory, before
+building runtime services. It does not recompose the paused Turn from changed
+application defaults. Snapshots without execution context fail explicitly.

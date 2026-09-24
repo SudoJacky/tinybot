@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -5,7 +6,7 @@ use crate::protocol::capability::{
     default_desktop_capability_policy, project_coordinator_capability_policy, CapabilityPolicy,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum ContextWindowStrategy {
     Discard,
     Compact,
@@ -20,20 +21,20 @@ impl ContextWindowStrategy {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct AgentReasoningSettings {
     pub effort: Option<String>,
     pub summary: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct AgentOutputSchema {
     pub name: String,
     pub schema: Value,
     pub strict: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct AgentTurnSettings {
     pub experiments: crate::config::experiments::ExperimentalSettings,
     pub model: String,
@@ -51,6 +52,7 @@ pub struct AgentTurnSettings {
     pub selected_tools: Option<Vec<String>>,
     pub mcp_enabled: Option<bool>,
     pub parallel_tool_calls: Option<bool>,
+    #[serde(default)]
     validation_errors: Vec<String>,
 }
 

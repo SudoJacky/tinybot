@@ -3,7 +3,7 @@ use super::{AgentTurnSettings, DEFAULT_NATIVE_AGENT_MAX_ITERATIONS};
 use crate::agent::runtime::test_support::BlockingTestProvider;
 use crate::agent::runtime_protocol::{AgentContinuationInput, AgentTraceContext};
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Normalized execution input. JSON aliases and defaults are resolved before a task is owned.
@@ -22,7 +22,7 @@ pub struct AgentTurnInput {
     pub(crate) controls: AgentTurnControls,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct AgentTurnControls {
     pub(crate) manual_compaction: bool,
     pub(crate) declares_working_directory: bool,

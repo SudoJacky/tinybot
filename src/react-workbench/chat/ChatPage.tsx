@@ -1,3 +1,4 @@
+import { ChatTeamWorkspace } from "../teams/ChatTeamWorkspace";
 import type { ComposerSkillOption } from "../../components/ui/composerContracts";
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
@@ -1038,7 +1039,11 @@ export function ChatPage({
         workspaceRegistryStore={workspaceRegistryStore}
       >
       {({ availableWorkspaces, chooseWorkspace, workspaceError, workspacePickerPending }) => (
-      <div
+      <ChatTeamWorkspace
+        sessionId={activeSessionId ?? ""}
+        workspaceStore={workspaceStore}
+        sidecarPresentation={sidecar.presentation}
+        onHideSidecar={() => sidecarResources.current?.toggle()}
         className="react-chat-workspace"
         data-sidecar-presentation={sidecar.presentation}
         data-sidecar-layout-motion={sidecar.layoutMotion}
@@ -1355,7 +1360,7 @@ export function ChatPage({
           </div>
         </aside>
       ) : null}
-      </div>
+      </ChatTeamWorkspace>
       )}
       </ChatSessionWorkspace>
     </section>

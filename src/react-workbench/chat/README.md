@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:1118fe6ec4ad89ab6698d6a90d700663a9f99f1271b3116ce3ec8e78230c6bad -->
+<!-- tinybot-module-fingerprint: sha256:70a6bde110b039c80f89eeef3c2b6cf8b2f0b9455bea3d03f9ee98d61ce6a047 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -544,6 +544,9 @@ navigation callback; Chat does not own automation execution or scheduling.
 The optional `onOpenTeams` sidebar action opens the independent Teams route in
 both expanded and collapsed layouts. Workspace Chat also offers `@team` in its
 composer. Recruitment tool results render a lazy `ChatTeamCard` outside grouped
-tool rows. The card loads the board on expansion and employee history on selection;
-worker conversation content does not enter the parent session. Native Teams owns
+tool rows. The card loads the board on expansion; employee selection opens the
+shared Team inspector beside Chat (or in place on narrow windows). The inspector
+loads only the selected attempt, keeps the member dock available, and closes when
+switching conversations or opening the other sidecar. Worker conversation content
+does not enter the parent session. Native Teams owns
 scheduling and durable run state for both entry points.

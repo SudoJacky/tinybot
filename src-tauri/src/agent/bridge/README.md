@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:b616718b5273824ca33bfc2d8eafb9bea941d31d2a249e02babc9d22d9408446 -->
+<!-- tinybot-module-fingerprint: sha256:c42b8e512686195e333dff8a0e7df25ea4d6c15eab9863808c4d0e4f28892e3e -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -180,6 +180,9 @@ when it failed.
 - Form resolution must preserve turn, request, and trace correlation, compose
   durable and live trace sinks, and acknowledge the command before resumed
   provider work begins.
+- Restore effective settings, workspace, instructions, native replay and Team metadata
+  from the form checkpoint before preparing services. Overlay the new form command's
+  correlation metadata only. Missing legacy execution snapshots fail explicitly.
 - Persistence errors remain visible to callers; a partial durable write is not
   a successful turn.
 - Frontend event-emission failures log session, turn, event or item identity,

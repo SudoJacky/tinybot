@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:784439284708df8cf222fbb22976eeef07dfef7e15c1152d7c40f68f540f9a6d -->
+<!-- tinybot-module-fingerprint: sha256:02a4770579ebda42b9c849b4db9f428c0ff14769ad717e205927527c27040759 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -126,8 +126,17 @@ Progress cards put state below the title and summary. Completed states mix seman
 ink to remain readable in both light and dark themes.
 Markdown continues to use the existing Chat renderer and its table/code scrolling.
 
-`ChatTeamCard` embeds recruited teams in the Chat timeline. Its collapsed state
-does no Team I/O. Expansion loads the board; employee selection loads that
-attempt through the canonical timeline projection. Only expanded, running work
-is refreshed, and errors expose explicit retry. No employee history enters the
-parent conversation or ordinary session list.
+`ChatTeamCard` embeds a recruitment roster in the Chat timeline. Its collapsed
+state does no Team I/O. Expansion loads the board; selecting an employee opens
+`ChatTeamWorkspace` beside Chat and reads only that attempt through the canonical
+timeline projection. The inspector reuses `TeamActivity`, `TeamMessage`, task
+statuses, portraits and the member dock from the independent Team route. It shows
+role/task instructions, dependency navigation, activity and reported results.
+Open boards refresh every two seconds while running and every five seconds while
+idle, so later recruitment waves appear. Only running worker history is refreshed;
+failures expose explicit retry and late
+reads are discarded after selection changes. Activity disclosure and reading
+positions survive employee switches. No employee history enters the parent
+conversation or ordinary session list. Escape/Close restores roster focus.
+Below 1000px the inspector occupies the workspace until Back to Chat. Switching
+conversations or opening a Browser/Artifact sidecar closes inspection.

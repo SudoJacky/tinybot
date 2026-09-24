@@ -945,8 +945,8 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent.spawn",
             "subagent",
             "Spawn subagent",
-            "Create a child agent thread for delegated work.",
-            ToolExposure::Model,
+            "Register an externally executed child agent lifecycle; this RPC does not start model execution.",
+            ToolExposure::Direct,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -975,7 +975,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Send subagent input",
             "Send input to an active child agent thread.",
-            ToolExposure::Model,
+            ToolExposure::Direct,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -1000,7 +1000,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Wait for subagent",
             "Wait until a selected child agent reaches a result or input boundary.",
-            ToolExposure::Model,
+            ToolExposure::Direct,
             false,
             runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
             vec![
@@ -1025,7 +1025,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Close subagent",
             "Explicitly close a retained child agent. Closed children cannot be resumed.",
-            ToolExposure::Model,
+            ToolExposure::Direct,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -1048,7 +1048,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Resume subagent",
             "Resume one interrupted child agent after runtime restart.",
-            ToolExposure::Model,
+            ToolExposure::Direct,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![

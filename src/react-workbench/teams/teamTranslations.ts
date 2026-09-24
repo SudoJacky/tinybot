@@ -1,4 +1,5 @@
 export const teamEn = {
+  recruitment: "Agent recruitment", recruitedCount: "{{count}} employees recruited", viewing: "Viewing", teamWorkspace: "Team workspace", backToChat: "Back to chat", role: "Role",
   overallProgress: "Overall progress", progressHint: "Follow the work. Select a task to see its activity.",
   workActivity: "Work activity", loadEarlierActivity: "Load earlier activity",
   memberTasks: "Member tasks ({{count}})", assignment: "Assignment & prerequisites", idleMember: "No assigned tasks",
@@ -114,6 +115,7 @@ export const teamEn = {
   },
 };
 export const teamZh: typeof teamEn = {
+  recruitment: "员工招聘", recruitedCount: "已招聘 {{count}} 名员工", viewing: "正在查看", teamWorkspace: "团队工作台", backToChat: "返回聊天", role: "身份职责",
   overallProgress: "整体进展", progressHint: "查看工作如何推进，选择任务了解详情。",
   workActivity: "工作过程", loadEarlierActivity: "加载更早的活动",
   memberTasks: "成员任务（{{count}}）", assignment: "任务说明与前置工作", idleMember: "暂无分配任务",

@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:c9de505fbf93bd59ad20aa935b07f3d9dcf0e8c5a597424a4344e35277c92d36 -->
+<!-- tinybot-module-fingerprint: sha256:e1c4279dcf3bcddef13f5368a83800cfa6eef7ad47bb18da647beeb42b152d34 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -63,3 +63,8 @@ The Chat coordinator contributor uses TeamCoordinator for recruit/wait/inspect,
 result reads and explicit control/resume. These SessionWrite tools execute in
 exclusive waves through the bridge and are unavailable in employee scopes or
 generic Worker RPC.
+
+`subagent.spawn/send_input/wait/close/resume` remain direct lifecycle RPC controls.
+They are not model-visible because the registration manager does not start an
+executor. Explicit tool selection cannot promote them into provider schemas.
+Executable Chat delegation uses the scoped Team coordinator tools instead.

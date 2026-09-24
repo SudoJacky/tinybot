@@ -164,9 +164,14 @@ runtime uses `200`. Explicit turn or settings values still take precedence.
 
 MCP tools explicitly allowlisted by workspace configuration are injected after backend discovery.
 Other extension tools may remain deferred until selected explicitly for the current Turn. Core
-browser and subagent lifecycle tools are model-visible by default. Calls to inactive deferred tools fail with
+browser tools are model-visible by default. The `subagent.*` lifecycle controls are direct RPC tools,
+not model tools: registering a child alone does not execute it. Chat Team delegation uses `team.recruit`.
+Calls to inactive deferred tools fail with
 `stopReason: "policy_denied"`. Form continuations revalidate the persisted activation set against
-the current registry and capability policy.
+the current registry and capability policy. They also restore the saved effective settings,
+working directory, coordinator metadata, composed instructions and Responses replay state.
+Changing application defaults while a form is open does not change that Turn's execution context.
+Older checkpoints without that context fail explicitly; cancel the waiting Turn and start a new one.
 
 Native desktop Turns also expose three global MCP configuration tools:
 

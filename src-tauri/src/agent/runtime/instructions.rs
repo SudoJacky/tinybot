@@ -52,13 +52,13 @@ pub struct InstructionSource {
     pub validation_warnings: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct SystemInstructionItem {
     pub content: String,
     pub source_index: usize,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct ComposedInstructions {
     pub messages: Vec<SystemInstructionItem>,
     pub sources: Vec<InstructionSource>,
