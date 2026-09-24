@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:697f3967931018cefd4bfd440ce96eabeb1c1c1e162088460d3c7a2223813dc3 -->
+<!-- tinybot-module-fingerprint: sha256:d26fc06586c0bbd14b1c1076ac3416b028b0fdcfb7485f6948a51a7c3da5738a -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -101,3 +101,7 @@ Context-reference images retain ordinary model image-input validation.
 The composer and annotation preview share the `composerContextReference` data
 contract so the preview does not depend on its parent input component. The input
 module re-exports this type for callers using its public interface.
+
+The optional `teamAvailable` composer prop adds an `@team` capability choice.
+Selection inserts literal text in both plain and rich editors, without attaching
+another conversation. The backend interprets the submitted Team token.

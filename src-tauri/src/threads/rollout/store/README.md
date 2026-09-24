@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:726b3dc700566e9df7a84752c40ef5faa5e1e5ff58e38e3363c0709dd5c4cb18 -->
+<!-- tinybot-module-fingerprint: sha256:237db10a1e88b8d290db96fad235c8c9d60143c5c586c7c20c2d58675a8a7bf8 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -199,3 +199,9 @@ A durable form resolution consumes its matching waiting checkpoint and restores
 the same Turn to running before live publication. Replay applies this boundary
 in append order, so later form checkpoints still wait and completed answers
 cannot leave cancellation capabilities stuck in the waiting state.
+
+The Rollout storage root can differ from the application data root. Team stores
+use `team-runs/<run-id>/conversations/` with the same canonical format and separate
+recorders/indexes; memory still uses the application root. `team_migration.rs`
+moves legacy Team and descendant logs once before recorders open, preserving
+compression and rejecting destination conflicts.

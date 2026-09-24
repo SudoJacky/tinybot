@@ -14,6 +14,7 @@ pub(crate) struct NativeTeamExecutor {
     pub services: AgentApplicationServices,
     pub workspace_root: PathBuf,
     pub config: Value,
+    pub worker_options: Value,
 }
 
 impl NativeTeamExecutor {
@@ -64,7 +65,25 @@ impl TaskExecutor for NativeTeamExecutor {
         if cancellation.is_cancelled() {
             return TaskOutcome::Cancelled;
         }
-        if let Err(error) = self.create_thread(&job) {
+        let mut services = self.services.clone();
+        services.thread_store = match services.thread_store.for_team(&job.run_id) {
+            Ok(store) => store,
+            Err(error) => return TaskOutcome::Failed(error),
+        };
+        services.runtime =
+            services
+                .runtime
+                .with_trace_sink(crate::agent::bridge::native_agent_trace_sink(
+                    services.thread_store.clone(),
+                    None,
+                ));
+        let scoped = NativeTeamExecutor {
+            services,
+            workspace_root: self.workspace_root.clone(),
+            config: self.config.clone(),
+            worker_options: self.worker_options.clone(),
+        };
+        if let Err(error) = scoped.create_thread(&job) {
             return TaskOutcome::Failed(error);
         }
         let mut metadata = origin(&job);
@@ -101,8 +120,13 @@ impl TaskExecutor for NativeTeamExecutor {
                 spec["reasoningEffort"] = json!(effort);
             }
         }
+        for key in ["selectedTools", "mcpEnabled"] {
+            if let Some(value) = self.worker_options.get(key).filter(|v| !v.is_null()) {
+                spec[key] = value.clone();
+            }
+        }
         let execution = execute_thread_turn_with_services(
-            self.services.clone(),
+            scoped.services.clone(),
             SubmitThreadTurnInput {
                 thread_id: Some(job.thread_id.clone()),
                 input: json!({"role": "user", "content": job.input.to_string(), "clientEventId": job.turn_id}),

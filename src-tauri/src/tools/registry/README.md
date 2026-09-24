@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:410937e88b194343a6efcab0559375b71538f2053085f4483b76ff33e71dccd8 -->
+<!-- tinybot-module-fingerprint: sha256:c9de505fbf93bd59ad20aa935b07f3d9dcf0e8c5a597424a4344e35277c92d36 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -58,3 +58,8 @@ the diagnostic and committed changes; diagnostic line numbers address the
 submitted patch rather than the target file.
 
 The Team board contributor adds complete/list/read/artifact-read tools only for active attempts. Its TeamBoard execution target routes to the bridge; completion is exclusive and ends the native turn after validation. Generic RPC cannot invoke this application-owned target.
+
+The Chat coordinator contributor uses TeamCoordinator for recruit/wait/inspect,
+result reads and explicit control/resume. These SessionWrite tools execute in
+exclusive waves through the bridge and are unavailable in employee scopes or
+generic Worker RPC.

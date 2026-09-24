@@ -201,6 +201,107 @@ fn start_input(run: &TeamRun) -> TeamRunInput {
         expected_revision: run.revision,
     }
 }
+
+#[tokio::test]
+async fn chat_recruitment_appends_live_dag_and_notifications_have_a_cursor() {
+    let _serial = EXECUTION_TESTS.lock().await;
+    let f = Fixture::new();
+    let run = prepare_owned(
+        &f.root,
+        f.spec(),
+        TeamPlan {
+            tasks: vec![task("a", "research", &[])],
+            final_task_id: String::new(),
+        },
+        new_run_id(),
+        Some("parent".into()),
+    )
+    .unwrap();
+    let (executor, mut receiver) = controlled();
+    let (_, handle) = runtime::start(&f.root, start_input(&run), executor).unwrap();
+    let (_, finish_a) = next(&mut receiver).await;
+    let (reply, receive) = oneshot::channel();
+    let path = store::path(&store::directory(&f.root).unwrap(), &run.id).unwrap();
+    {
+        let active = store::lock().unwrap();
+        let control = active.get(&path).unwrap();
+        control
+            .recruitment
+            .lock()
+            .unwrap()
+            .push(runtime::RecruitRequest {
+                input: runtime::Recruitment {
+                    members: vec![],
+                    tasks: vec![task("b", "review", &["a"])],
+                },
+                reply,
+            });
+        control.recruited.notify_one();
+    }
+    let appended = tokio::time::timeout(Duration::from_secs(5), receive)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(appended.tasks.len(), 2);
+    assert!(
+        receiver.try_recv().is_err(),
+        "dependent task must wait for committed output"
+    );
+    success(finish_a, "first committed result");
+    let (job, finish_b) = next(&mut receiver).await;
+    assert_eq!(job.task.id, "b");
+    assert_eq!(
+        job.input["dependencyResults"][0]["summary"],
+        "first committed result"
+    );
+    let saved = get(&f.root, &run.id).unwrap();
+    let page = coordinator::snapshot(&saved, 0).unwrap();
+    assert_eq!(page["messages"].as_array().unwrap().len(), 1);
+    let cursor = page["afterSequence"].as_u64().unwrap();
+    assert!(coordinator::snapshot(&saved, cursor).unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    success(finish_b, "second committed result");
+    let done = handle.await.unwrap().unwrap();
+    assert_eq!(done.status, RunStatus::Completed);
+    let page = coordinator::snapshot(&done, cursor).unwrap();
+    assert_eq!(page["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(page["messages"][0]["summary"], "second committed result");
+    let mut bad = done.clone();
+    assert!(runtime::append_recruitment(
+        &mut bad,
+        runtime::Recruitment {
+            members: vec![],
+            tasks: vec![task("a", "research", &[])]
+        }
+    )
+    .is_err());
+    assert_eq!(bad.tasks.len(), done.tasks.len());
+    assert!(runtime::append_recruitment(
+        &mut bad,
+        runtime::Recruitment {
+            members: vec![],
+            tasks: vec![task("c", "review", &["d"]), task("d", "research", &["c"])]
+        }
+    )
+    .is_err());
+    runtime::append_recruitment(
+        &mut bad,
+        runtime::Recruitment {
+            members: vec![TeamMember {
+                id: "new-member".into(),
+                display_name: "New specialist".into(),
+                instructions: "Verify sources".into(),
+                model: None,
+            }],
+            tasks: vec![task("c", "new-member", &["b"])],
+        },
+    )
+    .unwrap();
+    assert_eq!(bad.tasks.len(), 3);
+}
 fn control_input(run: &TeamRun, action: TeamAction, ids: &[&str]) -> ControlTeamInput {
     ControlTeamInput {
         run_id: run.id.clone(),
@@ -731,6 +832,135 @@ async fn native_executor_persists_responses_completion() {
     assert_native_executor_persistence("responses").await;
 }
 
+struct ChatTeamProvider {
+    root: PathBuf,
+    recruited: std::sync::atomic::AtomicBool,
+}
+impl crate::agent::runtime::test_support::BlockingTestProvider for ChatTeamProvider {
+    fn complete(
+        &self,
+        context: &crate::agent::runtime::AgentTurnContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
+        use crate::agent::runtime::{NativeAgentProviderResponse, NativeAgentToolCall};
+        let worker = context.metadata.get("teamTaskId").is_some();
+        let messages =
+            serde_json::to_string(&context.messages.to_legacy_messages().unwrap()).unwrap();
+        let (name, args) = if worker {
+            assert!(context.tool_execution_target("team.recruit").is_none());
+            (
+                "team.complete_task",
+                json!({"summary":"VERIFIED_EMPLOYEE_RESULT","artifacts":[],"unresolved":""}),
+            )
+        } else {
+            assert!(context.tool_execution_target("team.recruit").is_some());
+            assert!(context
+                .system_instruction_prompt()
+                .unwrap()
+                .contains("You are the coordinator"));
+            if messages.contains("VERIFIED_EMPLOYEE_RESULT") {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "Integrated verified research".into(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![],
+                    response_items: vec![],
+                });
+            }
+            if !self
+                .recruited
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                (
+                    "team.recruit",
+                    json!({"goal":"Find evidence", "members":[{"id":"researcher","displayName":"Researcher","instructions":"Find and verify evidence"}],"tasks":[{"id":"research","title":"Research evidence","memberId":"researcher","instructions":"Return verified findings","dependencies":[]}]}),
+                )
+            } else {
+                let run = list(&self.root)?.pop().ok_or("Missing recruited team")?;
+                ("team.wait", json!({"runId":run.id,"afterSequence":0}))
+            }
+        };
+        Ok(NativeAgentProviderResponse {
+            final_content: String::new(),
+            reasoning_delta: None,
+            usage: None,
+            tool_calls: vec![NativeAgentToolCall {
+                id: format!("{}-{name}", context.turn_id),
+                name: name.into(),
+                arguments_json: args.to_string(),
+                result: json!({}),
+            }],
+            response_items: vec![],
+        })
+    }
+}
+
+#[tokio::test]
+async fn chat_team_recruits_waits_and_continues_without_importing_worker_history() {
+    let _serial = EXECUTION_TESTS.lock().await;
+    use crate::agent::bridge::{
+        execute_thread_turn_with_services, SubmitThreadTurnInput, TestApplicationServices,
+    };
+    use crate::agent::runtime::NativeAgentRuntimeServices;
+    let f = Fixture::new();
+    let threads = crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
+        f.root.clone(),
+        f.root.clone(),
+        crate::protocol::capability::default_desktop_capability_policy(),
+    );
+    crate::rpc::call_rust_state_service(&threads, json!({}), crate::protocol::WorkerRequest::new("create", "create", "thread.create", json!({"threadId":"coordinator", "title":"Research coordinator", "metadata":{"workingDirectory":f.root}})), "Create coordinator").unwrap();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(ChatTeamProvider {
+            root: f.root.clone(),
+            recruited: Default::default(),
+        }),
+        Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+        Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
+    )
+    .with_thread_store(threads.clone());
+    let result = execute_thread_turn_with_services(services,
+        SubmitThreadTurnInput {thread_id:Some("coordinator".into()),input:json!({"role":"user","content":"@team research evidence","clientEventId":"chat-team-input"}),spec:json!({"turnId":"coordinator-turn","mcpEnabled":false})},
+        f.root.clone(),json!({"agents":{"defaults":{"provider":"fixture","model":"fixture-model"}},"providers":{"fixture":{"apiMode":"chat_completions","responses":[{"content":"fixture"}]}}}),None,
+    ).await.unwrap();
+    assert_eq!(
+        result.result.stop_reason,
+        crate::agent::runtime::AgentStopReason::FinalResponse,
+        "{:?}",
+        result.result.error
+    );
+    let run = list(&f.root).unwrap().pop().unwrap();
+    assert_eq!(run.parent_thread_id.as_deref(), Some("coordinator"));
+    assert_eq!(run.tasks[0].status, TaskStatus::Succeeded);
+    let history = crate::rpc::call_rust_state_service(
+        &threads,
+        json!({}),
+        crate::protocol::WorkerRequest::new(
+            "history",
+            "history",
+            "thread.history",
+            json!({"threadId":"coordinator","limit":100}),
+        ),
+        "Parent history",
+    )
+    .unwrap()
+    .to_string();
+    assert!(history.contains("Integrated verified research"));
+    assert!(!history.contains("Your identity:"));
+    let ordinary = threads
+        .begin_operation()
+        .unwrap()
+        .thread()
+        .list_threads(Default::default())
+        .unwrap();
+    assert_eq!(ordinary.threads.len(), 1);
+    assert!(threads
+        .for_team(&run.id)
+        .unwrap()
+        .read_agent_thread(&run.tasks[0].attempts[0].thread_id)
+        .is_ok());
+    threads.shutdown().unwrap();
+}
+
 async fn assert_native_executor_persistence(api_mode: &str) {
     let _serial = EXECUTION_TESTS.lock().await;
     use crate::agent::bridge::TestApplicationServices;
@@ -772,6 +1002,7 @@ async fn assert_native_executor_persistence(api_mode: &str) {
         &f.root,
         start_input(&run),
         Arc::new(NativeTeamExecutor {
+            worker_options: json!({}),
             services,
             workspace_root: f.root.clone(),
             config: json!({
@@ -787,6 +1018,20 @@ async fn assert_native_executor_persistence(api_mode: &str) {
         *provider.calls.lock().unwrap(),
         HashMap::from([("a".into(), 4), ("b".into(), 2), ("final".into(), 3)])
     );
+    let main_list = crate::rpc::call_rust_state_service(
+        &thread_store,
+        json!({}),
+        crate::protocol::WorkerRequest::new(
+            "main-list",
+            "main-list",
+            "thread.list",
+            json!({"includeChildThreads":true}),
+        ),
+        "Main list",
+    )
+    .unwrap();
+    assert!(main_list["threads"].as_array().unwrap().is_empty());
+    let thread_store = thread_store.for_team(&run.id).unwrap();
     let listed = crate::rpc::call_rust_state_service(
         &thread_store,
         json!({}),

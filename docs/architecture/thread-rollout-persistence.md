@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:87a669c9db483d7c13a63c445dcbcb73258cfb00100785e105d3204692f21232 -->
+<!-- tinybot-doc-fingerprint: sha256:de8d74f3ae40383457772bb474c8cede82997d98bbcf3ac5050e02f97419c234 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -214,3 +214,18 @@ Storage performance observations preserve the recovery semantics above.
 head hashing, read/decompression, JSON parsing, reconstruction and projection
 build/install. Cache counts and decoded line/byte counts expose repeated work.
 Per-file read/parse sums are aggregate durations, not contiguous timeline spans.
+
+## Team storage scopes
+
+The application data root and Rollout storage root are separate constructor
+inputs. Ordinary conversations use the application root; Team attempts use
+`team-runs/<run-id>/conversations/`. Each opened run owns independent projection,
+index, recorder cache and lifecycle locks, and root shutdown drains those scopes.
+Worker trace sinks are rebound with the scoped services. Configuration, memory,
+workspace registry and accounting retain the application data root.
+
+Startup moves legacy Team and descendant logs once, preserving canonical date
+paths and compressed representation. Destination conflicts are errors. A durable
+migration marker prevents repeated ordinary-history scans. After migration,
+ordinary startup/listing never traverses Team conversations; explicit saved
+attempt IDs resolve their owning board before opening the run's scope.

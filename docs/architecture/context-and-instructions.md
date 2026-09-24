@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:1403b7e9b4d5a915182e1f0a478bb34e7839cc01d77a8815981df87be0779205 -->
+<!-- tinybot-doc-fingerprint: sha256:04352c40db01a083ae3617ce79c827f00b0512241d2ed74b772902603684c203 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -226,3 +226,14 @@ Exact configuration names and defaults belong in the
 - `src-tauri/src/agent/runtime/instructions.rs`
 - `src-tauri/src/agent/runtime/instructions_tests.rs`
 - `src-tauri/src/runtime/working_directory.rs`
+
+## Team coordinator context
+
+An explicit standalone `@team` token in direct user content enables persisted
+`metadata.extra.teamEnabled` for an ordinary workspace Thread. Project
+coordinators and Team worker scopes are excluded. The bridge supplies the
+coordinator role and authoritative enabled flag during preparation. The role
+asks for a broad plan, useful dynamic recruitment, detailed task contracts,
+DAG dependencies and final integration by the parent. Completion tools return
+bounded summaries and evidence references; employee conversation transcripts
+are not automatically injected into the parent's context.

@@ -1,12 +1,12 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:1216586d567dc0f2afe560b8a622160490358cb787607246723d4903208636a7 -->
+<!-- tinybot-module-fingerprint: sha256:077b31fc7616d8afef76680512d7e32097f2421950cb6c1315c41b5cc83b4819 -->
 
 The command allocates the run ID before invoking the planner and passes it to
 `prepare_with_id`; planner usage therefore shares the eventual board identity.
 Task and descendant usage resolves persisted attempt Thread ancestry. The shared
 usage ledger owns accounting; the board does not store independent token totals.
 
-`teams` owns a shared task board and dependency scheduler for a fixed set of
+`teams` owns a shared task board and dependency scheduler for dynamically recruited or configured
 members working toward one goal. It is independent of Agent Graphs and the
 parent/child subagent manager. `desktop_commands::teams` supplies application
 services and exposes the module to the main desktop window.
@@ -41,8 +41,8 @@ The test executor controls completion and cancellation without a model service.
 
 ## Scheduling invariants
 
-Plans contain 1–64 tasks and 1–8 members. The task graph is acyclic and every
-task contributes to a designated final synthesis/review task. A task starts
+Plans contain 1–64 tasks and 1–64 members. The task graph is acyclic. Standalone plans designate a final synthesis/review
+task; Chat plans leave finalTaskId empty and the parent integrates leaf results. A task starts
 only after every direct dependency succeeds. Its input contains the goal,
 assigned task, the saved team roster (member IDs, display names and responsibilities),
 and dependency message IDs with an aggregate bounded summary budget. Successful tasks
@@ -75,7 +75,8 @@ The native adapter requires a successful `team.complete_task` receipt. A Turn th
 human input is reported as a failed Team task with its Thread ID retained;
 Team-level continuation/adoption of that Turn is not implemented. Inspect and
 resolve the original Thread before explicitly retrying uncertain work. There
-are no automatic quality scores, retries, member creation, or hidden replanning.
+are no automatic quality scores, retries, or hidden replanning. Chat recruitment
+is explicit through coordinator tools.
 
 ## Persistence and failure behavior
 
@@ -129,3 +130,27 @@ work starts. Invalid tool submissions can be corrected; plain final responses
 fail the task. Files carry byte size and SHA-256 identity; selected UTF-8 reads
 verify both workspace authorization and unchanged content. See the Team API for
 exact limits. Legacy full outputs stay inspectable but are handed off by ID.
+
+## Chat coordination and isolated conversations
+
+An explicit `@team` in user input enables coordinator tools for that ordinary
+workspace conversation. `team.recruit` supplies named members, detailed roles and
+DAG tasks. It starts background work or appends validated, immutable assignments
+through the scheduler queue. Existing members and attempted tasks cannot be
+rewritten. Completed Chat runs can accept additional work. Only the saved parent
+Thread can inspect/control the run through model tools.
+
+`team.wait` subscribes to committed state changes and returns up to eight result
+summaries with a sequence cursor, or a terminal state/30-second timeout. It
+continues the existing parent turn; it never creates competing parent turns.
+`team.read_result` reads bounded messages or verified artifact ranges. Parent
+cancellation propagates to runs started by that turn. Workers inherit model,
+provider and tool selection, but do not receive coordinator tools.
+
+Run JSON stays at `team-runs/<run-id>.json`. Attempt conversations live under
+`team-runs/<run-id>/conversations/`, with separate indexes, caches and lifecycle
+locks. Application configuration, workspace memory and accounting roots remain
+shared. Worker tracing is rebound to the isolated store. Ordinary lists and
+startup projection scans never include these logs. Known attempt reads resolve
+the saved run directly; a one-time startup migration relocates older Team logs
+and their descendants before opening recorders.

@@ -1289,6 +1289,7 @@ export function ChatPage({
           selectedSessionMentionIds={composerSessionMentionIds}
           selectedSkillIds={composerSelectedSkillIds}
           sessionMentionOptions={composerSessionMentionOptions}
+          teamAvailable={Boolean(activeDisplaySession?.workingDirectory) && !activeDisplaySession?.pluginMigration}
           skillOptions={composerSkillOptions}
           slashCommands={slashCommands}
           tools={composerToolOptions}

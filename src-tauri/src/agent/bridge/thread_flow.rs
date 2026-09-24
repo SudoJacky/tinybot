@@ -138,16 +138,58 @@ pub(crate) async fn submit_thread_turn_with_services(
 }
 
 pub(crate) async fn execute_thread_turn_with_services(
-    base_services: AgentApplicationServices,
+    mut base_services: AgentApplicationServices,
     input: SubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<ExecutedThreadTurn, AgentError> {
+    if let Some(id) = input.thread_id.as_deref() {
+        base_services.thread_store =
+            crate::teams::conversations_for_thread(&base_services.thread_store, id)?;
+    }
     let thread_store = base_services.thread_store.clone();
     let thread =
         ensure_thread_turn_target(input.thread_id, &thread_store, config_snapshot.clone())?;
     let thread_id = thread.thread_id.clone();
+    let requested_team = input
+        .input
+        .get("content")
+        .or_else(|| input.input.get("text"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| input.input.as_str())
+        .is_some_and(|text| text.split_whitespace().any(|token| token == "@team"));
+    let team_enabled = !thread_store.is_team_scope()
+        && thread.source != "project_coordinator"
+        && (requested_team
+            || thread
+                .metadata
+                .extra
+                .get("teamEnabled")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true));
+    if team_enabled
+        && thread
+            .metadata
+            .extra
+            .get("teamEnabled")
+            .and_then(serde_json::Value::as_bool)
+            != Some(true)
+    {
+        let mut extra = thread.metadata.extra.clone();
+        extra["teamEnabled"] = serde_json::json!(true);
+        crate::rpc::call_rust_state_service(
+            &thread_store,
+            config_snapshot.clone(),
+            crate::protocol::WorkerRequest::new(
+                format!("team-enable-{thread_id}"),
+                format!("team-enable-{thread_id}"),
+                "thread.update_metadata",
+                serde_json::json!({"threadId":thread_id,"metadata":{"extra":extra}}),
+            ),
+            "Enable Team mode",
+        )?;
+    }
     let thread_working_directory = thread_working_directory(&thread);
     let is_project_coordinator = thread.source == "project_coordinator";
     let coordinator_project_group_id = is_project_coordinator
@@ -183,6 +225,16 @@ pub(crate) async fn execute_thread_turn_with_services(
         })
         .is_some();
     let mut spec = input.spec;
+    if team_enabled {
+        let existing = spec
+            .get("agentRole")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        spec["agentRole"] = serde_json::json!(format!(
+            "{existing}\n\n{}",
+            crate::teams::coordinator::INSTRUCTIONS
+        ));
+    }
     let spec_object = spec
         .as_object_mut()
         .ok_or_else(|| "thread turn spec must be a JSON object".to_string())?;
@@ -217,6 +269,7 @@ pub(crate) async fn execute_thread_turn_with_services(
         .entry("metadata".to_string())
         .or_insert_with(|| serde_json::json!({}));
     if let Some(metadata_object) = metadata.as_object_mut() {
+        metadata_object.insert("teamEnabled".into(), serde_json::json!(team_enabled));
         bind_thread_turn_role(metadata_object, &thread_id, permission_profile);
         if let Some(project_group_id) = coordinator_project_group_id {
             metadata_object.insert(

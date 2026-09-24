@@ -2,6 +2,7 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop_commands/teams.rs
 src-tauri/src/teams/board.rs
+src-tauri/src/teams/coordinator.rs
 src-tauri/src/teams/tools.rs
 src-tauri/src/teams/native.rs
 src-tauri/src/teams/planner.rs
@@ -11,7 +12,7 @@ src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:90fae5668bfc0a2b6393a8b4e9d2a9e8d38f2b88f1404b8b69f2e5663042c39d -->
+<!-- tinybot-doc-fingerprint: sha256:fde171318893eb3b6bf408110e8152f2c6e868b0e6c533fb307bb27d6b031587 -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
 object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
@@ -79,8 +80,8 @@ Detailed evidence belongs in artifacts, with a concise summary and unresolved
 issues published through `team.complete_task`. Member tool permissions are shared.
 
 Member/task IDs contain ASCII letters, digits, `_`, or `-`, up to 120 characters.
-Plans have 1–64 tasks and 1–8 members; concurrency is 1–8, with one active task
-per member. Every task must contribute through dependencies to `finalTaskId`.
+Plans have 1–64 tasks and 1–64 members; concurrency is 1–8, with one active task
+per member. In standalone plans, every task must contribute through dependencies to `finalTaskId`.
 There can be four active runs in one process. All members share the specified
 existing workspace and native tool permissions. The limit counts Team tasks,
 not additional work a member may delegate through existing native tools.
@@ -102,11 +103,11 @@ global request history under that allocated ID. Descendant Threads recover
 origin through persisted parent IDs. Direct Team attempts remain excluded from
 automatic memory extraction; attribution does not enable extra background work.
 
-A run contains `schemaVersion`, `id`, numeric `revision`, the immutable `spec`,
+A run contains `schemaVersion`, `id`, numeric `revision`, `spec` (goal, workspace and concurrency remain immutable),
 `finalTaskId`, `tasks`, `status`, `createdAt`, `updatedAt`, and nullable `error`.
 Each task record contains its `task` definition, `status`, and ordered `attempts`.
 Attempts contain `threadId`, `turnId`, `status`, `startedAt`, nullable `finishedAt`,
-`output`, nullable `message`, and `error`. The final answer is the successful final task's last output.
+`output`, nullable `message`, and `error`. For standalone plans the final answer is the successful final task's last output.
 
 Run statuses: `planned`, `running`, `paused`, `completed`, `failed`, `cancelled`,
 `interrupted`. Task/attempt statuses: `pending`, `running`, `succeeded`, `failed`,
@@ -187,3 +188,31 @@ names/titles. Legacy successful outputs remain intact with message=null, appear
 on the board as legacy entries (sequence 0), and can be read in bounded pages.
 Resumed legacy runs use this reference-only handoff for old outputs and require
 the new completion contract for new attempts. Unknown versions remain errors.
+
+## Chat coordinator tools
+
+An explicit standalone `@team` token enables Team mode for an ordinary local
+workspace Chat. The Thread persists `metadata.extra.teamEnabled`. Workers cannot
+recruit through this contributor. Runs store nullable `parentThreadId`; model
+coordination tools require the current Thread to own that run.
+
+| Tool | Contract |
+| --- | --- |
+| `team.recruit` | New run: `goal, members, tasks, maxConcurrency?` (default 4). Append: `runId, members, tasks`. Returns immediately after starting or accepting work. |
+| `team.wait` | `runId, afterSequence?`; up to 30 seconds, at most eight committed summaries and the next cursor. Timeout can mean work is still running. |
+| `team.inspect` | Same cursor input; immediate status and result page. |
+| `team.read_result` | `runId, entryId, artifactIndex?, byteOffset?, maxBytes?`; bounded message or verified artifact range. |
+| `team.control` | `runId, action, taskIds?`; pause, cancel or explicit retry. |
+| `team.resume` | `runId`; start a paused or explicitly retried run in the background. |
+
+Recruitment appends new immutable member/task definitions through the running
+scheduler, or restarts an eligible idle run. It cannot change goal or concurrency.
+Members inherit the parent's model, provider, reasoning and tool options.
+Chat runs leave `finalTaskId` empty: the parent integrates results in its existing
+Turn. Standalone plans still require a final task covering all tasks.
+
+Attempt Rollouts live in `team-runs/<run-id>/conversations/`; the board remains
+`team-runs/<run-id>.json`. Main Chat lists do not load worker history. The collapsed
+Chat card performs no board reads; expansion loads status and employee selection
+loads the selected attempt. Parent cancellation reaches runs started by that Turn.
+Restart never automatically replays interrupted work.

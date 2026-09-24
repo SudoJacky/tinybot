@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:31b77e7d5b13bf3c487ce500534cf65bfd2ca4f0d1e12b88b1dcb2970e44e352 -->
+<!-- tinybot-module-fingerprint: sha256:784439284708df8cf222fbb22976eeef07dfef7e15c1152d7c40f68f540f9a6d -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -125,3 +125,9 @@ choice menus choose an opening direction without being clipped by the panes.
 Progress cards put state below the title and summary. Completed states mix semantic green with foreground
 ink to remain readable in both light and dark themes.
 Markdown continues to use the existing Chat renderer and its table/code scrolling.
+
+`ChatTeamCard` embeds recruited teams in the Chat timeline. Its collapsed state
+does no Team I/O. Expansion loads the board; employee selection loads that
+attempt through the canonical timeline projection. Only expanded, running work
+is refreshed, and errors expose explicit retry. No employee history enters the
+parent conversation or ordinary session list.

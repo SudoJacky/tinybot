@@ -14,6 +14,47 @@ use tokio_util::sync::CancellationToken;
 pub(super) struct Control {
     pub pause: AtomicBool,
     pub cancel: CancellationToken,
+    pub changed: tokio::sync::Notify,
+    pub recruited: tokio::sync::Notify,
+    pub recruitment: std::sync::Mutex<Vec<RecruitRequest>>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct Recruitment {
+    pub members: Vec<TeamMember>,
+    pub tasks: Vec<TeamTask>,
+}
+
+pub(super) struct RecruitRequest {
+    pub input: Recruitment,
+    pub reply: tokio::sync::oneshot::Sender<Result<TeamRun, String>>,
+}
+
+pub(crate) fn append_recruitment(run: &mut TeamRun, input: Recruitment) -> Result<(), String> {
+    if run.parent_thread_id.is_none() || !run.final_task_id.is_empty() {
+        return Err("Dynamic recruitment requires a Chat Team run".into());
+    }
+    if input.tasks.is_empty() {
+        return Err("Recruitment requires new tasks".into());
+    }
+    let mut next = run.clone();
+    for member in input.members {
+        if next.spec.members.iter().any(|old| old.id == member.id) {
+            return Err(format!("Cannot replace recruited member {}", member.id));
+        }
+        next.spec.members.push(member);
+    }
+    for task in input.tasks {
+        next.tasks.push(TaskRecord {
+            task,
+            status: TaskStatus::Pending,
+            attempts: vec![],
+        });
+    }
+    next.validate_plan(&next.plan())?;
+    *run = next;
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -51,6 +92,15 @@ impl Drop for Registration {
             }
             Err(error) => eprintln!("team_registry_cleanup_failed error={error}"),
         }
+        self.control.changed.notify_waiters();
+        if let Ok(mut queue) = self.control.recruitment.lock() {
+            for request in queue.drain(..) {
+                let _ = request.reply.send(Err(
+                    "Team stopped before accepting recruitment; inspect and retry explicitly"
+                        .into(),
+                ));
+            }
+        }
     }
 }
 
@@ -60,6 +110,17 @@ pub(crate) async fn execute(
     input: TeamRunInput,
     executor: Arc<dyn TaskExecutor>,
 ) -> Result<TeamRun, String> {
+    start(root, input, executor)?
+        .1
+        .await
+        .map_err(|error| format!("Team scheduler stopped unexpectedly: {error}"))?
+}
+
+pub(crate) fn start(
+    root: &Path,
+    input: TeamRunInput,
+    executor: Arc<dyn TaskExecutor>,
+) -> Result<(TeamRun, tokio::task::JoinHandle<Result<TeamRun, String>>), String> {
     let path = store::path(&store::directory(root)?, &input.run_id)?;
     let control = Arc::new(Control::default());
     let mut run = {
@@ -91,18 +152,20 @@ pub(crate) async fn execute(
         run
     };
     let registration = Registration { path, control };
-    tokio::spawn(async move {
+    let initial = run.clone();
+    let handle = tokio::spawn(async move {
         let result = schedule(&registration, &mut run, executor).await;
         drop(registration);
         result.map(|()| run)
-    })
-    .await
-    .map_err(|error| format!("Team scheduler stopped unexpectedly: {error}"))?
+    });
+    Ok((initial, handle))
 }
 
 fn persist(registration: &Registration, run: &mut TeamRun) -> Result<(), String> {
     let _lock = store::lock()?;
-    store::save(&registration.path, run)
+    store::save(&registration.path, run)?;
+    registration.control.changed.notify_waiters();
+    Ok(())
 }
 
 async fn schedule(
@@ -114,6 +177,34 @@ async fn schedule(
     let mut inflight = FuturesUnordered::new();
     let mut storage_error = None;
     loop {
+        let requests = std::mem::take(
+            &mut *control
+                .recruitment
+                .lock()
+                .map_err(|_| "Team recruitment queue poisoned")?,
+        );
+        for request in requests {
+            let result = if control.cancel.is_cancelled() || control.pause.load(Ordering::SeqCst) {
+                Err("Cannot recruit while Team is stopping".into())
+            } else {
+                let mut next = run.clone();
+                match append_recruitment(&mut next, request.input) {
+                    Err(error) => Err(error),
+                    Ok(()) => match persist(registration, &mut next) {
+                        Ok(()) => {
+                            *run = next;
+                            Ok(run.clone())
+                        }
+                        Err(error) => {
+                            storage_error = Some(error.clone());
+                            control.cancel.cancel();
+                            Err(error)
+                        }
+                    },
+                }
+            };
+            let _ = request.reply.send(result);
+        }
         if storage_error.is_none()
             && run.error.is_none()
             && !control.cancel.is_cancelled()
@@ -176,7 +267,11 @@ async fn schedule(
                 });
             }
         }
-        let Some((index, outcome)) = inflight.next().await else {
+        let completion = tokio::select! {
+            completion = inflight.next() => completion,
+            _ = control.recruited.notified() => continue,
+        };
+        let Some((index, outcome)) = completion else {
             break;
         };
         let outcome = match outcome {

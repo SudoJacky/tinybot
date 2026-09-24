@@ -62,6 +62,7 @@ export type TeamTaskRecord = {
   attempts: TeamAttempt[];
 };
 export type TeamRun = {
+  parentThreadId?: string | null;
   schemaVersion: number;
   id: string;
   revision: number;

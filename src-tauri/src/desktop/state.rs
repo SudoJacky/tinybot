@@ -69,6 +69,7 @@ impl NativeRuntimeState {
                     error.message
                 )
             })?;
+        crate::threads::rollout::store::migrate_team_conversations(&data_root)?;
         Ok(WorkspaceThreadStore::new_with_data_root(
             workspace_root,
             data_root,

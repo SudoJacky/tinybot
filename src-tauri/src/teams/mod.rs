@@ -1,4 +1,5 @@
 pub(crate) mod board;
+pub(crate) mod coordinator;
 mod model;
 mod native;
 mod planner;
@@ -61,6 +62,51 @@ pub(crate) fn new_run_id() -> String {
     store::next_id()
 }
 
+pub(crate) fn validate_run_id(id: &str) -> Result<(), String> {
+    model::identifier(id)
+}
+
+pub(crate) fn run_id_from_thread(thread_id: &str) -> Option<String> {
+    let parts: Vec<_> = thread_id.splitn(4, '-').collect();
+    (parts.len() == 4
+        && parts[0] == "team"
+        && parts[1].parse::<u64>().is_ok()
+        && parts[2].parse::<u64>().is_ok())
+    .then(|| parts[..3].join("-"))
+}
+
+/// Resolve a known attempt directly, without scanning Team runs or loading ordinary Threads.
+pub(crate) fn conversations_for_thread(
+    threads: &crate::threads::workspace_store::WorkspaceThreadStore,
+    thread_id: &str,
+) -> Result<crate::threads::workspace_store::WorkspaceThreadStore, String> {
+    if threads.is_team_scope() || !thread_id.starts_with("team-") {
+        return Ok(threads.clone());
+    }
+    let Some(run_id) = run_id_from_thread(thread_id) else {
+        return Ok(threads.clone());
+    };
+    if !threads
+        .data_root()
+        .join("team-runs")
+        .join(format!("{run_id}.json"))
+        .try_exists()
+        .map_err(|e| e.to_string())?
+    {
+        return Ok(threads.clone());
+    }
+    let run = get(threads.data_root(), &run_id)?;
+    if !run
+        .tasks
+        .iter()
+        .flat_map(|task| &task.attempts)
+        .any(|attempt| attempt.thread_id == thread_id)
+    {
+        return Err("Thread is not a saved Team attempt".into());
+    }
+    threads.for_team(&run_id)
+}
+
 #[cfg(test)]
 pub(crate) fn prepare(root: &Path, spec: TeamSpec, plan: TeamPlan) -> Result<TeamRun, String> {
     prepare_with_id(root, spec, plan, new_run_id())
@@ -68,11 +114,25 @@ pub(crate) fn prepare(root: &Path, spec: TeamSpec, plan: TeamPlan) -> Result<Tea
 
 pub(crate) fn prepare_with_id(
     root: &Path,
-    mut spec: TeamSpec,
+    spec: TeamSpec,
     plan: TeamPlan,
     id: String,
 ) -> Result<TeamRun, String> {
-    model::validate_plan(&spec, &plan)?;
+    prepare_owned(root, spec, plan, id, None)
+}
+
+pub(super) fn prepare_owned(
+    root: &Path,
+    mut spec: TeamSpec,
+    plan: TeamPlan,
+    id: String,
+    parent_thread_id: Option<String>,
+) -> Result<TeamRun, String> {
+    if parent_thread_id.is_some() {
+        model::validate_chat_plan(&spec, &plan)?;
+    } else {
+        model::validate_plan(&spec, &plan)?;
+    }
     let workspace =
         crate::workspace_registry::canonical_workspace(Path::new(&spec.workspace_path))?;
     spec.workspace_path = crate::workspace_registry::workspace_id(&workspace);
@@ -82,6 +142,7 @@ pub(crate) fn prepare_with_id(
         return Err("Team run ID already exists".into());
     }
     let mut run = TeamRun {
+        parent_thread_id,
         schema_version: SCHEMA_VERSION,
         id,
         revision: 0,
@@ -135,7 +196,7 @@ pub(crate) fn revise(root: &Path, input: ReviseTeamInput) -> Result<TeamRun, Str
     if active.contains_key(&path) || run.status == RunStatus::Completed {
         return Err("Pause Team execution before revising an unfinished plan".into());
     }
-    model::validate_plan(&run.spec, &input.plan)?;
+    run.validate_plan(&input.plan)?;
     for record in &run.tasks {
         if !record.attempts.is_empty() && !input.plan.tasks.contains(&record.task) {
             return Err(format!(

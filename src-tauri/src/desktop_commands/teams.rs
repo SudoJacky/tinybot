@@ -109,6 +109,7 @@ pub(crate) async fn worker_team_execute(
         &root,
         input,
         Arc::new(NativeTeamExecutor {
+            worker_options: serde_json::json!({}),
             services,
             workspace_root: native_backend_workspace_root(),
             config: native_runtime_config_snapshot(),

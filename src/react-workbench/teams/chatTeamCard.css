@@ -1,0 +1,12 @@
+.chat-team-card { margin-block: 12px; border: 1px solid var(--color-border); border-radius: 12px; overflow: hidden; }
+.chat-team-card > summary { padding: 12px 16px; cursor: pointer; font-weight: 600; }
+.chat-team-card__body { padding: 0 16px 16px; }
+.chat-team-card__employees { display: grid; gap: 6px; margin-block: 12px; }
+.chat-team-card__employees > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; text-align: start; border: 1px solid transparent; border-radius: 8px; color: inherit; background: var(--color-surface-soft); cursor: pointer; }
+.chat-team-card__employees > button[aria-pressed="true"] { border-color: currentColor; }
+.chat-team-card__employees > button > span:not(.team-avatar) { display: grid; flex: 1; min-width: 0; }
+.chat-team-card__employees small { opacity: .75; overflow-wrap: anywhere; }
+.chat-team-card__instructions { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-team-card button:focus-visible, .chat-team-card summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.chat-team-card .team-avatar { display: block; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; background-size: 400% 300%; background-repeat: no-repeat; image-rendering: pixelated; }

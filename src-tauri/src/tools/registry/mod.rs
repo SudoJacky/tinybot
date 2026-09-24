@@ -103,6 +103,7 @@ pub enum ToolExecutionTarget {
     SendThreadMessage,
     CreateAutomation,
     TeamBoard,
+    TeamCoordinator,
     RuntimeControl(ToolRuntimeControl),
 }
 

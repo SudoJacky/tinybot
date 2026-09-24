@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:fed8c40e7297f6225393caaf0b012c03080e4d8ddd73657737a06ad53abcd217 -->
+<!-- tinybot-module-fingerprint: sha256:bb37588f516b4be9a26c8fd567565b04698c2d1a11f543c4accde036b5814b06 -->
 
 Settings usage resources cover purposes, request outcomes, source identities,
 missing-usage explanations and the shared Team Usage tab in English and Chinese.
@@ -154,3 +154,6 @@ notification-read errors share the common English/Chinese resources.
 The common namespace imports `teams/teamTranslations` for Team workflow labels
 and state descriptions in English and Chinese. Backend error details remain
 verbatim so revision conflicts and provider failures can be diagnosed.
+
+The shared composer Team capability description is localized in English and
+Chinese alongside the existing mention descriptions.

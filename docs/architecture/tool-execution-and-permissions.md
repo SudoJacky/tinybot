@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:74302f760699d7d2df946b0a64310505e680a65b9d316fe5ad354de4b98a1f73 -->
+<!-- tinybot-doc-fingerprint: sha256:bf77e6c44110d5651216a14af0d94ae84146a48b2be792693cb44b8da35e6c43 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -301,3 +301,11 @@ diagnostics and UI projection.
 - [Tools and processes API](../api/tools-and-processes.md)
 
 Team board tools use an application-owned TeamBoard target. The bridge authorizes reads/completion against saved Thread identity and the active attempt; model-supplied run/author fields cannot grant access. Completion and artifact reads require workspace-read capability and existing workspace path guards. Completion must be the sole tool call and ends the turn after a validated receipt.
+
+Chat coordination uses a separate `TeamCoordinator` execution target. It requires
+Team mode, a root conversation store and the local-worker profile; calls also
+verify the run's persisted parent Thread. These tools require SessionWrite and
+execute exclusively through the asynchronous bridge, never generic Worker RPC.
+Worker model/tool options are inherited, while coordinator tools are excluded
+from worker scopes. Result-file reads retain the existing workspace capability
+and content-identity checks.

@@ -1,4 +1,6 @@
 mod compression;
+mod team_migration;
+pub(crate) use team_migration::migrate_team_conversations;
 mod projection;
 mod protocol_projection;
 mod reader;
@@ -188,19 +190,29 @@ impl WorkerThreadLogRpc {
         Self::new_with_data_root(workspace_root, data_root, policy)
     }
 
+    #[cfg(test)]
     pub(crate) fn new_with_data_root(
         workspace_root: PathBuf,
         data_root: PathBuf,
         policy: CapabilityPolicy,
     ) -> Self {
-        let recorder = ThreadRecorder::from_data_root(data_root.clone());
-        compression::spawn_rollout_compression_worker(data_root.clone(), recorder.clone());
+        Self::new_with_storage_root(workspace_root, data_root.clone(), data_root, policy)
+    }
+
+    pub(crate) fn new_with_storage_root(
+        workspace_root: PathBuf,
+        data_root: PathBuf,
+        storage_root: PathBuf,
+        policy: CapabilityPolicy,
+    ) -> Self {
+        let recorder = ThreadRecorder::from_data_root(storage_root.clone());
+        compression::spawn_rollout_compression_worker(storage_root.clone(), recorder.clone());
         Self {
             recorder,
             workspace_root,
-            thread_root: data_root.join("threads"),
+            thread_root: storage_root.join("threads"),
             memory_store: crate::memory::MemoryStore::new(&data_root),
-            archive_root: data_root.join("archived_threads"),
+            archive_root: storage_root.join("archived_threads"),
             state: ThreadStateIndex::new(),
             policy,
             reconstruction_cache: Arc::new(Mutex::new(HashMap::new())),

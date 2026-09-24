@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:8d7a4903f9c5e3aded991c92a6d7f0e612a9e03edc176f08721cc5e37460ae3e -->
+<!-- tinybot-module-fingerprint: sha256:1118fe6ec4ad89ab6698d6a90d700663a9f99f1271b3116ce3ec8e78230c6bad -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -542,5 +542,8 @@ keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
 
 The optional `onOpenTeams` sidebar action opens the independent Teams route in
-both expanded and collapsed layouts. Team preparation and scheduling do not
-share the Chat composer or session state.
+both expanded and collapsed layouts. Workspace Chat also offers `@team` in its
+composer. Recruitment tool results render a lazy `ChatTeamCard` outside grouped
+tool rows. The card loads the board on expansion and employee history on selection;
+worker conversation content does not enter the parent session. Native Teams owns
+scheduling and durable run state for both entry points.

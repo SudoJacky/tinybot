@@ -126,6 +126,7 @@ export interface ClaudeStyleAiInputProps {
   selectedSessionMentionIds?: readonly string[];
   selectedSkillIds?: readonly string[];
   sessionMentionOptions?: readonly ComposerSessionMentionOption[];
+  teamAvailable?: boolean;
   skillOptions?: readonly ComposerSkillOption[];
   tools?: ComposerToolOption[];
   responding?: boolean;
@@ -212,6 +213,7 @@ export function ClaudeStyleAiInput({
   selectedSessionMentionIds = EMPTY_SELECTED_IDS,
   selectedSkillIds = EMPTY_SELECTED_IDS,
   sessionMentionOptions = EMPTY_SESSION_MENTIONS,
+  teamAvailable = false,
   skillOptions = EMPTY_SKILLS,
   slashCommands = EMPTY_SLASH_COMMANDS,
   stopUnavailableReason,
@@ -367,13 +369,17 @@ export function ClaudeStyleAiInput({
     [composerCaretOffset, composerTriggerText],
   );
   const filteredSessionMentions = useMemo(() => {
-    if (!mentionMatch || selectedSessionMentions.length >= MAX_SESSION_MENTIONS) return [];
+    if (!mentionMatch) return [];
     const query = mentionMatch.query.toLocaleLowerCase();
-    return sessionMentionOptions
+    const options = selectedSessionMentions.length >= MAX_SESSION_MENTIONS ? [] : [...sessionMentionOptions];
+    if (teamAvailable && !/^@team(?:\s|$)/.test(currentMessage)) {
+      options.unshift({ id: "__team_mode__", label: "team", detail: t("composer.teamDescription") });
+    }
+    return options
       .filter((option) => !selectedSessionMentionIdSet.has(option.id))
       .filter((option) => `${option.label} ${option.detail}`.toLocaleLowerCase().includes(query))
       .slice(0, 8);
-  }, [mentionMatch, selectedSessionMentionIdSet, selectedSessionMentions.length, sessionMentionOptions]);
+  }, [mentionMatch, selectedSessionMentionIdSet, selectedSessionMentions.length, sessionMentionOptions, teamAvailable, currentMessage, t]);
   const sessionMentionMenuOpen = !disabled
     && !sending
     && !sessionMentionMenuDismissed
@@ -731,6 +737,15 @@ export function ClaudeStyleAiInput({
     const match = sessionMentionMatch(composerTriggerText, composerCaretOffset);
     if (!option || !match) return;
     setSessionMentionMenuDismissed(true);
+    if (option.id === "__team_mode__") {
+      if (richTextEnabled) {
+        markdownEditorRef.current?.replaceTrigger(match.start, match.end, undefined, "@team ");
+      } else {
+        updateMessage("@team " + currentMessage.slice(0, match.start) + currentMessage.slice(match.end));
+        window.requestAnimationFrame(() => textareaRef.current?.focus());
+      }
+      return;
+    }
     if (richTextEnabled) {
       markdownEditorRef.current?.replaceTrigger(match.start, match.end);
       onAddSessionMention?.(option.id);

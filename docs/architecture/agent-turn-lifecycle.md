@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d0620580a1a2da667848c0eb08db564c3e3b5e6255d3753800f3de8c20ce0ffa -->
+<!-- tinybot-doc-fingerprint: sha256:c3a4972ed1f6f7c53d73f4b9dc9cc5e2bb2fbced06d553c94078111fb958ee01 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -318,3 +318,14 @@ request. The summary event includes a typed assistant response item for Response
 Rollout persistence and replay as well as the ordinary Chat Completions projection.
 The outer Team scheduler persists publication before releasing dependent tasks.
 Invalid submissions remain correctable tool errors.
+
+## Chat Team coordination
+
+An explicit `@team` in direct user input persists Team mode on an ordinary
+workspace Thread. Preparation adds the coordinator instructions and tools;
+Team workers do not inherit coordinator authority. Recruitment starts the
+existing native Team scheduler in the background. The parent consumes committed
+summary pages through `team.wait` and continues its same Turn, without spawning
+competing parent Turns or importing worker logs. Cancellation propagates to
+runs started by that Turn. Worker services rebind both storage and trace sink
+to the run's isolated conversation scope before execution.

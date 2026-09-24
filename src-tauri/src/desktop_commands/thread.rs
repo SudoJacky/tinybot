@@ -229,6 +229,10 @@ pub(crate) fn worker_thread_request_with_options(
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_store = match body.get("threadId").and_then(serde_json::Value::as_str) {
+        Some(id) => crate::teams::conversations_for_thread(&thread_store, id)?,
+        None => thread_store,
+    };
     let requested_turn_id = body
         .get("turnId")
         .or_else(|| body.get("turn_id"))

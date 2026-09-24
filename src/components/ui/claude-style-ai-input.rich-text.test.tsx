@@ -23,6 +23,17 @@ function Draft(props: ClaudeStyleAiInputProps) {
 }
 
 describe("rich text composer", () => {
+  it("preserves the team command when selecting it from the mention menu", async () => {
+    const send = vi.fn();
+    render(<Draft teamAvailable onSendMessage={send} />);
+    const editor = await screen.findByRole("textbox", { name: "Message" });
+    paste(editor, "@tea");
+    fireEvent.click(await screen.findByRole("option", { name: /team:/ }));
+    paste(editor, "Research this topic");
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send.mock.calls[0][0]).toBe("@team Research this topic");
+  });
   it("joins successive pastes at the caret and preserves literal prompt tags and image references", async () => {
     const send = vi.fn();
     render(<Draft onSendMessage={send} />);

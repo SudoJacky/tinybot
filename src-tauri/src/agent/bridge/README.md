@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:4ea7c8a8baf3bd9c7ded55a2c3fbc0c915d4b35bf3d17defbf4451890da5631c -->
+<!-- tinybot-module-fingerprint: sha256:b616718b5273824ca33bfc2d8eafb9bea941d31d2a249e02babc9d22d9408446 -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -193,3 +193,9 @@ See [`agent::runtime`](../runtime/README.md) for the execution core and
 state.
 
 Active Team attempts receive a run-scoped board contributor. Dispatch rechecks saved Thread and active attempt identity, validates completion/artifact references, and returns compact receipts. Historical or ordinary Threads have no live board authority.
+
+Chat Team mode is persisted from explicit `@team` user input. Preparation adds
+coordinator instructions/tools only to the root local-worker conversation.
+The dispatcher routes TeamCoordinator calls asynchronously; waiting continues
+the same parent Turn with bounded committed result summaries. Explicit saved
+Team attempt IDs select the isolated run store before ordinary execution.

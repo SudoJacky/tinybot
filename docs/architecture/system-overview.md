@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:1f8ba0eda8b11cadf18891bed562a2e6e8c594b94192d08cdbda7bb1b23e63a2 -->
+<!-- tinybot-doc-fingerprint: sha256:04108b7bedaf28dfe9d2d1dede255fb2dc564f30794c480d38d283c8400d9213 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -350,3 +350,11 @@ runs even on the Team home or while the route is hidden; durable state remains
 owned by the native Team store.
 
 Team collaboration uses a run-scoped shared message board: completion publishes a bounded handoff, downstream input carries indexed summaries, and other messages/artifact ranges are read on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.
+
+Chat also exposes `@team`: the main Agent dynamically recruits employees through
+native coordinator tools, appends DAG tasks, waits for committed summaries and
+integrates results in its existing Turn. The independent Teams route and Chat
+share the same scheduler and durable board. Attempt conversations have separate
+per-run storage/index/cache scopes; Chat cards load board and employee history
+only when expanded/selected. This adds neither an Agent Loop nor a second result
+authority. See [Team API](../api/teams.md#chat-coordinator-tools).

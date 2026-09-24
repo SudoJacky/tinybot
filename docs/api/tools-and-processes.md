@@ -23,7 +23,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:2a95aa636e338424f1d71e87b83056b37530cc31e693a1507e015e57c4f52580 -->
+<!-- tinybot-doc-fingerprint: sha256:8a16322c6c8b7126ebe5dc54665b6e16cf7fa131b2cbfafa5f7e4f110cf02162 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -384,3 +384,8 @@ live page. Values must be finite, valid surface dimensions within native region
 limits. Null or annotation stop restores the complete window region.
 
 Team board tools are contributed only during an active Team attempt. Generic Worker RPC rejects their application-owned execution target. See [Teams](teams.md) for message and artifact contracts.
+
+Chat `@team` coordinator tools use the application-owned `TeamCoordinator`
+target and are also rejected by generic Worker RPC. They require local-worker
+capabilities and saved parent ownership. See [Team API](teams.md#chat-coordinator-tools)
+for recruitment, result cursors, waiting and explicit control.

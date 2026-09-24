@@ -81,6 +81,18 @@ pub(super) async fn prepare_tools(
     }
     preparation.next("tool_selection");
     let mut selected_tools = context.settings.selected_tools.clone();
+    if crate::teams::coordinator::enabled(thread_store, context) {
+        let coordinator = crate::teams::coordinator::CoordinatorTools;
+        if let Some(selected) = selected_tools.as_mut() {
+            selected.extend(
+                coordinator
+                    .contribute()
+                    .into_iter()
+                    .map(|entry| entry.tool_id),
+            );
+        }
+        contributors.push(Arc::new(coordinator));
+    }
     if crate::teams::tools::available(thread_store, context)? {
         let board = crate::teams::tools::BoardTools;
         if let Some(selected) = selected_tools.as_mut() {
