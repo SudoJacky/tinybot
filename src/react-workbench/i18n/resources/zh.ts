@@ -861,6 +861,7 @@ export const zh = {
       clicked: "已点击 {{page}}", enteredText: "已在 {{page}} 输入文本", used: "已操作 {{page}}", line: "第 {{start}} 行", lines: "第 {{start}}–{{end}} 行",
     },
     composer: {
+      teamDescription: "招聘团队协作完成任务",
       sessionMention: {
         menu: "工作区会话",
         heading: "当前工作区中的会话",

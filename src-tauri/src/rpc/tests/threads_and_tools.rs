@@ -1446,6 +1446,23 @@ fn dispatches_tool_registry_search_with_filters() {
         .iter()
         .any(|tool| tool["method"] == "exec_command" && tool["available"] == true));
 
+    let model_subagents = router.dispatch(&WorkerRequest::new(
+        "req-tool-registry-search-model-subagents",
+        "trace-tool-registry-search",
+        "tool_registry.search",
+        json!({
+            "namespace": "subagent",
+            "availableOnly": true,
+            "exposure": "model"
+        }),
+    ));
+    assert_eq!(model_subagents.error, None);
+    assert_eq!(model_subagents.result.as_ref().unwrap()["total"], 0);
+    assert!(model_subagents.result.as_ref().unwrap()["tools"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
     let subagents = router.dispatch(&WorkerRequest::new(
         "req-tool-registry-search-subagents",
         "trace-tool-registry-search",
@@ -1453,7 +1470,7 @@ fn dispatches_tool_registry_search_with_filters() {
         json!({
             "namespace": "subagent",
             "availableOnly": true,
-            "exposure": "model"
+            "exposure": "direct"
         }),
     ));
     assert_eq!(subagents.error, None);
@@ -1465,6 +1482,9 @@ fn dispatches_tool_registry_search_with_filters() {
         .iter()
         .all(|tool| tool["namespace"] == "subagent"));
     assert!(subagent_tools.iter().all(|tool| tool["available"] == true));
+    assert!(subagent_tools
+        .iter()
+        .all(|tool| tool["exposure"] == "direct"));
 
     let unavailable = router.dispatch(&WorkerRequest::new(
         "req-tool-registry-search-unavailable",

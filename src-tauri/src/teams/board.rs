@@ -6,8 +6,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
-pub const SUMMARY_BYTES: usize = 1024;
-pub const MESSAGE_BYTES: usize = 4096;
 pub const READ_BYTES: usize = 8192;
 const ARTIFACT_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -38,18 +36,11 @@ pub(crate) struct Completion {
 
 impl BoardMessage {
     pub(crate) fn validate(&self) -> Result<(), String> {
-        let mut size_probe = self.clone();
-        size_probe.sequence = u64::MAX; // Reserve host-assigned sequence space before accepting a message.
-        if self.summary.trim().is_empty()
-            || self.summary.len() > SUMMARY_BYTES
-            || self.unresolved.len() > SUMMARY_BYTES
-            || self.artifacts.len() > 8
-            || serde_json::to_vec(&size_probe)
-                .map_err(|e| e.to_string())?
-                .len()
-                > MESSAGE_BYTES
-        {
-            return Err(format!("Invalid Team message: summary must be nonblank and <= {SUMMARY_BYTES} UTF-8 bytes, unresolved <= {SUMMARY_BYTES} bytes, at most 8 artifacts, total <= {MESSAGE_BYTES} bytes. Store detailed evidence in files."));
+        if self.summary.trim().is_empty() {
+            return Err("Team summary must be nonblank".into());
+        }
+        if self.artifacts.len() > 8 {
+            return Err("At most 8 Team artifacts are allowed".into());
         }
         let mut paths = std::collections::HashSet::new();
         for artifact in &self.artifacts {
@@ -72,11 +63,6 @@ pub(crate) fn complete(
     policy: CapabilityPolicy,
     args: Value,
 ) -> Result<BoardMessage, String> {
-    if args.to_string().len() > MESSAGE_BYTES {
-        return Err(format!(
-            "Team completion exceeds {MESSAGE_BYTES} bytes; keep only the handoff and file paths"
-        ));
-    }
     let input: Completion =
         serde_json::from_value(args).map_err(|e| format!("Invalid Team completion: {e}"))?;
     let mut message = BoardMessage {
@@ -124,8 +110,17 @@ fn index(record: &TaskRecord, attempt: &TeamAttempt) -> Value {
         "sequence": attempt.message.as_ref().map(|m| m.sequence).unwrap_or(0), "legacy": attempt.message.is_none()})
 }
 
+fn handoff(record: &TaskRecord, attempt: &TeamAttempt) -> Value {
+    let mut value = index(record, attempt);
+    if let Some(message) = &attempt.message {
+        value["summary"] = json!(message.summary);
+        value["unresolved"] = json!(message.unresolved);
+        value["artifacts"] = json!(message.artifacts);
+    }
+    value
+}
+
 pub(crate) fn dependencies(run: &TeamRun, task: &TeamTask) -> Vec<Value> {
-    let mut summary_bytes = 0;
     task.dependencies
         .iter()
         .map(|id| {
@@ -135,15 +130,7 @@ pub(crate) fn dependencies(run: &TeamRun, task: &TeamTask) -> Vec<Value> {
                 .find(|r| &r.task.id == id)
                 .expect("validated dependency");
             let attempt = record.attempts.last().expect("successful dependency");
-            let mut value = index(record, attempt);
-            if let Some(message) = &attempt.message {
-                // Keep the total automatic summary budget bounded even at maximum fan-in.
-                if summary_bytes + message.summary.len() <= READ_BYTES {
-                    value["summary"] = json!(message.summary);
-                    summary_bytes += message.summary.len();
-                }
-            }
-            value
+            handoff(record, attempt)
         })
         .collect()
 }
@@ -185,13 +172,7 @@ pub(crate) fn list(
         .iter()
         .skip(offset)
         .take(limit)
-        .map(|(r, a)| {
-            let mut value = index(r, a);
-            if let Some(m) = &a.message {
-                value["summary"] = json!(m.summary);
-            }
-            value
-        })
+        .map(|(r, a)| handoff(r, a))
         .collect();
     let next = offset + page.len();
     Ok(

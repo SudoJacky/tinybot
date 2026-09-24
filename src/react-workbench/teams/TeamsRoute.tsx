@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
   ChevronLeft,
-  ChevronDown,
   PanelLeftOpen,
   Clock,
   Folder,
@@ -19,6 +18,7 @@ import {
 import type { TeamMember } from "../../app-core/native/desktopNativeTeams";
 import type { AppServices, WorkspaceRegistryEntry } from "../services";
 import type { AppRoute } from "../shell/appRoutes";
+import { TeamMemberPicker } from "./TeamMemberPicker";
 import { TeamDetail } from "./TeamDetail";
 import { useTeamRuns } from "./useTeamRuns";
 import { TeamRunningIndicator } from "./TeamTaskStatus";
@@ -29,7 +29,7 @@ export default function TeamsRoute({
   onOpenThread,
   onNavigate,
 }: {
-  services: Pick<AppServices, "teamStore" | "workspaceRegistryStore" | "workspaceStore">;
+  services: Pick<AppServices, "teamStore" | "workspaceRegistryStore" | "workspaceStore"> & Partial<Pick<AppServices, "chatStore">>;
   onOpenThread: (id: string) => Promise<void>;
   onNavigate: (route: AppRoute) => void;
 }) {
@@ -37,7 +37,7 @@ export default function TeamsRoute({
   const state = useTeamRuns(services.teamStore);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [membersOpen, setMembersOpen] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState(["research", "analysis", "editor"]);
   const [workspaceEpoch, setWorkspaceEpoch] = useState(0);
   const [workspaces, setWorkspaces] = useState<WorkspaceRegistryEntry[]>([]);
   const [workspace, setWorkspace] = useState("");
@@ -85,6 +85,7 @@ export default function TeamsRoute({
   function home() {
     state.setSelectedId(null);
   }
+  const selectedMembers = members.filter(member => selectedMemberIds.includes(member.id));
   const visibleRuns = state.runs.filter((run) => !workspace || run.spec.workspacePath === workspace);
   return (
     <div className="team-layout">
@@ -208,6 +209,7 @@ export default function TeamsRoute({
           {state.run ? (
             <TeamDetail
               workspaceStore={services.workspaceStore}
+              activitySource={services.chatStore}
               loadUsageDetails={services.teamStore.loadUsageDetails}
               key={state.run.id}
               run={state.run}
@@ -244,8 +246,8 @@ export default function TeamsRoute({
                         spec: {
                           goal: goal.trim(),
                           workspacePath: workspace,
-                          members,
-                          maxConcurrency: members.length,
+                          members: selectedMembers,
+                          maxConcurrency: selectedMembers.length,
                         },
                       }),
                     true,
@@ -286,68 +288,14 @@ export default function TeamsRoute({
                     ]}
                   />
                   <AddWorkspaceButton store={services.workspaceRegistryStore} disabled={state.busy} onAdded={(entry) => { setWorkspaces((current) => [...current.filter((item) => item.path !== entry.path), entry]); setWorkspace(entry.path); }} />
-                  <div className="team-roster-control">
-                    <span className="react-settings-choice__label">{t("teams.members")}</span>
-                    <button
-                      type="button"
-                      aria-expanded={membersOpen}
-                      aria-controls="team-member-editor"
-                      disabled={state.busy}
-                      onClick={() => setMembersOpen(!membersOpen)}
-                    >
-                      <Users size={18} aria-hidden="true" />
-                      <span>{t("teams.configureMembers")} · {members.length}</span>
-                      <ChevronDown size={16} aria-hidden="true" />
-                    </button>
-                  </div>
+                  <TeamMemberPicker members={members} selectedIds={selectedMemberIds} disabled={state.busy}
+                    onSelectionChange={setSelectedMemberIds} onChange={setMembers} />
                 </div>
-                {membersOpen && <div id="team-member-editor" className="team-member-editor">
-                      <p>{t("teams.defaultModel")}</p>
-                      {members.map((member, index) => (
-                        <fieldset key={member.id} disabled={state.busy}>
-                          <legend>{index + 1}</legend>
-                          <label className="react-settings-choice__label">
-                            {t("teams.memberName")}
-                            <input
-                              className="react-form-input"
-                              required
-                              value={member.displayName}
-                              onChange={(e) =>
-                                setMembers((previous) =>
-                                  previous.map((m) =>
-                                    m.id === member.id
-                                      ? { ...m, displayName: e.target.value }
-                                      : m,
-                                  ),
-                                )
-                              }
-                            />
-                          </label>
-                          <label className="react-settings-choice__label">
-                            {t("teams.instructions")}
-                            <textarea
-                              className="react-form-input"
-                              required
-                              value={member.instructions}
-                              onChange={(e) =>
-                                setMembers((previous) =>
-                                  previous.map((m) =>
-                                    m.id === member.id
-                                      ? { ...m, instructions: e.target.value }
-                                      : m,
-                                  ),
-                                )
-                              }
-                            />
-                          </label>
-                        </fieldset>
-                      ))}
-                </div>}
                 <div className="team-composer-submit">
                   <p role="status">{state.busy ? t("teams.generating") : ""}</p>
                   <button
                     className="react-form-primary"
-                    disabled={state.busy || !goal.trim() || !workspace || members.some((m) => !m.displayName.trim() || !m.instructions.trim())}
+                    disabled={state.busy || !goal.trim() || !workspace || !selectedMembers.length || selectedMembers.some((m) => !m.displayName.trim() || !m.instructions.trim())}
                   >
                     {state.busy ? <TeamRunningIndicator /> : <ArrowRight size={18} />}
                     {state.busy ? t("teams.generating") : t("teams.generate")}

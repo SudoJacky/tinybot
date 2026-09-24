@@ -1,0 +1,36 @@
+.chat-team-card { margin-block: 12px; border: 1px solid var(--color-hairline); border-radius: 12px; overflow: hidden; }
+.chat-team-card > summary { padding: 12px 16px; cursor: pointer; font-weight: 600; }
+.chat-team-card__body { padding: 0 16px 16px; }
+.chat-team-card__employees { display: grid; gap: 6px; margin-block: 12px; }
+.chat-team-card__employees > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; text-align: start; border: 1px solid transparent; border-radius: 8px; color: inherit; background: var(--color-surface-soft); cursor: pointer; }
+.chat-team-card__employees > button[aria-pressed="true"] { border-color: currentColor; }
+.chat-team-card__employees > button > span:not(.team-avatar, .chat-team-card__state) { display: grid; flex: 1; min-width: 0; }
+.chat-team-card__employees small { opacity: .75; overflow-wrap: anywhere; }
+.chat-team-card__instructions { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-team-card button:focus-visible, .chat-team-card summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+.chat-team-card .team-avatar { display: block; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; background-size: 400% 300%; background-repeat: no-repeat; image-rendering: pixelated; }
+
+.chat-team-card__employees > button > .chat-team-card__state { display: flex; flex-direction: column; align-items: flex-end; flex: 0 0 auto; gap: 5px; }
+.chat-team-card__employees .team-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.chat-team-card__employees button[aria-pressed="true"] { outline: 1px solid var(--color-primary); outline-offset: -1px; }
+.react-chat-workspace[data-team-open="true"] { grid-template-columns: minmax(300px, .7fr) minmax(360px, 1fr); }
+.react-chat-workspace[data-team-open="true"] > .react-chat-surface { grid-area: 1 / 1; }
+.react-chat-workspace[data-team-open="true"] > .react-sidecar { display: none; }
+.chat-team-inspector.team-layout { grid-area: 1 / 2; display: flex; flex-direction: column; min-inline-size: 0; min-block-size: 0; block-size: 100%; background: var(--color-canvas); border-inline-start: 1px solid var(--color-hairline); }
+.chat-team-inspector__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
+.chat-team-inspector__header p { margin-top: 5px; font-size: 12px; }
+.chat-team-inspector__header > button { display: grid; place-items: center; min-inline-size: 32px; min-block-size: 32px; }
+.chat-team-inspector__scroll { flex: 1; min-block-size: 0; overflow: auto; scrollbar-gutter: stable; padding: 24px clamp(16px, 3vw, 40px); display: flex; flex-direction: column; gap: 20px; overflow-wrap: anywhere; }
+.chat-team-inspector .team-assignment p { white-space: pre-wrap; }
+.chat-team-inspector .team-member-dock { flex-shrink: 0; padding: 12px 16px; border-top: 1px solid var(--color-hairline); background: var(--color-surface-soft); }
+.chat-team-inspector__assignments { display: flex; flex-wrap: wrap; gap: 8px; }
+.chat-team-inspector__assignments button[aria-pressed="true"] { border-color: var(--color-primary); }
+@media (max-width: 1000px) {
+  .react-chat-workspace[data-team-open="true"] { grid-template-columns: minmax(0, 1fr); }
+  .react-chat-workspace[data-team-open="true"] > .react-chat-surface { display: none; }
+  .chat-team-inspector.team-layout { grid-area: 1 / 1; border-inline-start: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-chat-workspace[data-team-open="true"] { transition: none; }
+}

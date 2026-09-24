@@ -2,7 +2,6 @@ use super::AgentApplicationServices;
 use crate::agent::bridge::{
     persist_native_agent_checkpoint_if_present, persist_native_agent_turn_terminal_if_present,
 };
-use crate::agent::instruction_sources::InstructionLoader;
 use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
     run_native_agent_turn_with_workspace_and_instructions_async, AgentCheckpoint,
@@ -276,7 +275,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
     let mut input = AgentTurnInput::from_wire(&continuation_spec, &config_snapshot)
         .map_err(AgentError::invalid_input)?;
-    input.messages = checkpoint.messages.clone();
+    let instructions = checkpoint.restore_execution(&mut input)?;
     let trace = input.trace_context.clone();
     let mut preparation = crate::agent::preparation_log::PreparationLog::new(
         &trace,
@@ -284,8 +283,6 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         "application_continuation",
         "instruction_compose",
     );
-    let instructions = InstructionLoader::new(thread_store.data_root().join("plugins"))
-        .compose(&workspace_root, &continuation_spec)?;
     preparation.next("workspace_mcp_config");
     let graph_base_config_snapshot = config_snapshot.clone();
     let mut config_snapshot = config_snapshot;

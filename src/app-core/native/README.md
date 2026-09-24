@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:cd8dc4cc1aeb3752fa84c9671de9ba71fbf87f6ee5bc75c2db209a58abd84fa4 -->
+<!-- tinybot-module-fingerprint: sha256:e0b3cc32f787799de11b84ce32bf5a6253cbf1dcc2df4c895d8d9d5f44ab9b01 -->
 
 `desktopNativeTokenUsage` exposes the v3 snapshot and paginated usage details.
 Settings and Teams reuse this API; renderer adapters never accumulate counters.
@@ -182,3 +182,6 @@ only when scheduling stops; the renderer polls and sends controls independently.
 Errors and revision conflicts are propagated unchanged.
 
 desktopNativeTeams carries optional bounded attempt messages and content-hash artifact references. readTeamArtifact requests a verified UTF-8 byte page by run, entry, and artifact index; the renderer cannot supply another path or workspace.
+
+TeamRun also carries nullable `parentThreadId` for Chat-owned runs. This ownership
+metadata does not move coordination or storage authority into the renderer.

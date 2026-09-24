@@ -1,6 +1,21 @@
 use super::{finish_native_agent_turn, native_agent_ui_form_continuation_spec};
 
 #[test]
+fn form_continuation_rejects_missing_execution_snapshot() {
+    let checkpoint = crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({
+        "turnId":"turn-1", "sessionId":"thread-1", "phase":"awaiting_form"
+    }))
+    .unwrap();
+    let mut input = crate::agent::runtime::AgentTurnInput::from_wire(
+        &serde_json::json!({"turnId":"turn-1","sessionId":"thread-1"}),
+        &serde_json::json!({}),
+    )
+    .unwrap();
+    let error = checkpoint.restore_execution(&mut input).unwrap_err();
+    assert!(error.to_string().contains("no execution settings"));
+}
+
+#[test]
 fn form_continuation_preserves_thread_command_correlation() {
     let checkpoint = crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({
         "turnId":"turn-1", "sessionId":"thread-1", "threadId":"thread-1", "phase":"tool_running",

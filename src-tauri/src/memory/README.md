@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:742cfa40495afbcaa9c4a62925c63b67853cab183aee7afbf854326f595e5222 -->
+<!-- tinybot-module-fingerprint: sha256:2dc446957ceb2a5fa283e2d276453a1e83bbd18af559b9aeccb847d11ed6b594 -->
 
 Background extraction restores token-usage attribution from its persisted
 Thread/Turn and ancestry before calling the model. Consolidation starts a fresh

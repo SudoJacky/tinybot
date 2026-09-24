@@ -4,6 +4,7 @@ use crate::project_groups::ProjectGroupStore;
 use crate::protocol::capability::CapabilityPolicy;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::workspace_registry::WorkspaceRegistry;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -23,6 +24,9 @@ struct WorkspaceThreadStoreInner {
     project_groups: ProjectGroupStore,
     workspace_registry: WorkspaceRegistry,
     lifecycle: Mutex<WorkspaceThreadStoreLifecycle>,
+    policy: CapabilityPolicy,
+    team_scope: Option<String>,
+    team_stores: Mutex<HashMap<String, WorkspaceThreadStore>>,
 }
 
 #[derive(Debug)]
@@ -48,6 +52,16 @@ impl WorkspaceThreadStore {
         data_root: PathBuf,
         policy: CapabilityPolicy,
     ) -> Self {
+        Self::with_storage_root(workspace_root, data_root.clone(), data_root, policy, None)
+    }
+
+    fn with_storage_root(
+        workspace_root: PathBuf,
+        data_root: PathBuf,
+        storage_root: PathBuf,
+        policy: CapabilityPolicy,
+        team_scope: Option<String>,
+    ) -> Self {
         let workspace_registry = WorkspaceRegistry::new(&data_root);
         Self {
             inner: Arc::new(WorkspaceThreadStoreInner {
@@ -57,11 +71,15 @@ impl WorkspaceThreadStore {
                 ),
                 workspace_registry,
                 thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
-                thread_log: WorkerThreadLogRpc::new_with_data_root(
+                thread_log: WorkerThreadLogRpc::new_with_storage_root(
                     workspace_root.clone(),
                     data_root.clone(),
-                    policy,
+                    storage_root,
+                    policy.clone(),
                 ),
+                policy,
+                team_scope,
+                team_stores: Mutex::new(HashMap::new()),
                 workspace_root,
                 data_root,
                 lifecycle: Mutex::new(WorkspaceThreadStoreLifecycle {
@@ -78,6 +96,46 @@ impl WorkspaceThreadStore {
 
     pub(crate) fn data_root(&self) -> &Path {
         &self.inner.data_root
+    }
+
+    /// Separate persistence, indexes and lifecycle; application configuration stays shared.
+    pub(crate) fn for_team(&self, run_id: &str) -> Result<Self, String> {
+        crate::teams::validate_run_id(run_id)?;
+        if self.inner.team_scope.as_deref() == Some(run_id) {
+            return Ok(self.clone());
+        }
+        if self.inner.team_scope.is_some() {
+            return Err("Cannot switch Team conversation scope from a worker store".into());
+        }
+        let lifecycle = self.lock_lifecycle().map_err(|e| e.message)?;
+        if !lifecycle.accepting {
+            return Err("Thread store is shut down".into());
+        }
+        let mut stores = self
+            .inner
+            .team_stores
+            .lock()
+            .map_err(|_| "Team conversation registry poisoned")?;
+        Ok(stores
+            .entry(run_id.into())
+            .or_insert_with(|| {
+                Self::with_storage_root(
+                    self.inner.workspace_root.clone(),
+                    self.inner.data_root.clone(),
+                    self.inner
+                        .data_root
+                        .join("team-runs")
+                        .join(run_id)
+                        .join("conversations"),
+                    self.inner.policy.clone(),
+                    Some(run_id.into()),
+                )
+            })
+            .clone())
+    }
+
+    pub(crate) fn is_team_scope(&self) -> bool {
+        self.inner.team_scope.is_some()
     }
 
     pub(crate) fn project_groups(&self) -> ProjectGroupStore {
@@ -116,6 +174,20 @@ impl WorkspaceThreadStore {
 
     pub(crate) fn flush(&self) -> Result<(), WorkerProtocolError> {
         let _lifecycle = self.lock_lifecycle()?;
+        for store in self
+            .inner
+            .team_stores
+            .lock()
+            .map_err(|_| {
+                thread_store_lifecycle_error(
+                    "Team conversation registry poisoned",
+                    self.workspace_root(),
+                )
+            })?
+            .values()
+        {
+            store.flush()?;
+        }
         self.inner.thread_log.flush_all()
     }
 
@@ -155,6 +227,20 @@ impl WorkspaceThreadStore {
             return self.inner.thread_log.shutdown_all();
         }
         lifecycle.accepting = false;
+        for store in self
+            .inner
+            .team_stores
+            .lock()
+            .map_err(|_| {
+                thread_store_lifecycle_error(
+                    "Team conversation registry poisoned",
+                    self.workspace_root(),
+                )
+            })?
+            .values()
+        {
+            store.shutdown()?;
+        }
         self.inner.thread_log.shutdown_all()
     }
 

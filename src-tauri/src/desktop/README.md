@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:009cbe8c945345a7a007ac9c08a704438ae650e07641310cc7b8d0b057a4f4d0 -->
+<!-- tinybot-module-fingerprint: sha256:0ba0fab049cbbe95f99dd5291240ff3ff2440c04108bab6f3a19d376a5912e8a -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -129,3 +129,7 @@ Bootstrap registers saved automation commands only in the main-window command
 surface. Execution uses the same application-owned Agent services as Chat.
 
 The invoke handler list in `bootstrap.rs` must match `app_commands.rs` and the main-window command permission list in both names and order. `desktopNativeCommandPermissions.test.ts` checks this registration contract.
+
+Before opening recorders, startup runs the one-time Team conversation migration.
+It relocates legacy employee/descendant logs to per-run conversation scopes and
+fails explicitly on conflicts; a durable marker skips subsequent scans.

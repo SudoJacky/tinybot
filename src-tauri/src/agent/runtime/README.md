@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:fa926e0be0d4fea88183df7fbdf0aaef40c5cd98a8519ce89382100759f19bcc -->
+<!-- tinybot-module-fingerprint: sha256:0d2d0568eb92a10d1e296cdb88c1458aabff8f716a3dce1525bf87f1fc8db886 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -59,6 +59,11 @@ causes. String conversion is reserved for legacy response boundaries and diagnos
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
+
+A successful `team.complete_task` ends the Turn locally. Its completion event
+includes the summary as a typed assistant response item so both Chat Completions
+and Responses Threads can persist and replay the final answer without another
+provider call.
 
 Provider streaming and tool dispatch require explicit asynchronous implementations
 in both production and tests. The production traits have no synchronous test
@@ -460,9 +465,9 @@ finish during cleanup are recorded before the Turn becomes cancelled.
 
 The foundational model-visible tool set contains available instances of
 `exec_command`, `write_stdin`, `apply_patch`, `request_user_input`,
-`update_plan`, `publish_data_view`, `web.open`, `web.read`, `web.act`, and the
-`subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
-`subagent.resume` lifecycle controls. MCP tools explicitly allowlisted by backend
+`update_plan`, `publish_data_view`, `web.open`, `web.read`, and `web.act`.
+The `subagent.*` registration/lifecycle controls are direct RPC only, because
+registration does not execute a child. MCP tools explicitly allowlisted by backend
 workspace configuration are injected after discovery. Eligible project-group
 coordinator Turns additionally receive `spawn_workspace_thread` and
 `send_thread_message`; ordinary Threads never see them. Other deferred
@@ -484,6 +489,11 @@ Published artifacts use the normal tool observation, hook, and checkpoint path.
 Resumable form checkpoints persist the activated tool set. Continuation
 revalidates it against the current registry and capability policy. Stale IDs,
 malformed arrays, or provider-name collisions fail explicitly.
+Checkpoints also capture effective Turn settings, controls, metadata, composed
+instructions and Responses-native input items, without provider credentials.
+The application bridge restores these before preparing continuation services;
+changed defaults cannot remove Team coordination or redirect the working directory.
+Legacy form checkpoints without execution context fail instead of adopting defaults.
 
 `request_user_input` accepts strict fields of type `text`, `textarea`, `number`,
 `select`, `multiselect`, `radio`, or `checkbox`. It persists an

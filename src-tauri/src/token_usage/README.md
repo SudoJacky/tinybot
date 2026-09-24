@@ -1,5 +1,5 @@
 # Token usage ledger
-<!-- tinybot-module-fingerprint: sha256:33d1b2bff4137e24717676d2f25493ed4183e1c539560b7c4830a118dbdb9f7e -->
+<!-- tinybot-module-fingerprint: sha256:58625edf36b401e22949f65cdd380b323d3091a47c56319bc28cf8fe8f03e072 -->
 
 The parent `token_usage.rs` owns provider-field normalization, the SQLite
 connection and global daily/model totals. This directory adds attribution and

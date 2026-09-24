@@ -1087,6 +1087,8 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
         .iter_mut()
         .find(|tool| tool.tool_id == "subagent.wait")
         .expect("subagent wait should be registered");
+    // This isolated runtime fixture supplies its own execution adapter.
+    wait_tool.exposure = ToolExposure::Model;
     wait_tool.supports_parallel_tool_calls = true;
     wait_tool.runtime_policy.supports_parallel_tool_calls = true;
     context.tool_router = NativeToolRouter::new(tools);
@@ -1134,6 +1136,8 @@ fn zai_rejects_parallel_tool_calls_before_sending_a_request() {
         .iter_mut()
         .find(|tool| tool.tool_id == "subagent.wait")
         .expect("subagent wait should be registered");
+    // This isolated runtime fixture supplies its own execution adapter.
+    wait_tool.exposure = ToolExposure::Model;
     wait_tool.supports_parallel_tool_calls = true;
     wait_tool.runtime_policy.supports_parallel_tool_calls = true;
     context.tool_router = NativeToolRouter::new(tools);
@@ -1238,15 +1242,7 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
         }),
         json!({}),
     );
-    context.tool_router = NativeToolRouter::new(
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-            WorkerCapability::BackgroundRead,
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]))
-        .list_tools()
-        .tools,
-    );
+    context.tool_router = NativeToolRouter::new(test_registry_with_model_tools(&["subagent.wait"]));
     let completion = json!({
         "choices": [{
             "message": {
@@ -1540,9 +1536,8 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(captured.len(), 2);
-    assert_eq!(captured[0].len(), 2);
-    assert_eq!(captured[0][0], "update_plan");
-    assert_eq!(captured[0][1], "subagent_wait");
+    // Explicit selection cannot expose lifecycle-only controls as executable tools.
+    assert_eq!(captured[0], vec!["update_plan"]);
     assert!(captured[1].iter().any(|name| name == "update_plan"));
     assert!(activated[0].is_empty());
     assert!(captured[1].iter().any(|name| name == "apply_patch"));

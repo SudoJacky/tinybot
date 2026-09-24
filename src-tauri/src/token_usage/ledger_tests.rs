@@ -318,6 +318,7 @@ async fn native_team_planning_execution_and_detached_child_memory_reconcile_with
             expected_revision: run.revision,
         },
         Arc::new(crate::teams::NativeTeamExecutor {
+            worker_options: serde_json::json!({}),
             services: services.clone(),
             workspace_root: workspace.clone(),
             config: config.clone(),
@@ -331,6 +332,8 @@ async fn native_team_planning_execution_and_detached_child_memory_reconcile_with
         "{:?}",
         result.error
     );
+    let threads = threads.for_team(&result.id).unwrap();
+    services.thread_store = threads.clone();
     let parent = &result.tasks[0].attempts[0].thread_id;
     crate::rpc::call_rust_state_service(&threads,config.clone(),crate::protocol::WorkerRequest::new("create-child","create-child","thread.create",json!({"threadId":"child","parentThreadId":parent,"source":"subagent","title":"Child","metadata":{"extra":{"teamRunId":"spoofed"}}})),"Create usage child").unwrap();
     let memory = crate::memory::MemoryRuntime::new(Arc::new(crate::memory::NativeMemoryModel));

@@ -144,3 +144,24 @@ Tiptap core, Markdown parser, and table support used by the feature.
 This baseline accepts that explicit feature cost after running all analysis gates.
 The five-percent regression budgets stay unchanged, and the shared composer Skill
 contract is a dependency leaf so the import-cycle baseline remains empty.
+
+## Team workbench baseline review
+
+PR #494's Linux CI measured 7,331 bytes of initial gzip against the September 11
+baseline of 6,976 bytes (+355 bytes, 5.09%). All quality stages passed; only the
+five-percent initial-size budget failed. The initial assets remain the window
+bootstrap, Tauri core, HTML and logo. The bootstrap includes Vite's generated
+per-window preload map; since the baseline it also suppresses the production
+browser context menu. Team activity, result previews and shared Chat components
+change the generated chunk graph and preload map without adding an eager Team
+entry to the HTML.
+
+Same-source Windows builds measured 7,343 bytes before changes. Deferring only
+`ArtifactDetails` increased this to 7,414 bytes; deferring the complete Chat Team
+inspector measured 7,344 bytes. Both experiments were reverted because they did
+not reduce startup bytes. The refreshed baseline accepts the reviewed feature
+growth after the full analysis gate passes, rather than retaining ineffective
+loading boundaries. JavaScript gzip grew only 0.22% in Linux CI. The total asset
+size also includes the new employee portrait atlas; it is not an initial asset.
+Windows HTML and SVG line endings account for the small cross-platform size
+difference. The five-percent budgets and zero lint/cycle baseline stay unchanged.

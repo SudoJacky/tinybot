@@ -22,11 +22,15 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:298a9de48bf7178696665353f3fef3911df3172729390cf1e97d9bc66145f3ee -->
+<!-- tinybot-doc-fingerprint: sha256:3607779c85951682f7696cc60f8a9411e6666549efe60e26cf291578135e6ce5 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
 outcome that follow. Resolving a form continues the same Turn identity.
+The form checkpoint preserves effective settings, controls, workspace, instructions,
+coordinator metadata and native Responses replay. Restoration precedes service
+preparation and retains the new form command correlation. Legacy snapshots without
+execution context fail explicitly instead of continuing with application defaults.
 
 Input decoding captures a monotonic receipt time for `modelTiming.timeToRequestMs`.
 Application-only `agent.preparation` summaries cover bridge setup, task ownership,
@@ -312,4 +316,20 @@ reconstruct the updated log before recovery decisions are made.
 - [Agent runtime tests](../../src-tauri/src/agent/runtime/tests/README.md)
 - [Agent runtime API](../api/agent-runtime.md)
 
-For active Team attempts, a successful sole team.complete_task call commits its observation, emits the terminal summary, and ends the Turn without another model request. The outer Team scheduler persists publication before releasing dependent tasks. Invalid submissions remain correctable tool errors.
+For active Team attempts, a successful sole `team.complete_task` call commits its
+observation, emits the terminal summary, and ends the Turn without another model
+request. The summary event includes a typed assistant response item for Responses
+Rollout persistence and replay as well as the ordinary Chat Completions projection.
+The outer Team scheduler persists publication before releasing dependent tasks.
+Invalid submissions remain correctable tool errors.
+
+## Chat Team coordination
+
+An explicit `@team` in direct user input persists Team mode on an ordinary
+workspace Thread. Preparation adds the coordinator instructions and tools;
+Team workers do not inherit coordinator authority. Recruitment starts the
+existing native Team scheduler in the background. The parent consumes committed
+summary pages through `team.wait` and continues its same Turn, without spawning
+competing parent Turns or importing worker logs. Cancellation propagates to
+runs started by that Turn. Worker services rebind both storage and trace sink
+to the run's isolated conversation scope before execution.

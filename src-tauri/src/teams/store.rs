@@ -85,7 +85,7 @@ pub(super) fn read(path: &Path, active: &ActiveRuns) -> Result<TeamRun, String> 
     {
         return Err("Unsupported or mismatched Team run record".into());
     }
-    validate_plan(&run.spec, &run.plan())?;
+    run.validate_plan(&run.plan())?;
     for record in &run.tasks {
         for attempt in &record.attempts {
             if let Some(message) = &attempt.message {

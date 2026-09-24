@@ -1,5 +1,5 @@
 # RPC Tests
-<!-- tinybot-module-fingerprint: sha256:155128fe0c83eed281761414660f915f345b40fd25e8a8acad832fd82ef1b3fa -->
+<!-- tinybot-module-fingerprint: sha256:00b887a577dc453a79d2dfd0916c87d125fa07c9d692d7760a6475261dabe98a -->
 
 This directory groups end-to-end router tests by service family. The suites
 cover request validation and dispatch for automation, collaboration, threads,
@@ -25,3 +25,6 @@ Shared router fixtures live in `mod.rs`.
 Router fixtures use the same persistent Thread store as production. Reopening
 a router reloads canonical Rollouts on the first Thread operation; there is no
 separate persistent-session constructor or injected in-memory session list.
+
+Registry search coverage verifies that subagent lifecycle controls are absent
+from model exposure and remain available when explicitly filtered as direct.

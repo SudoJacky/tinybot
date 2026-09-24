@@ -45,6 +45,19 @@ beforeEach(() => window.localStorage.setItem("tinybot.ui.composer.rich-text", "f
 
 afterEach(() => { cleanup(); window.localStorage.clear(); });
 
+it("selects @team as a capability without attaching another conversation", async () => {
+  const user = userEvent.setup();
+  const send = vi.fn();
+  const mention = vi.fn();
+  render(<ClaudeStyleAiInput teamAvailable onSendMessage={send} onAddSessionMention={mention} />);
+  await user.type(screen.getByRole("textbox", { name: "Message" }), "@tea");
+  await user.click(screen.getByRole("option", { name: /team:/ }));
+  expect(mention).not.toHaveBeenCalled();
+  await user.type(screen.getByRole("textbox", { name: "Message" }), "Research this topic");
+  await user.click(screen.getByRole("button", { name: "Send message" }));
+  expect(send.mock.calls[0][0]).toBe("@team Research this topic");
+});
+
 describe("composer multiline keyboard input", () => {
   it.each([
     [false, "Hello"],

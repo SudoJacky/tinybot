@@ -94,6 +94,8 @@ pub(crate) struct TaskRecord {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TeamRun {
+    #[serde(default)]
+    pub parent_thread_id: Option<String>,
     pub schema_version: u32,
     pub id: String,
     pub revision: u64,
@@ -141,8 +143,8 @@ pub(super) fn validate_spec(spec: &TeamSpec) -> Result<(), String> {
     if spec.goal.trim().is_empty() || spec.workspace_path.trim().is_empty() {
         return Err("Team goal and workspace are required".into());
     }
-    if !(1..=8).contains(&spec.members.len()) || !(1..=8).contains(&spec.max_concurrency) {
-        return Err("Team requires 1–8 members and a concurrency limit of 1–8".into());
+    if !(1..=64).contains(&spec.members.len()) || !(1..=8).contains(&spec.max_concurrency) {
+        return Err("Team requires 1–64 members and a concurrency limit of 1–8".into());
     }
     let mut members = HashSet::new();
     for member in &spec.members {
@@ -164,6 +166,14 @@ pub(super) fn validate_spec(spec: &TeamSpec) -> Result<(), String> {
 }
 
 pub(super) fn validate_plan(spec: &TeamSpec, plan: &TeamPlan) -> Result<(), String> {
+    validate_dag(spec, plan, false)
+}
+
+pub(super) fn validate_chat_plan(spec: &TeamSpec, plan: &TeamPlan) -> Result<(), String> {
+    validate_dag(spec, plan, true)
+}
+
+fn validate_dag(spec: &TeamSpec, plan: &TeamPlan, parent_integrates: bool) -> Result<(), String> {
     validate_spec(spec)?;
     if !(1..=64).contains(&plan.tasks.len()) {
         return Err("Team plan requires 1–64 tasks".into());
@@ -220,6 +230,10 @@ pub(super) fn validate_plan(spec: &TeamSpec, plan: &TeamPlan) -> Result<(), Stri
     if ordered.len() != tasks.len() {
         return Err("Team task dependencies contain a cycle".into());
     }
+    // Chat coordinators consume all leaf results themselves.
+    if parent_integrates && plan.final_task_id.is_empty() {
+        return Ok(());
+    }
     if !tasks.contains_key(plan.final_task_id.as_str()) {
         return Err("Team final task does not exist".into());
     }
@@ -239,6 +253,10 @@ pub(super) fn validate_plan(spec: &TeamSpec, plan: &TeamPlan) -> Result<(), Stri
 }
 
 impl TeamRun {
+    pub(super) fn validate_plan(&self, plan: &TeamPlan) -> Result<(), String> {
+        validate_dag(&self.spec, plan, self.parent_thread_id.is_some())
+    }
+
     pub(super) fn plan(&self) -> TeamPlan {
         TeamPlan {
             tasks: self

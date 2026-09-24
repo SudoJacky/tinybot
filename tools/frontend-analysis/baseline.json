@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-11T07:18:26.467Z",
+  "generatedAt": "2026-09-24T13:47:35.876Z",
   "source": {
     "cycles": []
   },
@@ -8,8 +8,8 @@
     "findings": []
   },
   "bundle": {
-    "initialGzipBytes": 6976,
-    "javascriptGzipBytes": 3260111,
-    "totalGzipBytes": 3389245
+    "initialGzipBytes": 7343,
+    "javascriptGzipBytes": 3267435,
+    "totalGzipBytes": 4991196
   }
 }

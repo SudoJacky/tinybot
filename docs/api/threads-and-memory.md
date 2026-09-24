@@ -17,7 +17,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:2a0c97c7b069e749e0d16db66339071f9b107743a2471cefecdcffbf5eb4027e -->
+<!-- tinybot-doc-fingerprint: sha256:b62c3392fa915d2c20131334162b9aaad20c8ee78320feefb7639da6d94353e9 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 
@@ -529,3 +529,14 @@ Thread statuses:
 - `cancelling`
 - `failed`
 - `archived`
+
+## Isolated Team conversations
+
+Team attempts use `team-runs/<run-id>/conversations/{threads,archived_threads}`
+under the application data root. Ordinary Thread listing/index initialization
+excludes these logs. Explicit attempt Thread requests resolve the saved owning
+run and use its scoped store, preserving the existing timeline response shape.
+Each opened run has an independent index, projection cache and lifecycle lock.
+Application configuration, workspace registry, memory and usage keep their
+original data root. A one-time startup migration moves legacy Team logs and
+their descendants before recorders open; conflicts fail explicitly.

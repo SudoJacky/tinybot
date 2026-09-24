@@ -455,6 +455,7 @@ fn native_team_completion_reads_memory_without_extracting_and_user_turn_still_ex
                 expected_revision: run.revision,
             },
             Arc::new(crate::teams::NativeTeamExecutor {
+                worker_options: serde_json::json!({}),
                 services: services.clone(),
                 workspace_root: fixture.root.clone(),
                 config: json!({"revision":2}),

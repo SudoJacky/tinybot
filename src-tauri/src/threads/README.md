@@ -1,5 +1,5 @@
 # Threads
-<!-- tinybot-module-fingerprint: sha256:8b8ce646eb276f7bf91186f34ab0cd9a9776dde51930063646351662c4dc6166 -->
+<!-- tinybot-module-fingerprint: sha256:51960cb53827128fdeff064d14deec447c1ac7a64d09dcf6922820073b1f2397 -->
 
 `threads` owns conversation state and its durable rollout representation.
 
@@ -30,3 +30,9 @@ ordinal validation, reconstruction and projection build/install. Cache hit,
 miss and eviction counts plus decoded line bytes and line counts explain work
 volume. Timings can be nested; per-file I/O/parse sums are not wall-clock spans.
 The read/parse total retains failure outcomes without changing storage results.
+
+Team conversation stores keep the application data root distinct from their
+rollout root. `for_team` caches one isolated store per run without hydrating it;
+normal Thread initialization never walks `team-runs`. Shared shutdown/flush
+drains opened scopes. A one-time startup migration moves old Team and descendant
+logs before any recorder is created, retaining their canonical relative paths.

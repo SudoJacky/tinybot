@@ -323,7 +323,7 @@ fn explicit_exec_disable_marks_new_shell_commands_unavailable() {
 }
 
 #[test]
-fn registry_exposes_complete_subagent_lifecycle_controls_to_the_model() {
+fn registry_keeps_subagent_lifecycle_controls_direct_only() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::BackgroundRead,
         WorkerCapability::BackgroundWrite,
@@ -341,7 +341,7 @@ fn registry_exposes_complete_subagent_lifecycle_controls_to_the_model() {
         let tool = registry
             .get_tool(method)
             .unwrap_or_else(|| panic!("{method} should be registered"));
-        assert_eq!(tool.exposure, ToolExposure::Model);
+        assert_eq!(tool.exposure, ToolExposure::Direct);
         assert!(tool.available);
         assert_eq!(
             tool.execution_target,

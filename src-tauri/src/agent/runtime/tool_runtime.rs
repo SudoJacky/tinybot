@@ -817,9 +817,15 @@ async fn execute_tool_batch(
                 if context_is_cancelled(context) {
                     return cancelled_result(services, context, state, iteration);
                 }
+                let message_id = format!("{}:team-completion", context.turn_id);
                 state.emit(crate::agent::runtime_protocol::ModelOutputEvent::MessageCompleted(serde_json::json!({
-                    "iteration": iteration, "messageId": format!("{}:team-completion", context.turn_id),
+                    "iteration": iteration, "messageId": message_id,
                     "messagePhase": "final_answer", "classificationSource": "team_completion", "content": content,
+                    "responseItems": [{
+                        "type": "message", "id": message_id, "role": "assistant",
+                        "phase": "final_answer",
+                        "content": [{"type": "output_text", "text": content}],
+                    }],
                 })))?;
                 state.set_stop_reason(
                     AgentStopReason::FinalResponse,

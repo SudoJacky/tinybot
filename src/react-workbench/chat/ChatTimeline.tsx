@@ -1,3 +1,4 @@
+import { ChatTeamCard, recruitedRunId } from "../teams/ChatTeamCard";
 import type { ProviderRetryStatus } from "../../app-core/chat/providerRetryStatus";
 import { memo, useMemo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -318,7 +319,7 @@ function hookDecisionLabel(decision: string, t: TFunction<"chat">): string {
 function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
   const groups: Array<ChatStep | ChatStep[]> = [];
   for (const step of steps) {
-    if (step.kind !== "tool_call" || !step.toolCall) {
+    if (step.kind !== "tool_call" || !step.toolCall || recruitedRunId(step.toolCall)) {
       groups.push(step);
       continue;
     }
@@ -691,6 +692,8 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "tool_call" && step.toolCall) {
+    const teamRunId = recruitedRunId(step.toolCall);
+    if (teamRunId) return <ChatTeamCard runId={teamRunId} />;
     const activity = isApplyPatchToolCall(step.toolCall) && patchChangeSetFromToolResult(step.toolCall.resultJson)?.files.length
       ? <PatchDiffCard
           status={step.status}

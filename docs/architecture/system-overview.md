@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7b15c5cd15b9e5f260e03320c3e920b2bcbee14a33627daae9561d0eeb0d328f -->
+<!-- tinybot-doc-fingerprint: sha256:55c1cf14fbfe23682d48bf0da8ef6b6f126c0c2277b3ee908ce49cdc646a5184 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -302,11 +302,22 @@ existing application window.
 ## Cross-module flows
 
 - Team preparation accepts a supplied plan or a tool-free model proposal.
+  The renderer submits the selected roster from its pixel-avatar member picker.
+  Planning follows configured responsibilities; each attempt receives its own
+  member role as instructions and the saved team roster as task context.
   The Team scheduler validates the dependency graph and dispatches ready tasks
   to the native Thread/Turn bridge. Attempt identities and results are committed
   before execution and downstream dispatch respectively. Native Threads own
   tool/runtime events; the Team store owns dependency and run state. Restart
   reconciliation marks uncertain work interrupted and requires explicit retry.
+  The Team renderer reads worker timelines without changing the selected Chat
+  session and subscribes to canonical activity for running and inspected tasks.
+  Recent activity and latest attempts are shown first, with older records folded.
+  Overall progress and the selected member's work use separate panes linked by
+  task selection and a persistent bottom member dock. Public messages and tool
+  activity reuse Chat renderers; reading positions remain per task attempt.
+  Its Files view groups reported artifacts by producer task and attempt, reusing
+  verified artifact reads and the separate current-workspace file preview.
   See the [Team module](../../src-tauri/src/teams/README.md) and [Team API](../api/teams.md).
 
 - A user message follows the [Agent Turn lifecycle](agent-turn-lifecycle.md).
@@ -338,4 +349,16 @@ positions survive execution-record round trips. Polling covers known running
 runs even on the Team home or while the route is hidden; durable state remains
 owned by the native Team store.
 
-Team collaboration uses a run-scoped shared message board: completion publishes a bounded handoff, downstream input carries indexed summaries, and other messages/artifact ranges are read on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.
+Team collaboration uses a run-scoped shared message board: completion publishes a full handoff with summary, unresolved issues and artifact references. Handoff text has no size limit; artifact bodies are read in verified ranges on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.
+
+Chat also exposes `@team`: the main Agent dynamically recruits employees through
+native coordinator tools, appends DAG tasks, waits for committed handoffs and
+integrates results in its existing Turn. The independent Teams route and Chat
+use event-driven waits for the next result or all tasks; progress-only notifications
+do not produce empty tool responses or additional model requests. They
+share the same scheduler and durable board. Attempt conversations have separate
+per-run storage/index/cache scopes; Chat cards load board and employee history
+only when expanded/selected. This adds neither an Agent Loop nor a second result
+authority. Employee selection opens a side workspace using the standalone Team
+activity, results and member dock; narrow windows switch between Chat and details.
+See [Team API](../api/teams.md#chat-coordinator-tools).

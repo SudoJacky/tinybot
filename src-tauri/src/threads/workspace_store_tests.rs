@@ -8,6 +8,67 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static WORKSPACE_STORE_TEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn team_conversations_are_isolated_and_legacy_files_move_once() {
+    let root = workspace_root("team-isolation");
+    let policy = default_desktop_capability_policy();
+    let data = root.join("data");
+    let legacy =
+        WorkspaceThreadStore::new_with_data_root(root.clone(), data.clone(), policy.clone());
+    let mut router = native_request_router(legacy.clone(), json!({}));
+    for (id, source) in [("ordinary", "chat"), ("team-1-2-research-1", "team")] {
+        let response = router.dispatch(&WorkerRequest::new(
+            "create",
+            "trace",
+            "thread.create",
+            json!({"threadId":id,"source":source,"title":id}),
+        ));
+        assert_eq!(response.error, None);
+    }
+    legacy.shutdown().unwrap();
+    assert_eq!(
+        crate::threads::rollout::store::migrate_team_conversations(&data).unwrap(),
+        1
+    );
+    assert_eq!(
+        crate::threads::rollout::store::migrate_team_conversations(&data).unwrap(),
+        0
+    );
+    let main = WorkspaceThreadStore::new_with_data_root(root.clone(), data.clone(), policy.clone());
+    let team = main.for_team("team-1-2").unwrap();
+    assert!(Arc::ptr_eq(
+        &team.inner,
+        &main.for_team("team-1-2").unwrap().inner
+    ));
+    assert_eq!(team.data_root(), main.data_root());
+    assert_eq!(team.workspace_root(), main.workspace_root());
+    assert!(team.read_agent_thread("team-1-2-research-1").is_ok());
+    assert!(main.read_agent_thread("team-1-2-research-1").is_err());
+    assert!(main.read_agent_thread("ordinary").is_ok());
+    main.shutdown().unwrap();
+    // A corrupt historical employee log cannot break ordinary Chat startup.
+    fn corrupt(dir: &std::path::Path) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                corrupt(&path);
+            } else if path.extension().is_some_and(|e| e == "jsonl") {
+                std::fs::write(path, b"broken worker log\n").unwrap();
+            }
+        }
+    }
+    corrupt(&data.join("team-runs/team-1-2/conversations/threads"));
+    let reopened = WorkspaceThreadStore::new_with_data_root(root.clone(), data, policy);
+    assert!(reopened.read_agent_thread("ordinary").is_ok());
+    assert!(reopened
+        .for_team("team-1-2")
+        .unwrap()
+        .read_agent_thread("team-1-2-research-1")
+        .is_err());
+    reopened.shutdown().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn workspace_root(label: &str) -> PathBuf {
     let sequence = WORKSPACE_STORE_TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(

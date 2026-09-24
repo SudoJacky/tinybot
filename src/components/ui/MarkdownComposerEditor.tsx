@@ -18,7 +18,7 @@ export interface MarkdownComposerCursor {
 
 export interface MarkdownComposerHandle {
   focusEnd(): void;
-  replaceTrigger(from: number, to: number, skill?: ComposerSkillOption): void;
+  replaceTrigger(from: number, to: number, skill?: ComposerSkillOption, text?: string): void;
 }
 
 interface MarkdownComposerEditorProps {
@@ -196,10 +196,11 @@ export function MarkdownComposerEditor(props: MarkdownComposerEditorProps) {
 
   useImperativeHandle(props.ref, () => ({
     focusEnd: () => { editor?.commands.focus("end"); },
-    replaceTrigger: (from, to, skill) => {
+    replaceTrigger: (from, to, skill, text) => {
       if (!editor) return;
       const start = editor.state.selection.$from.start();
       const chain = editor.chain().focus().deleteRange({ from: start + from, to: start + to });
+      if (text) chain.insertContent({ type: "text", text });
       if (skill) chain.insertContent({
         type: "composerSkill",
         attrs: { id: skill.id, label: skill.label, removeLabel: latest.current.removeSkillLabel(skill) },

@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:fc1b70410a5a7ce00f88a529292c502b6aff03f973149ab30509b616b18bd6ac -->
+<!-- tinybot-doc-fingerprint: sha256:b16b6ac0896143ae4b8ada14f052a5a72988443bfebcabe258b8fcbc3ee85929 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -226,3 +226,19 @@ Exact configuration names and defaults belong in the
 - `src-tauri/src/agent/runtime/instructions.rs`
 - `src-tauri/src/agent/runtime/instructions_tests.rs`
 - `src-tauri/src/runtime/working_directory.rs`
+
+## Team coordinator context
+
+An explicit standalone `@team` token in direct user content enables persisted
+`metadata.extra.teamEnabled` for an ordinary workspace Thread. Project
+coordinators and Team worker scopes are excluded. The bridge supplies the
+coordinator role and authoritative enabled flag during preparation. The role
+asks for a broad plan, useful dynamic recruitment, detailed task contracts,
+DAG dependencies and final integration by the parent. Completion tools return
+bounded summaries and evidence references; employee conversation transcripts
+are not automatically injected into the parent's context.
+
+Form continuation restores the checkpoint's effective settings and composed
+instructions, including coordinator metadata and the working directory, before
+building runtime services. It does not recompose the paused Turn from changed
+application defaults. Snapshots without execution context fail explicitly.

@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:9e9cacbac57298072d5143feca33f736b8f6edc6bef3211a7856caa61eb3a8fc -->
+<!-- tinybot-module-fingerprint: sha256:6f21b55588f5f3449a0ccc1b42f79eb02f88ee1e4116022c5bf5ab89b6ef2141 -->
 
 `token_usage` exposes the global v3 snapshot and cursor-paginated invocation
 details, optionally scoped to a Team run. Both read the same SQLite ledger.
@@ -102,3 +102,7 @@ automation store. Startup and gaps exceeding 15 seconds record overdue
 occurrences as missed instead of dispatching them.
 
 Team artifact previews resolve entry/path/workspace from the saved run and delegate bounded content-hash verification to the Team board reader.
+
+Thread requests containing a saved Team attempt ID resolve its owning run and
+use that run's isolated conversation store. Ordinary list requests stay on the
+root store. Native Team execution also receives explicit worker tool options.

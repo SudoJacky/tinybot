@@ -1411,6 +1411,7 @@ export const en = {
       clicked: "Clicked {{page}}", enteredText: "Entered text on {{page}}", used: "Used {{page}}", line: "Line {{start}}", lines: "Lines {{start}}–{{end}}",
     },
     composer: {
+      teamDescription: "Recruit a team to work on this task",
       sessionMention: {
         menu: "Workspace conversations",
         heading: "Conversations in this workspace",

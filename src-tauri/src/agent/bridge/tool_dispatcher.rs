@@ -247,6 +247,29 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         >,
     > {
         Box::pin(async move {
+            if matches!(
+                context.tool_execution_target(&tool_call.name),
+                Some(ToolExecutionTarget::TeamCoordinator)
+            ) {
+                let result = crate::teams::coordinator::dispatch(
+                    &self.base_services,
+                    &context,
+                    &self.base_config_snapshot,
+                    &tool_call.name,
+                    tool_call.arguments_value(),
+                )
+                .await;
+                return Ok(match result {
+                    Ok(value) => NativeAgentToolResult::generic_success(&tool_call, value),
+                    Err(error) => {
+                        eprintln!(
+                            "team_coordinator_failed thread_id={} tool={} error={error}",
+                            context.session_id, tool_call.name
+                        );
+                        NativeAgentToolResult::generic_error(&tool_call, error)
+                    }
+                });
+            }
             let workspace_result = match context.tool_execution_target(&tool_call.name) {
                 Some(ToolExecutionTarget::SpawnWorkspaceThread) => Some(
                     super::workspace_threads::spawn_workspace_thread(

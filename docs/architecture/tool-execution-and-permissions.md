@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:843ac52f75bb14f3225967ffc73766b371e305b94f247aaee463a3d4e8ac8f1d -->
+<!-- tinybot-doc-fingerprint: sha256:3cf4bd62ecb33219613cb70c5ae44b1820c72559231cc37f6fef7c3da3513247 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -177,9 +177,9 @@ explicitly; it is not executed through a fallback path. Workspace path guards,
 MCP allowlists, and service-specific authorization remain enforced by the
 owning execution module after generic capability checks.
 
-Model-visible subagent lifecycle tools use their registered dotted methods and
-the Worker RPC executor so lifecycle changes restore from and commit to the
-canonical Thread store. The direct subagent adapter is limited to the
+Subagent lifecycle tools are direct RPC only; their registration manager has no
+executor. Their registered dotted methods use the Worker RPC executor so lifecycle
+changes restore from and commit to the canonical Thread store. The direct runtime adapter is limited to the
 runtime-only `subagent.query` and `subagent.cancel` controls. Unregistered
 alternative tool names are rejected instead of being normalized into that
 fallback path.
@@ -301,3 +301,11 @@ diagnostics and UI projection.
 - [Tools and processes API](../api/tools-and-processes.md)
 
 Team board tools use an application-owned TeamBoard target. The bridge authorizes reads/completion against saved Thread identity and the active attempt; model-supplied run/author fields cannot grant access. Completion and artifact reads require workspace-read capability and existing workspace path guards. Completion must be the sole tool call and ends the turn after a validated receipt.
+
+Chat coordination uses a separate `TeamCoordinator` execution target. It requires
+Team mode, a root conversation store and the local-worker profile; calls also
+verify the run's persisted parent Thread. These tools require SessionWrite and
+execute exclusively through the asynchronous bridge, never generic Worker RPC.
+Worker model/tool options are inherited, while coordinator tools are excluded
+from worker scopes. Result-file reads retain the existing workspace capability
+and content-identity checks.

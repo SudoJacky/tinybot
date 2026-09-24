@@ -1,12 +1,12 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:a30085015dbb812d1a987609d499dc3b7b520e7d97d9ba2a621afa61ef7d4f35 -->
+<!-- tinybot-module-fingerprint: sha256:142cfa6021cf492ffa340c1b4b913d4180398c34c3ec14659ebc644183330193 -->
 
 The command allocates the run ID before invoking the planner and passes it to
 `prepare_with_id`; planner usage therefore shares the eventual board identity.
 Task and descendant usage resolves persisted attempt Thread ancestry. The shared
 usage ledger owns accounting; the board does not store independent token totals.
 
-`teams` owns a shared task board and dependency scheduler for a fixed set of
+`teams` owns a shared task board and dependency scheduler for dynamically recruited or configured
 members working toward one goal. It is independent of Agent Graphs and the
 parent/child subagent manager. `desktop_commands::teams` supplies application
 services and exposes the module to the main desktop window.
@@ -14,7 +14,13 @@ services and exposes the module to the main desktop window.
 ## Interface and ownership
 
 - `plan` makes one tool-free provider request, parses strict JSON, and validates
-  member assignments, dependencies, and the final task. Callers may instead
+  member assignments, dependencies, and the final task. Assignments follow each
+  member's configured responsibilities and specify downstream deliverables and
+  evidence. Chat coordination and the standalone planner both compile in
+  [assignment guidance](assignment_guidance.md): tasks state their outcome,
+  scope, deliverable, evidence requirements, completion criteria and stopping
+  conditions inside the existing instructions string. This baseline does not
+  depend on optional skill activation. Callers may instead
   supply a plan directly. Invalid output is an error, with no repair or fallback.
 - `prepare` validates and snapshots the specification and plan in a new run.
 - `get` and `list` return the durable board, including attempt histories,
@@ -39,12 +45,25 @@ The test executor controls completion and cancellation without a model service.
 
 ## Scheduling invariants
 
-Plans contain 1–64 tasks and 1–8 members. The task graph is acyclic and every
-task contributes to a designated final synthesis/review task. A task starts
+Plans contain 1–64 tasks and 1–64 members. The task graph is acyclic. Standalone plans designate a final synthesis/review
+task; Chat plans leave finalTaskId empty and the parent integrates leaf results. A task starts
 only after every direct dependency succeeds. Its input contains the goal,
-assigned task, and dependency message IDs with an aggregate bounded summary budget. Successful tasks
+assigned task, the saved team roster (member IDs, display names and responsibilities),
+and dependency message IDs with complete handoff text and artifact references. Successful tasks
 are never automatically rerun. Members receive separate task conversations;
 this version has no persistent member chat or peer mailbox.
+
+The native adapter supplies the acting member's identity and role instructions
+through `agentRole`, with shared collaboration and completion guidance. Other
+members' responsibilities remain roster context in the task input, not additional
+instructions for the acting member. IDs determine identity even when display
+names repeat. The native execution test checks these boundaries at the provider.
+
+Employees check the assignment's completion criteria before handoff, stop when
+they are met, and report unmet criteria and their impact through unresolved.
+The coordinator assesses those criteria again during integration. These are
+model instructions, not an automatic evidence-quality validator; successful
+publication alone does not certify that the requested outcome was achieved.
 
 The configured limit (1–8) bounds concurrent Team tasks, and a member runs at
 most one task at a time. Native workers inherit ordinary workspace capabilities,
@@ -66,7 +85,8 @@ The native adapter requires a successful `team.complete_task` receipt. A Turn th
 human input is reported as a failed Team task with its Thread ID retained;
 Team-level continuation/adoption of that Turn is not implemented. Inspect and
 resolve the original Thread before explicitly retrying uncertain work. There
-are no automatic quality scores, retries, member creation, or hidden replanning.
+are no automatic quality scores, retries, or hidden replanning. Chat recruitment
+is explicit through coordinator tools.
 
 ## Persistence and failure behavior
 
@@ -95,6 +115,8 @@ Tests exercise dependency validation, parallel fan-out/fan-in, hard concurrency
 limits, per-member exclusion, failure cleanup, explicit retry, pause/resume,
 revision conflicts, interruption recovery, dropped callers, and native Thread
 creation using the deterministic provider. No live provider credentials are needed.
+Native execution covers Chat Completions and Responses, including completion
+summary reload and dependent task release without an extra provider call.
 See [Team API](../../../docs/api/teams.md) for invocation examples.
 
 Schema version 2 requires human-readable member display names and task titles.
@@ -105,16 +127,50 @@ New inputs remain strict and reject missing or blank labels.
 
 ## Shared messages
 
-`board` owns the bounded completion contract, message discovery, and verified
+`board` owns the completion contract, message discovery, and verified
 artifact reads. `tools` contributes four tools only to active Team attempts and
 rechecks saved Thread identity against the scheduler's current attempt. Model
 arguments cannot choose a run or author. Reads are run-scoped; publication happens
 only through scheduler completion, using its single atomic persistence owner.
 
-Completion validates a short summary, unresolved issues, and workspace-relative
+Completion validates a nonblank summary, unresolved issues, and workspace-relative
 file references, then ends the native Turn without another provider call. The
 scheduler assigns sequence/provenance and commits the message before downstream
 work starts. Invalid tool submissions can be corrected; plain final responses
 fail the task. Files carry byte size and SHA-256 identity; selected UTF-8 reads
 verify both workspace authorization and unchanged content. See the Team API for
-exact limits. Legacy full outputs stay inspectable but are handed off by ID.
+artifact limits. Summary and unresolved text have no size limits. Notifications
+and dependency inputs carry complete summaries, unresolved issues and artifact
+references; file bodies stay lazy. Legacy outputs remain inspectable by ID.
+
+## Chat coordination and isolated conversations
+
+An explicit `@team` in user input enables coordinator tools for that ordinary
+workspace conversation. `team.recruit` supplies named members, detailed roles and
+DAG tasks. It starts background work or appends validated, immutable assignments
+through the scheduler queue. Existing members and attempted tasks cannot be
+rewritten. Completed Chat runs can accept additional work. Only the saved parent
+Thread can inspect/control the run through model tools.
+
+`team.wait` subscribes to committed state changes without empty timeout responses.
+It waits for `next_result` (default) or `all_tasks`, returning on a matching result,
+failure or non-running state. Up to eight complete handoffs accompany the sequence
+cursor; use `team.inspect` to drain additional pages. Cancellation interrupts the
+wait. Progress-only notifications stay inside the runtime, and UI reads remain
+independent. It continues the existing parent turn; it never creates competing
+parent turns. `team.read_result` reads complete messages or verified artifact ranges. Parent
+cancellation propagates to runs started by that turn. Workers inherit model,
+provider and tool selection, but do not receive coordinator tools.
+
+Run JSON stays at `team-runs/<run-id>.json`. Attempt conversations live under
+`team-runs/<run-id>/conversations/`, with separate indexes, caches and lifecycle
+locks. Application configuration, workspace memory and accounting roots remain
+shared. Worker tracing is rebound to the isolated store. Ordinary lists and
+startup projection scans never include these logs. Known attempt reads resolve
+the saved run directly; a one-time startup migration relocates older Team logs
+and their descendants before opening recorders.
+
+Bridge integration tests exercise Chat Completions and Responses through a form
+pause, changed application defaults, recruitment, native worker execution,
+committed handoff and parent integration. They verify file writes stay in the
+selected workspace and worker histories stay outside the ordinary Thread list.

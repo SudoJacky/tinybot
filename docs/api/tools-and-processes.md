@@ -23,7 +23,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:2a95aa636e338424f1d71e87b83056b37530cc31e693a1507e015e57c4f52580 -->
+<!-- tinybot-doc-fingerprint: sha256:1dcde6b2af54054875cc15b4088a6d6324255ec3967bedde4b8ee6417a07740b -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -283,10 +283,13 @@ and shutdown terminate descendant processes as well as the root process.
 
 ### Subagent lifecycle
 
-The desktop commands and Agent tools share the same manager and canonical thread store. The core
-lifecycle tools `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
-`subagent.resume` are model-visible by default. `subagent.list`, `subagent.query`, and
-`subagent.cancel` remain Worker RPC and desktop-control operations.
+The desktop commands and direct lifecycle controls share the same manager and
+canonical thread store. `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
+`subagent.close`, and `subagent.resume` have `direct` exposure; a
+`tool_registry.search` request with `exposure: "model"` does not return them.
+`subagent.list`, `subagent.query`, and `subagent.cancel` also remain Worker RPC
+and desktop-control operations. Model-driven delegation uses the scoped Team
+coordinator tools instead; the subagent manager alone does not start an executor.
 
 The default limits are eight active children per session, 32 active children process-wide, and a
 maximum delegation depth of four. Nested spawns must name their direct `parentSubagentId` and exact
@@ -384,3 +387,8 @@ live page. Values must be finite, valid surface dimensions within native region
 limits. Null or annotation stop restores the complete window region.
 
 Team board tools are contributed only during an active Team attempt. Generic Worker RPC rejects their application-owned execution target. See [Teams](teams.md) for message and artifact contracts.
+
+Chat `@team` coordinator tools use the application-owned `TeamCoordinator`
+target and are also rejected by generic Worker RPC. They require local-worker
+capabilities and saved parent ownership. See [Team API](teams.md#chat-coordinator-tools)
+for recruitment, result cursors, waiting and explicit control.
