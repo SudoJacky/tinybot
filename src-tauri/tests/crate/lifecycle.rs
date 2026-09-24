@@ -444,12 +444,18 @@ fn startup_refreshes_a_previously_loaded_projection_after_index_repair() {
 #[test]
 fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
     let fixture = WorkspaceFixture::new();
-    let invalid_thread_root = fixture.root.join(".tinybot").join("threads");
+    // Finish storage migration before injecting a failure into startup recovery.
+    let state = NativeRuntimeState::initialize(
+        fixture.root.clone(),
+        fixture.thread_store.data_root().to_path_buf(),
+    )
+    .expect("runtime storage should initialize");
+    let invalid_thread_root = state.thread_store.data_root().join("threads");
     std::fs::create_dir_all(invalid_thread_root.parent().unwrap())
         .expect("invalid thread storage parent should create");
     std::fs::write(&invalid_thread_root, "not a directory")
         .expect("invalid thread storage fixture should write");
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
+    let shared = Arc::new(Mutex::new(state));
 
     let error = match crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
@@ -459,7 +465,7 @@ fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
         Err(error) => error,
     };
 
-    assert!(error.contains("startup recovery failed"));
+    assert!(error.contains("startup recovery failed"), "{error}");
     let runtime = lock_runtime(&shared);
     assert!(!runtime.native_agent_runtime.task_runtime().is_accepting());
     assert!(!runtime.lifecycle_status.startup_reconciled);

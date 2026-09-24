@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:3e84fe99fb2c2d231517c893ea07734fedc36c602b0f7696b2278391654d87e0 -->
+<!-- tinybot-module-fingerprint: sha256:eb9bbf9161b4d6fc4e68c7018447d43ed512bffb9c6bc27ccf10f9e9119cd489 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -271,6 +271,8 @@ source-tree binary. Neither path falls back to a system installation.
 - Crate-wide RPC, persistence, lifecycle, and complete Turn-flow tests live in
   `tests/crate/`. `src/lib.rs` includes this suite as a test-only module so it
   can exercise private boundaries without widening the production API.
+  Startup recovery failure cases initialize storage before injecting corruption,
+  so migration errors cannot replace the recovery path under test.
 - Run `npm run analyze:rust` from the repository root to regenerate Rust
   metrics under `src-tauri/target/code-analysis`. The command excludes
   `**/tests/**` and `**/*_tests.rs`.
