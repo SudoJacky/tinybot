@@ -22,3 +22,15 @@
 .chat-team-inspector .team-member-dock { flex-shrink: 0; padding: 12px 16px; border-top: 1px solid var(--color-hairline); background: var(--color-surface-soft); }
 .chat-team-inspector__assignments { display: flex; flex-wrap: wrap; gap: 8px; }
 .chat-team-inspector__assignments button[aria-pressed="true"] { border-color: var(--color-primary); }
+.chat-team-inspector__controls, .chat-team-inspector__tabs, .chat-team-inspector__attempts { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-team-inspector__controls { justify-content: flex-end; }
+.chat-team-inspector__controls button, .chat-team-inspector__tabs button, .chat-team-inspector__attempts button { min-height: 30px; }
+.chat-team-inspector__tabs { padding: 8px 20px; border-bottom: 1px solid var(--color-hairline); }
+.chat-team-inspector__tabs button[aria-selected="true"], .chat-team-inspector__attempts button[aria-pressed="true"] { border-color: var(--color-primary); color: var(--color-primary); }
+.chat-team-inspector__notice { margin: 4px 20px; }
+.chat-team-history { position: relative; }
+.chat-team-history > summary { cursor: pointer; white-space: nowrap; padding: 5px 8px; list-style: none; }
+.chat-team-history > summary::-webkit-details-marker { display: none; }
+.chat-team-history__list { position: absolute; z-index: 50; right: 0; top: 100%; display: grid; gap: 4px; width: min(360px, 90vw); max-height: min(65vh, 480px); overflow: auto; padding: 12px; border: 1px solid var(--color-hairline); border-radius: 10px; background: var(--color-panel); box-shadow: 0 12px 32px rgb(0 0 0 / 14%); }
+.chat-team-history__list > button { display: grid; gap: 4px; min-height: 32px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.chat-team-history__list small { color: var(--color-muted); }

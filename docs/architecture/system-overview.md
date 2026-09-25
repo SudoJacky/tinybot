@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:55fab3ad44c080d67b904605361b89f2baeeb2facafbd17a7d11d3c3ade910a5 -->
+<!-- tinybot-doc-fingerprint: sha256:7899359404505b24665b49228066c490c334ff19ded4a7fe58aa4882e61ba126 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -365,6 +365,13 @@ Sidecar, reusing Team activity, results and the member dock. Sidecar owns tab
 selection, resizing, expansion and narrow-window overlays for all resource kinds.
 Team tabs coexist with Browser, Artifact and Terminal tabs; closing a Team tab
 does not cancel its native run.
+Chat's history entry can open any durable run, including an older independent
+run with no `parentThreadId` and a new Chat without a Thread. The Sidecar scope
+is only a view choice; it does not rewrite the run's parent or import employee
+messages into the main conversation. The Sidecar inspector selects recorded
+attempts, reuses Team Files and run-scoped Usage, and sends pause, cancel,
+resume and explicit task retry to the native Team store. Long execution requests
+remain separate from these controls; revision checks reject stale snapshots.
 See [Team API](../api/teams.md#chat-coordinator-tools).
 
 Team members persist a Research, Execution or Review tool profile. The bridge

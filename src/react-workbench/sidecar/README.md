@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:6d791e61d7333a87c7259bfade35326b18dc75dd94b741de94a90b112b0ad2f4 -->
+<!-- tinybot-module-fingerprint: sha256:3e63ec8251a7a3fdce5caf44fbcfb979cad843fc6dabd0b5d6684613d5e70050 -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
@@ -29,9 +29,12 @@ by `SidecarResources`:
 - Artifact resources belong to the Thread that produced the Artifact.
 - Team resources identify a run and selected task within the parent Thread.
   Recruitment cards open or reuse the run tab; `ChatTeamPanel` supplies its
-  content, with only the selected attempt loaded. Team tabs share the shell
+  content, with only the selected attempt loaded at a time. Team tabs share the shell
   controls and can coexist with Browser, Artifact and Terminal tabs. Closing
   their renderer tab does not cancel or otherwise mutate the native Team run.
+  Chat history can open an independent run in the current renderer scope,
+  including a new Chat without a Thread. This scope does not change the run's
+  recorded `parentThreadId` or import worker history into the conversation.
 - Terminal resources belong to the active workspace. Regular conversations
   share `DEFAULT_SIDECAR_WORKSPACE_ID`, which asks Rust to resolve Tinybot's
   configured default workspace rather than inventing a renderer path.

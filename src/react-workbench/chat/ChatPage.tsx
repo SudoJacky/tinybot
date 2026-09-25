@@ -2,6 +2,7 @@ import type { ComposerSkillOption } from "../../components/ui/composerContracts"
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
+import { ChatTeamHistory } from "../teams/ChatTeamHistory";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useChatApplication } from "./useChatApplication";
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -1067,6 +1068,7 @@ export function ChatPage({
             onClose={handleCloseSessionTab}
           />
           <div className="react-chat-header__actions">
+            <ChatTeamHistory sessionId={activeSessionId} />
             {sidecar.presentation === "closed" ? (
               <button
                 aria-label={t("sidecar.show")}

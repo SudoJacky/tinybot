@@ -1,7 +1,8 @@
-import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
+import type { TeamRun, TeamStore } from "../../app-core/native/desktopNativeTeams";
 import { ChatTeamContext } from "../teams/chatTeamContext";
 import { ChatTeamPanel, readChatTeamAttempt } from "../teams/ChatTeamPanel";
 import { chatTeamsApi, useChatTeamRun } from "../teams/useChatTeamRun";
+import { useSidecarTeamControls } from "../teams/useSidecarTeamControls";
 import { ArtifactDetails } from "./ArtifactDetails";
 import { lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState, type Ref, type ReactNode, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,6 +38,7 @@ type Props = {
   children?: ReactNode;
   loadTeamRun?: typeof chatTeamsApi.get;
   loadTeamAttempt?: typeof readChatTeamAttempt;
+  teamsStore?: TeamStore;
   activeSession?: SessionSummary;
   activeDisplaySession?: SessionSummary;
   activeSessionId: string;
@@ -69,7 +71,7 @@ const LazySidecarTerminal = lazy(async () => {
   return { default: module.SidecarTerminal };
 });
 
-export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get, loadTeamAttempt = readChatTeamAttempt, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
+export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get, loadTeamAttempt = readChatTeamAttempt, teamsStore = chatTeamsApi, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
   sessionResponding, onLayoutChange, onHide, onReference, onAskForSpreadsheetChange: handleSpreadsheetAskForChange,
   onHandoff, onError: reportTimelineError }: Props) {
   const { t } = useTranslation("chat");
@@ -94,14 +96,27 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
   const [teamRuns, setTeamRuns] = useState<Record<string, TeamRun>>({});
   const teamTrigger = useRef<HTMLButtonElement | undefined>(undefined);
-  const teamTab = sidecarActiveTab?.kind === "team" && sidecarActiveTab.threadId === activeSessionId ? sidecarActiveTab : undefined;
+  // This is only a renderer scope. A legacy run keeps its original
+  // parentThreadId (including null) when opened from Chat history.
+  const teamScopeId = activeSessionId || "team-history:unbound";
+  const teamTab = sidecarActiveTab?.kind === "team" && sidecarActiveTab.threadId === teamScopeId ? sidecarActiveTab : undefined;
   const teamVisible = !!teamTab && sidecar.presentation !== "closed";
   const teamBoard = useChatTeamRun(teamTab?.runId ?? "", teamVisible, loadTeamRun);
-  const teamRun = teamBoard.run ?? (teamTab ? teamRuns[teamTab.runId] : undefined);
+  const acceptBoardRun = teamBoard.accept;
+  const activeTeamRunId = useRef<string | undefined>(undefined);
+  activeTeamRunId.current = teamTab?.runId;
+  const acceptTeamRun = useCallback((next: TeamRun) => {
+    setTeamRuns(current => ({ ...current, [next.id]: current[next.id]?.revision > next.revision ? current[next.id] : next }));
+    if (activeTeamRunId.current === next.id) acceptBoardRun(next);
+  }, [acceptBoardRun]);
+  const cachedTeamRun = teamTab ? teamRuns[teamTab.runId] : undefined;
+  const teamRun = teamBoard.run && (!cachedTeamRun || teamBoard.run.revision >= cachedTeamRun.revision)
+    ? teamBoard.run : cachedTeamRun;
+  const teamControls = useSidecarTeamControls(teamRun, teamsStore, acceptTeamRun, teamBoard.refresh);
   function openTeam(run: TeamRun, taskId: string, trigger?: HTMLButtonElement) {
-    setTeamRuns(current => ({ ...current, [run.id]: run }));
+    setTeamRuns(current => ({ ...current, [run.id]: current[run.id]?.revision > run.revision ? current[run.id] : run }));
     if (trigger) teamTrigger.current = trigger;
-    dispatchSidecar({ type: "tab.openTeam", threadId: activeSessionId, runId: run.id, taskId,
+    dispatchSidecar({ type: "tab.openTeam", threadId: teamScopeId, runId: run.id, taskId,
       title: tCommon("teams.teamWorkspace") });
   }
   function closeTeamView() {
@@ -146,11 +161,11 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
 
   useEffect(() => {
     dispatchSidecar({
-      threadId: activeSession?.id ?? "",
+      threadId: activeSession?.id || teamScopeId,
       type: "scope.changed",
       workspaceId: activeWorkspaceId,
     });
-  }, [activeSession?.id, activeWorkspaceId]);
+  }, [activeSession?.id, activeWorkspaceId, teamScopeId]);
 
   useEffect(() => {
     if (browserSnapshot) synchronizeBrowserSnapshot(browserSnapshot, false);
@@ -535,7 +550,9 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
         renderBrowser={renderSidecarBrowser}
         renderTerminal={renderSidecarTerminal}
         renderTeam={tab => teamRun && workspaceStore && <ChatTeamPanel key={tab.id} run={teamRun} taskId={tab.taskId}
-          workspaceStore={workspaceStore} loadAttempt={loadTeamAttempt} error={teamBoard.error} onRefresh={teamBoard.refresh}
+          workspaceStore={workspaceStore} loadAttempt={loadTeamAttempt} loadUsageDetails={teamsStore.loadUsageDetails}
+          error={teamBoard.error} controlError={teamControls.error} busy={teamControls.busy} pending={teamControls.pending}
+          onRefresh={teamBoard.refresh} onExecute={teamControls.execute} onControl={teamControls.control}
           onClose={closeTeamView} onSelect={taskId => openTeam(teamRun, taskId)} />}
         tabs={sidecarTabs}
         width={sidecar.width}

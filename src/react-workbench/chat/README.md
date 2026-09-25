@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:b3ff30371c77fbd7e681b8c1f12d0e4f60d49df000c44f4d26900d20ad05b301 -->
+<!-- tinybot-module-fingerprint: sha256:c4da7b850f99ee9d991f1b45c8fa2c8d64f965a7bad4e85a25f04889170be645 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -555,3 +555,7 @@ navigation; Browser and Artifact tabs coexist with it. Team tabs follow the
 parent conversation scope, and closing a tab does not cancel its run. Worker conversation content
 does not enter the parent session. Native Teams owns
 scheduling and durable run state for both entry points.
+The header's Team history lists saved runs even in a new Chat. Independent legacy
+runs remain independent when opened there. The Sidecar Team view provides native
+pause, cancel, resume and explicit failed-task retry, plus attempt history,
+files and run-scoped usage. Hiding the panel changes only the view.

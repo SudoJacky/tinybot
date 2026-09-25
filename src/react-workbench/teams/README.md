@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:472639f53e98d28767079847791629fed7d2deed4dcbaaddd819f1cd4d1f65f3 -->
+<!-- tinybot-module-fingerprint: sha256:66e2945d4a8352ae81e43401348cdb675823c46b639faba28d25ae389da8da29 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -132,7 +132,7 @@ Markdown continues to use the existing Chat renderer and its table/code scrollin
 
 `ChatTeamCard` embeds a recruitment roster in the Chat timeline. Its collapsed
 state does no Team I/O. Expansion loads the board; selecting an employee opens
-a thread-scoped Team tab in the shared Sidecar and reads only that attempt through the canonical
+a thread-scoped Team tab in the shared Sidecar and reads the selected attempt through the canonical
 timeline projection. The inspector reuses `TeamActivity`, `TeamMessage`, task
 statuses, portraits and the member dock from the independent Team route. It shows
 role/task instructions, dependency navigation, activity and reported results.
@@ -146,6 +146,19 @@ Sidecar owns tabs, width, expansion, hiding and narrow-window overlay geometry.
 Escape/Hide restores roster focus. Browser, Artifact and Terminal tabs coexist
 with Team tabs; returning to a Team tab retains the selected employee. Switching
 conversations scopes out its Team tabs. Closing a Team tab never cancels the run.
+
+The Chat header also lists durable Team runs, including independent runs without
+`parentThreadId`. Opening one assigns only the Sidecar display scope; it never
+rewrites ownership or inserts employee messages into Chat. A draft Chat has a
+temporary display scope so this history remains reachable before a Thread exists.
+The Sidecar inspector exposes every recorded attempt, task output and error.
+Files reuse `TeamFiles` and its verified historical artifact reads alongside the
+separate current-file preview; Usage reuses `UsageHistory` filtered by run ID.
+Pause, cancel, resume and per-task retry use the same native revision-checked
+operations as the independent route. A long-running execute request does not
+block pause or cancel. Failed, interrupted or cancelled tasks require explicit
+retry before resume; successful work is not replayed. Control errors remain
+visible for their run, and older polls cannot replace newer control snapshots.
 
 Member editing exposes Research, Execution and Review tool presets. The selected
 profile travels with the member into plan preparation and the durable run;
