@@ -115,7 +115,6 @@ export type ChatPageProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
-  onOpenTeams?: () => void;
   onOpenAutomations?: () => void;
   onActiveWorkspaceChange?: (workingDirectory?: string) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
@@ -245,7 +244,6 @@ export function ChatPage({
   onActiveWorkspaceChange,
   onMascotMoodChange,
   onSessionSidebarCollapsedChange,
-  onOpenTeams,
   onOpenAutomations,
   onStartupSessionHydrated,
   onStopGenerationTargetChange,
@@ -1020,7 +1018,6 @@ export function ChatPage({
         actions={{
           onCancelDeleteConfirmation: (sessionId) => dispatchDelete({ type: "row-left", sessionId }),
           onCollapsedChange: handleSessionSidebarCollapsedChange,
-          onOpenTeams,
           onOpenAutomations,
           onCreateSession: handleCreateSession,
           onDeleteSession: handleDeleteSession,

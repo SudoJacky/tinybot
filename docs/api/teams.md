@@ -16,8 +16,10 @@ src/app-core/native/desktopNativeTeams.ts
 <!-- tinybot-doc-fingerprint: sha256:e1c95769770cd0557198d77762a93234d68d8adad1daa08b0b893d233a4af02b -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
-object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
-confirm assignments, execute work, and inspect results and attempt Threads.
+object or reject with an error string. Chat recruitment and its Sidecar inspector
+use the typed renderer adapter to list runs, control work and inspect attempt
+Threads. The prepare/revise commands remain supported backend APIs, without a
+separate manual Teams page in the renderer.
 
 | Command | Arguments | Result |
 | --- | --- | --- |

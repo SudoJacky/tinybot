@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c4da7b850f99ee9d991f1b45c8fa2c8d64f965a7bad4e85a25f04889170be645 -->
+<!-- tinybot-module-fingerprint: sha256:ecda7b851fb53a0448a724cc7c2d28f7c88e6c9d392f908c16720e964c4f8ef4 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -545,8 +545,7 @@ The sidebar header exposes a clock-icon Scheduled shortcut below Tinybot and
 keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
 
-The optional `onOpenTeams` sidebar action opens the independent Teams route in
-both expanded and collapsed layouts. Workspace Chat also offers `@team` in its
+Workspace Chat offers `@team` in its
 composer. Recruitment tool results render a lazy `ChatTeamCard` outside grouped
 tool rows. The card loads the board on expansion; employee selection opens the
 Team tab in Sidecar. The panel loads only the selected attempt and keeps the
@@ -554,7 +553,7 @@ member dock available. It shares Sidecar resizing, expansion, hiding and tab
 navigation; Browser and Artifact tabs coexist with it. Team tabs follow the
 parent conversation scope, and closing a tab does not cancel its run. Worker conversation content
 does not enter the parent session. Native Teams owns
-scheduling and durable run state for both entry points.
+scheduling and durable run state.
 The header's Team history lists saved runs even in a new Chat. Independent legacy
 runs remain independent when opened there. The Sidecar Team view provides native
 pause, cancel, resume and explicit failed-task retry, plus attempt history,

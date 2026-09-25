@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7899359404505b24665b49228066c490c334ff19ded4a7fe58aa4882e61ba126 -->
+<!-- tinybot-doc-fingerprint: sha256:f962e9b6a4099127b314e5cabd96d6d0e1011f433c6a72bc95dcd1c024dfad81 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -340,22 +340,18 @@ existing application window.
 - [Desktop runtime](../../src-tauri/src/desktop/README.md)
 - [Native runtime services](../../src-tauri/src/runtime/README.md)
 
-The Teams workbench is an independent lazy route, with a goal composer and a
-shared plan/execution/result page. A typed native adapter supplies durable run
-revisions and attempt Threads. Renderer polling never owns the scheduler;
-explicit pause, cancel and retry requests remain backend decisions.
-After its first visit, the shell keeps Team mounted across route navigation for
-the app session. Unsaved plans, in-flight preparation, selected tasks and scroll
-positions survive execution-record round trips. Polling covers known running
-runs even on the Team home or while the route is hidden; durable state remains
-owned by the native Team store.
+Teams are recruited by the main Agent in Chat and inspected in the shared
+Sidecar. A typed native adapter supplies durable run revisions and attempt
+Threads. Renderer polling never owns the scheduler; explicit pause, cancel and
+retry requests remain backend decisions. The former independent Teams route
+resolves to Chat, where saved runs remain reachable through Team history.
 
 Team collaboration uses a run-scoped shared message board: completion publishes a full handoff with summary, unresolved issues and artifact references. Handoff text has no size limit; artifact bodies are read in verified ranges on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.
 
 Chat also exposes `@team`: the main Agent dynamically recruits employees through
 native coordinator tools, appends DAG tasks, waits for committed handoffs and
-integrates results in its existing Turn. The independent Teams route and Chat
-use event-driven waits for the next result or all tasks; progress-only notifications
+integrates results in its existing Turn. Team execution uses event-driven waits
+for the next result or all tasks; progress-only notifications
 do not produce empty tool responses or additional model requests. They
 share the same scheduler and durable board. Attempt conversations have separate
 per-run storage/index/cache scopes; Chat cards load board and employee history

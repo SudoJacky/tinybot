@@ -73,7 +73,6 @@ export const en = {
       }
 },
     routes: {
-      teams: "Teams",
       automations: "Automations",
       chat: "Chat",
       graphs: "Agent Graphs",

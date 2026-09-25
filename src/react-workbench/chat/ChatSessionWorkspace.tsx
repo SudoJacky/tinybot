@@ -15,7 +15,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Users,
   CirclePlus,
   Clock,
   ChevronLeft,
@@ -89,7 +88,6 @@ export type ProjectSessionContext = {
 };
 
 export type ChatSessionWorkspaceActions = {
-  onOpenTeams?: () => void;
   onOpenAutomations?: () => void;
   onCancelDeleteConfirmation: (sessionId: string) => void;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -788,7 +786,6 @@ export function ChatSessionWorkspace({
               </span>
               <PanelLeftOpen aria-hidden="true" className="react-session-list__collapsed-expand" size={18} />
             </button>
-            {actions.onOpenTeams && <button type="button" className="react-session-list__scheduled" aria-label={t("routes.teams", { ns: "common" })} onClick={actions.onOpenTeams}><Users size={18} /><span>{!collapsed && t("routes.teams", { ns: "common" })}</span></button>}
             {actions.onOpenAutomations && (
               <button
                 aria-label={t("shell.scheduledTasks")}
@@ -948,7 +945,6 @@ export function ChatSessionWorkspace({
                   </div>
                 </div>
             </div>
-            {actions.onOpenTeams && <button type="button" className="react-session-list__scheduled" aria-label={t("routes.teams", { ns: "common" })} onClick={actions.onOpenTeams}><Users size={18} /><span>{!collapsed && t("routes.teams", { ns: "common" })}</span></button>}
             {actions.onOpenAutomations && (
               <button
                 className="react-session-list__scheduled"
