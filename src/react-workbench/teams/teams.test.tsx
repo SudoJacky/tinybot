@@ -532,6 +532,7 @@ it("prepares a real workspace-bound roster and waits for explicit start", async 
   await user.click(screen.getByRole("button", { name: "Edit Researcher" }));
   await user.clear(screen.getByRole("textbox", { name: "Display name" }));
   await user.type(screen.getByRole("textbox", { name: "Display name" }), "Lead researcher");
+  await user.selectOptions(screen.getByRole("combobox", { name: "Tools" }), "review");
   await user.click(screen.getByRole("button", { name: "Done" }));
   await user.click(screen.getByRole("button", { name: "Generate plan" }));
   await screen.findByRole("button", { name: "Confirm and start" });
@@ -541,7 +542,7 @@ it("prepares a real workspace-bound roster and waits for explicit start", async 
       workspacePath: "D:/project",
       maxConcurrency: 2,
       members: [
-        expect.objectContaining({ id: "research", displayName: "Lead researcher" }),
+        expect.objectContaining({ id: "research", displayName: "Lead researcher", toolProfile: "review" }),
         expect.objectContaining({ id: "editor", displayName: "Editor" }),
       ],
     }),

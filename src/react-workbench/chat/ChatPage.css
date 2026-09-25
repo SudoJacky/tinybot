@@ -2432,6 +2432,7 @@
 
 .react-tool-activity__preview[data-preview-kind="prose"] {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
 }
@@ -2469,6 +2470,22 @@
   color: var(--color-muted);
   font-size: 10px;
   white-space: nowrap;
+}
+
+.react-tool-activity__expand {
+  grid-column: 1 / -1;
+  justify-self: start;
+  border: 0;
+  padding: 4px 0;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.react-tool-activity__preview[data-preview-kind="prose"] .react-tool-activity__expand {
+  flex-basis: 100%;
 }
 
 .react-tool-activity__code-lines {

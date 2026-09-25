@@ -7,6 +7,7 @@ mod runtime;
 mod store;
 #[cfg(test)]
 mod tests;
+mod tool_policy;
 pub(crate) mod tools;
 
 use model::{RunStatus, TaskRecord, TaskStatus, SCHEMA_VERSION};

@@ -19,6 +19,7 @@ pub(super) async fn prepare_tools(
         "tools",
         "mcp_registry",
     );
+    let worker_policy = crate::teams::tools::worker_tool_policy(thread_store, context)?;
     let capability_policy = context.settings.capability_policy()?;
     let mcp_workspace_root = context
         .settings
@@ -30,6 +31,9 @@ pub(super) async fn prepare_tools(
         .clone()
         .map(|c| Arc::new(c) as Arc<dyn crate::protocol::WorkerRequestCancellation>);
     let mcp_snapshot = if context.settings.mcp_enabled != Some(false)
+        && worker_policy
+            .as_ref()
+            .is_none_or(|policy| policy.allowed.is_none())
         && capability_policy.allows(&crate::protocol::capability::WorkerCapability::McpCall)
     {
         match mcp_runtime
@@ -131,5 +135,6 @@ pub(super) async fn prepare_tools(
     Ok(NativeAgentToolPreparation::Ready(NativeAgentToolCatalog {
         contributors,
         selected_tools,
+        tool_policy: worker_policy.unwrap_or_default(),
     }))
 }

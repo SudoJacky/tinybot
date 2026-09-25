@@ -851,6 +851,7 @@ export const zh = {
     },
     toolActivity: {
       toggleDetails: "展开或收起 {{title}} 的详情", truncated: "预览已截断",
+      showFull: "显示完整内容", showLess: "收起内容",
       status: { running: "执行中", waiting: "等待中", failed: "失败", cancelled: "已取消", pending: "待执行" },
       category: { terminal: "终端", fileRead: "读取文件", web: "网页", planning: "计划", presentation: "数据视图", subagent: "子 Agent", interaction: "交互", tool: "工具" },
       command: "命令", workspaceFile: "工作区文件", currentPage: "当前页面", usedTool: "使用了工具",

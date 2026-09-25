@@ -87,6 +87,7 @@ impl NativeAgentToolDispatcher for WorkspaceDispatcher {
                     },
                 ])?)],
                 selected_tools: context.settings.selected_tools.clone(),
+                tool_policy: NativeAgentToolPolicy::default(),
             }))
         })
     }

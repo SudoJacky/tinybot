@@ -1,5 +1,9 @@
+import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
+import { ChatTeamContext } from "../teams/chatTeamContext";
+import { ChatTeamPanel, readChatTeamAttempt } from "../teams/ChatTeamPanel";
+import { chatTeamsApi, useChatTeamRun } from "../teams/useChatTeamRun";
 import { ArtifactDetails } from "./ArtifactDetails";
-import { lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState, type Ref } from "react";
+import { lazy, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState, type Ref, type ReactNode, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import type { ChatStore, SessionSummary, WorkspaceStore } from "../services";
@@ -30,6 +34,9 @@ export type SidecarResourcesHandle = {
 };
 type Props = {
   ref?: Ref<SidecarResourcesHandle>;
+  children?: ReactNode;
+  loadTeamRun?: typeof chatTeamsApi.get;
+  loadTeamAttempt?: typeof readChatTeamAttempt;
   activeSession?: SessionSummary;
   activeDisplaySession?: SessionSummary;
   activeSessionId: string;
@@ -62,10 +69,11 @@ const LazySidecarTerminal = lazy(async () => {
   return { default: module.SidecarTerminal };
 });
 
-export function SidecarResources({ ref, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
+export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get, loadTeamAttempt = readChatTeamAttempt, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
   sessionResponding, onLayoutChange, onHide, onReference, onAskForSpreadsheetChange: handleSpreadsheetAskForChange,
   onHandoff, onError: reportTimelineError }: Props) {
   const { t } = useTranslation("chat");
+  const { t: tCommon } = useTranslation("common");
   const browser = useSidecarBrowserState(chatStore, activeSession?.id ?? "");
   const { browserError, browserSnapshot } = browser.state;
   const { acceptBrowserSnapshot, clearBrowserError, clearBrowserSnapshot } = browser;
@@ -84,6 +92,23 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
   sidecarRef.current = sidecar;
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
+  const [teamRuns, setTeamRuns] = useState<Record<string, TeamRun>>({});
+  const teamTrigger = useRef<HTMLButtonElement | undefined>(undefined);
+  const teamTab = sidecarActiveTab?.kind === "team" && sidecarActiveTab.threadId === activeSessionId ? sidecarActiveTab : undefined;
+  const teamVisible = !!teamTab && sidecar.presentation !== "closed";
+  const teamBoard = useChatTeamRun(teamTab?.runId ?? "", teamVisible, loadTeamRun);
+  const teamRun = teamBoard.run ?? (teamTab ? teamRuns[teamTab.runId] : undefined);
+  function openTeam(run: TeamRun, taskId: string, trigger?: HTMLButtonElement) {
+    setTeamRuns(current => ({ ...current, [run.id]: run }));
+    if (trigger) teamTrigger.current = trigger;
+    dispatchSidecar({ type: "tab.openTeam", threadId: activeSessionId, runId: run.id, taskId,
+      title: tCommon("teams.teamWorkspace") });
+  }
+  function closeTeamView() {
+    dispatchSidecar({ type: "presentation.hide" });
+    const trigger = teamTrigger.current;
+    requestAnimationFrame(() => { if (trigger?.isConnected) trigger.focus({ preventScroll: true }); });
+  }
   const explicitWorkspaceId = activeDisplaySession?.workingDirectory?.trim() ?? "";
   const activeWorkspaceId = activeDisplaySession
     ? explicitWorkspaceId || DEFAULT_SIDECAR_WORKSPACE_ID
@@ -492,7 +517,15 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
   }
 
   return (
-<Sidecar
+    <ChatTeamContext.Provider value={workspaceStore ? {
+      run: teamVisible ? teamRun : undefined, selectedTaskId: teamVisible ? teamTab?.taskId : undefined,
+      open: openTeam,
+    } : null}>
+      <div className="react-chat-workspace" data-sidecar-presentation={sidecar.presentation}
+        data-sidecar-layout-motion={sidecar.layoutMotion}
+        style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}>
+      {children}
+      <Sidecar
         scopeKey={JSON.stringify([activeSessionId, activeWorkspaceId])}
         activeTabId={sidecarActiveTab?.id ?? ""}
         canCreateBrowser={Boolean(activeSession)}
@@ -501,16 +534,21 @@ export function SidecarResources({ ref, activeSession, activeDisplaySession, act
         renderArtifact={renderSidecarArtifact}
         renderBrowser={renderSidecarBrowser}
         renderTerminal={renderSidecarTerminal}
+        renderTeam={tab => teamRun && workspaceStore && <ChatTeamPanel key={tab.id} run={teamRun} taskId={tab.taskId}
+          workspaceStore={workspaceStore} loadAttempt={loadTeamAttempt} error={teamBoard.error} onRefresh={teamBoard.refresh}
+          onClose={closeTeamView} onSelect={taskId => openTeam(teamRun, taskId)} />}
         tabs={sidecarTabs}
         width={sidecar.width}
         onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
         onCloseTab={handleCloseSidecarTab}
         onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
         onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
-        onHide={hideSidecar}
+        onHide={teamVisible ? closeTeamView : hideSidecar}
         onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
         onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
       />
+      </div>
+    </ChatTeamContext.Provider>
   );
 }
 

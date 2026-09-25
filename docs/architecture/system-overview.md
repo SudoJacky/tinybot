@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:55c1cf14fbfe23682d48bf0da8ef6b6f126c0c2277b3ee908ce49cdc646a5184 -->
+<!-- tinybot-doc-fingerprint: sha256:55fab3ad44c080d67b904605361b89f2baeeb2facafbd17a7d11d3c3ade910a5 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -314,8 +314,9 @@ existing application window.
   session and subscribes to canonical activity for running and inspected tasks.
   Recent activity and latest attempts are shown first, with older records folded.
   Overall progress and the selected member's work use separate panes linked by
-  task selection and a persistent bottom member dock. Public messages and tool
-  activity reuse Chat renderers; reading positions remain per task attempt.
+  task selection and a persistent bottom member dock. Messages, recorded reasoning,
+  tool inputs/results, patch diffs and data views reuse Chat renderers. Tool
+  previews can reveal their full recorded content; reading positions remain per task attempt.
   Its Files view groups reported artifacts by producer task and attempt, reusing
   verified artifact reads and the separate current-workspace file preview.
   See the [Team module](../../src-tauri/src/teams/README.md) and [Team API](../api/teams.md).
@@ -359,6 +360,15 @@ do not produce empty tool responses or additional model requests. They
 share the same scheduler and durable board. Attempt conversations have separate
 per-run storage/index/cache scopes; Chat cards load board and employee history
 only when expanded/selected. This adds neither an Agent Loop nor a second result
-authority. Employee selection opens a side workspace using the standalone Team
-activity, results and member dock; narrow windows switch between Chat and details.
+authority. Employee selection opens a thread-scoped Team tab in the shared
+Sidecar, reusing Team activity, results and the member dock. Sidecar owns tab
+selection, resizing, expansion and narrow-window overlays for all resource kinds.
+Team tabs coexist with Browser, Artifact and Terminal tabs; closing a Team tab
+does not cancel its native run.
 See [Team API](../api/teams.md#chat-coordinator-tools).
+
+Team members persist a Research, Execution or Review tool profile. The bridge
+resolves that profile from the saved employee Thread and attempt, including
+historical and child Threads, and the runtime applies it
+as a ceiling to tool visibility and dispatch. Every employee excludes data-view
+publication and submits internal handoffs for main-Agent integration.

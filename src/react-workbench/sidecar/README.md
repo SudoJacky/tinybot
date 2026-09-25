@@ -1,15 +1,15 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:6e766c21b358d14b10704672c612bfda5a65710cad38c918094c502189fd24e2 -->
+<!-- tinybot-module-fingerprint: sha256:6d791e61d7333a87c7259bfade35326b18dc75dd94b741de94a90b112b0ad2f4 -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
-thread-scoped Browser and Artifact resources, workspace-scoped Terminal
+thread-scoped Browser, Artifact and Team resources, workspace-scoped Terminal
 resources, their tab selection, and the docked, hidden, or expanded Sidecar
 layout.
 
 The module owns renderer state, presentation, and resource lifecycle coordination.
-`SidecarResources.tsx` provisions and
+`SidecarResources.tsx` owns the Chat/Sidecar layout and Team selection context, provisions and
 releases native resources, the native Browser runtime owns WebView2 sessions
 and tabs, and the desktop Terminal runtime owns user PTY processes. Sidecar
 must not become a second authority for either native lifecycle.
@@ -27,6 +27,11 @@ by `SidecarResources`:
 - Browser resources belong to the current Thread and bind one-to-one to native
   WebView2 tabs in that Thread's shared Browser Session.
 - Artifact resources belong to the Thread that produced the Artifact.
+- Team resources identify a run and selected task within the parent Thread.
+  Recruitment cards open or reuse the run tab; `ChatTeamPanel` supplies its
+  content, with only the selected attempt loaded. Team tabs share the shell
+  controls and can coexist with Browser, Artifact and Terminal tabs. Closing
+  their renderer tab does not cancel or otherwise mutate the native Team run.
 - Terminal resources belong to the active workspace. Regular conversations
   share `DEFAULT_SIDECAR_WORKSPACE_ID`, which asks Rust to resolve Tinybot's
   configured default workspace rather than inventing a renderer path.

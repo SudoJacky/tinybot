@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:10116114340d74a42df68d201d65654c8581f39c2c6a321081ee9aeaf4c343a0 -->
+<!-- tinybot-module-fingerprint: sha256:9c804bdba13d32d8606b40dfe19b298d6cebafd478809639df92d8eb5dd502ea -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -66,3 +66,7 @@ rejects non-boolean preferences, and preserves built-in tools when MCP is off.
 Lifecycle-only `subagent.*` controls remain absent from provider schemas, even
 when explicitly selected. Scheduler/alias fixtures explicitly inject an eligible
 test tool rather than depending on production model exposure.
+
+Catalog dispatcher fixtures default to an unrestricted application tool ceiling;
+Team integration exercises narrower profiles through the real bridge. Router
+tests cover selection, activation and patch-command fusion under the ceiling.

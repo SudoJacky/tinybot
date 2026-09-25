@@ -21,6 +21,25 @@ pub(super) struct NativeToolRouter {
 }
 
 impl NativeToolRouter {
+    pub(super) fn restrict_tools(
+        &mut self,
+        policy: &super::NativeAgentToolPolicy,
+        selected: &mut Option<Vec<String>>,
+    ) {
+        if let Some(selected) = selected {
+            selected.retain(|id| {
+                let method = self
+                    .entries
+                    .iter()
+                    .find(|entry| entry.tool_id == *id || entry.method == *id)
+                    .map_or(id.as_str(), |entry| entry.method.as_str());
+                policy.allows(id, method)
+            });
+        }
+        self.entries
+            .retain(|entry| policy.allows(&entry.tool_id, &entry.method));
+    }
+
     pub(super) fn new(entries: Vec<ToolRegistryEntry>) -> Self {
         Self {
             entries,
@@ -523,6 +542,44 @@ mod tests {
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
         assert_eq!(empty_names, vec![UPDATE_PLAN_METHOD.to_string()]);
+    }
+
+    #[test]
+    fn application_policy_bounds_selection_activation_and_patch_shell_fusion() {
+        for selected in [
+            None,
+            Some(vec![
+                "publish_data_view".into(),
+                "apply_patch".into(),
+                "exec_command".into(),
+            ]),
+        ] {
+            let mut router = router();
+            let mut selected = selected;
+            router.restrict_tools(
+                &super::super::NativeAgentToolPolicy {
+                    allowed: Some(vec!["apply_patch".into(), "update_plan".into()]),
+                    denied: vec!["publish_data_view".into()],
+                },
+                &mut selected,
+            );
+            router.configure_for_turn(selected.as_deref()).unwrap();
+            router.configure_mcp_for_turn(Some(true)).unwrap();
+            assert!(router.is_permitted("apply_patch"));
+            for name in ["publish_data_view", "exec_command", "mcp.call_tool"] {
+                assert!(!router.is_permitted(name));
+                assert!(router.activate_for_turn(&[name.into()]).is_err());
+            }
+            let definitions = router.tool_definitions().unwrap();
+            assert!(!definitions
+                .iter()
+                .any(|tool| tool.name == "publish_data_view"));
+            let patch = definitions
+                .iter()
+                .find(|tool| tool.name == "apply_patch")
+                .unwrap();
+            assert!(patch.input_schema["properties"].get("thenRun").is_none());
+        }
     }
 
     #[test]

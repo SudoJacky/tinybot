@@ -38,6 +38,15 @@ impl crate::agent::runtime::test_support::BlockingTestProvider for BoardProvider
                     .unwrap(),
             )
             .unwrap();
+            assert!(context.tool_execution_target("publish_data_view").is_none());
+            assert!(context
+                .tool_execution_target("team.complete_task")
+                .is_some());
+            assert!(context.tool_execution_target("exec_command").is_none());
+            assert_eq!(
+                context.tool_execution_target("apply_patch").is_some(),
+                member.tool_profile == model::TeamToolProfile::Research
+            );
             assert_eq!(identity["memberId"], member.id);
             assert_eq!(identity["displayName"], member.display_name);
             assert!(role.contains(&member.instructions));
@@ -163,6 +172,7 @@ impl Fixture {
                     display_name: id.into(),
                     instructions: format!("Act as {id}"),
                     model: None,
+                    tool_profile: Default::default(),
                 })
                 .collect(),
         }
@@ -295,6 +305,7 @@ async fn chat_recruitment_appends_live_dag_and_notifications_have_a_cursor() {
                 display_name: "New specialist".into(),
                 instructions: "Verify sources".into(),
                 model: None,
+                tool_profile: Default::default(),
             }],
             tasks: vec![task("c", "new-member", &["b"])],
         },
@@ -1174,6 +1185,7 @@ struct ChatTeamProvider {
     recruited: std::sync::atomic::AtomicBool,
     clarify: std::sync::atomic::AtomicBool,
     verify_file: std::sync::atomic::AtomicBool,
+    publish_attempted: std::sync::atomic::AtomicBool,
 }
 impl crate::agent::runtime::test_support::BlockingTestProvider for ChatTeamProvider {
     fn complete(
@@ -1204,12 +1216,27 @@ impl crate::agent::runtime::test_support::BlockingTestProvider for ChatTeamProvi
         };
         if context.metadata.get("teamTaskId").is_some() {
             assert!(context.tool_execution_target("team.recruit").is_none());
+            assert!(context.tool_execution_target("publish_data_view").is_none());
+            assert!(context.tool_execution_target("apply_patch").is_some());
+            if !self
+                .publish_attempted
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return Ok(response("publish_data_view", json!({})));
+            }
+            let messages =
+                serde_json::to_string(&context.messages.to_legacy_messages().unwrap()).unwrap();
+            assert!(
+                messages.contains("native tool `publish_data_view` is unknown or unavailable"),
+                "employee publication must be rejected before argument validation or execution"
+            );
             return Ok(response(
                 "team.complete_task",
                 json!({"summary":"VERIFIED_EMPLOYEE_RESULT","artifacts":[],"unresolved":""}),
             ));
         }
         assert!(context.tool_execution_target("team.recruit").is_some());
+        assert!(context.tool_execution_target("publish_data_view").is_some());
         assert!(context
             .system_instruction_prompt()
             .unwrap()
@@ -1310,6 +1337,7 @@ async fn assert_chat_team(clarify: bool, api_mode: &str) {
             recruited: Default::default(),
             clarify: std::sync::atomic::AtomicBool::new(clarify),
             verify_file: std::sync::atomic::AtomicBool::new(clarify),
+            publish_attempted: Default::default(),
         }),
         Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
         Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
@@ -1387,6 +1415,8 @@ async fn assert_native_executor_persistence(api_mode: &str) {
     let mut spec = f.spec();
     // Custom responsibilities and duplicate display names must survive the
     // scheduler, persisted run, and instruction assembly without name matching.
+    spec.members[0].tool_profile = model::TeamToolProfile::Research;
+    spec.members[1].tool_profile = model::TeamToolProfile::Review;
     spec.members[0].display_name = "证据专家".into();
     spec.members[0].instructions = "Collect source documents and flag evidence gaps.".into();
     spec.members[1].display_name = "证据专家".into();
@@ -1396,6 +1426,7 @@ async fn assert_native_executor_persistence(api_mode: &str) {
         display_name: "Archivist".into(),
         instructions: "Index published artifacts for later retrieval.".into(),
         model: None,
+        tool_profile: Default::default(),
     });
     let run = prepare(&f.root, spec, fork_plan()).unwrap();
     let provider = Arc::new(BoardProvider {
@@ -1450,6 +1481,55 @@ async fn assert_native_executor_persistence(api_mode: &str) {
     .unwrap();
     assert!(main_list["threads"].as_array().unwrap().is_empty());
     let thread_store = thread_store.for_team(&run.id).unwrap();
+    // Reopening a completed employee or continuing its child must preserve the saved
+    // ceiling, even if caller metadata names a different member/profile.
+    let employee = result
+        .tasks
+        .iter()
+        .find(|record| record.task.id == "final")
+        .unwrap();
+    let employee_thread_id = &employee.attempts[0].thread_id;
+    crate::rpc::call_rust_state_service(
+        &thread_store,
+        json!({}),
+        crate::protocol::WorkerRequest::new(
+            "team-test-child",
+            "team-test-child",
+            "thread.create",
+            json!({
+                "threadId": "employee-child",
+                "parentThreadId": employee_thread_id,
+                "source": "subagent",
+            }),
+        ),
+        "Team child",
+    )
+    .unwrap();
+    for thread_id in [employee_thread_id.as_str(), "employee-child"] {
+        let mut context = crate::agent::runtime::AgentTurnContext::from_spec(json!({}), json!({}));
+        context.session_id = thread_id.into();
+        context.metadata = json!({
+            "teamRunId": run.id,
+            "teamMemberId": "archivist",
+            "toolProfile": "execution",
+        });
+        let policy = super::tools::worker_tool_policy(&thread_store, &context)
+            .unwrap()
+            .unwrap();
+        assert!(!policy.allows("publish_data_view", "publish_data_view"));
+        assert!(!policy.allows("exec_command", "exec_command"));
+        assert!(!policy.allows("apply_patch", "workspace.apply_patch"));
+        assert!(policy.allows("search_file_content", "workspace.search_file_content"));
+        assert!(!super::tools::available(&thread_store, &context).unwrap());
+        assert!(super::tools::dispatch(
+            &thread_store,
+            &context,
+            super::tools::COMPLETE,
+            json!({"summary":"unauthorized", "artifacts":[], "unresolved":""}),
+        )
+        .unwrap_err()
+        .contains("active attempt"));
+    }
     let listed = crate::rpc::call_rust_state_service(
         &thread_store,
         json!({}),
@@ -1545,12 +1625,17 @@ async fn retry_after_partial_success_does_not_repeat_completed_work() {
     let f = Fixture::new();
     let mut spec = f.spec();
     spec.max_concurrency = 1;
+    spec.members[1].tool_profile = model::TeamToolProfile::Review;
     let run = prepare(&f.root, spec, fork_plan()).unwrap();
     let (executor, mut rx) = controlled();
     let handle = launch(&f, &run, executor.clone());
     let (first, done) = next(&mut rx).await;
     success(done, "durable evidence");
-    let (_, failed) = next(&mut rx).await;
+    let (original_job, failed) = next(&mut rx).await;
+    assert_eq!(
+        original_job.member.tool_profile,
+        model::TeamToolProfile::Review
+    );
     assert!(failed
         .send(TaskOutcome::Failed("unavailable".into()))
         .is_ok());
@@ -1559,6 +1644,7 @@ async fn retry_after_partial_success_does_not_repeat_completed_work() {
     let handle = launch(&f, &retry, executor);
     let (job, done) = next(&mut rx).await;
     assert_eq!(job.task.id, "b");
+    assert_eq!(job.member.tool_profile, original_job.member.tool_profile);
     success(done, "new evidence");
     let (job, done) = next(&mut rx).await;
     assert_eq!(
@@ -1590,12 +1676,18 @@ fn requires_display_fields_and_migrates_legacy_records_once() {
     legacy["schemaVersion"] = json!(1);
     for member in legacy["spec"]["members"].as_array_mut().unwrap() {
         member.as_object_mut().unwrap().remove("displayName");
+        member.as_object_mut().unwrap().remove("toolProfile");
     }
     for record in legacy["tasks"].as_array_mut().unwrap() {
         record["task"].as_object_mut().unwrap().remove("title");
     }
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let migrated = get(&f.root, &original.id).unwrap();
+    assert!(migrated
+        .spec
+        .members
+        .iter()
+        .all(|member| member.tool_profile == model::TeamToolProfile::Execution));
     assert_eq!(migrated.schema_version, 3);
     assert_eq!(migrated.revision, original.revision + 1);
     assert_eq!(migrated.spec.members[0].display_name, "research");

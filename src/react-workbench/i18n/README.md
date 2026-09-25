@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:bb37588f516b4be9a26c8fd567565b04698c2d1a11f543c4accde036b5814b06 -->
+<!-- tinybot-module-fingerprint: sha256:a88e8b413b09565e0b549e46c3d1332716246bd19be023f9fa7209479d7c82c5 -->
 
 Settings usage resources cover purposes, request outcomes, source identities,
 missing-usage explanations and the shared Team Usage tab in English and Chinese.
@@ -38,6 +38,7 @@ User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.
 Chat code-block wrapping controls use localized labels and tooltips; code
 content remains unchanged.
+Tool previews localize their full-content and collapse controls in both languages.
 Memory management localizes creation, editing, scope filters, selection,
 deletion confirmation, protection explanations, and save status. Entry content
 and paths remain user data; backend conflict details are displayed verbatim.

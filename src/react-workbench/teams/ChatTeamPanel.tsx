@@ -1,12 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X } from "lucide-react";
 import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
 import { createDesktopNativeThreadsApi } from "../../app-core/native/desktopNativeThreads";
 import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 import type { PreviewWorkspaceStore } from "../sidecar/ResultFilePreview";
-import { ChatTeamContext } from "./chatTeamContext";
-import { useChatTeamRun, chatTeamsApi } from "./useChatTeamRun";
 import { projectTeamActivity, type TeamActivity as Activity } from "./useTeamActivity";
 import { TeamActivity, type TeamActivityView } from "./TeamActivity";
 import { TeamMemberDock } from "./TeamMemberDock";
@@ -21,47 +18,13 @@ export async function readChatTeamAttempt(threadId: string, turnId: string) {
   const payload = await threads.getTurnRuntimeState(threadId, turnId);
   return projectTeamActivity(createAgentTimelineModel().load(threadId, [payload]), turnId);
 }
-type Selection = { sessionId: string; run: TeamRun; taskId: string; trigger: HTMLButtonElement };
-
-export function ChatTeamWorkspace({ sessionId, workspaceStore, sidecarPresentation, onHideSidecar,
-  children, loadRun = chatTeamsApi.get, loadAttempt = readChatTeamAttempt, ...props }: ComponentProps<"div"> & {
-  sessionId: string; workspaceStore?: PreviewWorkspaceStore;
-  sidecarPresentation: string; onHideSidecar(): void;
-  loadRun?: typeof chatTeamsApi.get; loadAttempt?: typeof readChatTeamAttempt;
-}) {
-  const [selection, setSelection] = useState<Selection>();
-  const active = selection?.sessionId === sessionId ? selection : undefined;
-  const board = useChatTeamRun(active?.run.id ?? "", !!active, loadRun);
-  const run = board.run ?? active?.run;
-  function close() {
-    const trigger = active?.trigger;
-    setSelection(undefined);
-    requestAnimationFrame(() => { if (trigger?.isConnected) trigger.focus({ preventScroll: true }); });
-  }
-  // A newly opened Browser/Artifact takes the right panel back; switching Chat clears inspection.
-  useEffect(() => { setSelection(undefined); }, [sessionId]);
-  useEffect(() => { if (sidecarPresentation !== "closed") setSelection(undefined); }, [sidecarPresentation]);
-  return <ChatTeamContext.Provider value={workspaceStore ? { run, selectedTaskId: active?.taskId,
-    open: (next, taskId, trigger) => {
-      if (sidecarPresentation !== "closed") onHideSidecar();
-      setSelection({ sessionId, run: next, taskId, trigger });
-    },
-  } : null}>
-    <div {...props} data-team-open={active ? "true" : undefined}>
-      {children}
-      {active && run && workspaceStore && <ChatTeamInspector key={run.id} run={run} taskId={active.taskId}
-        workspaceStore={workspaceStore} loadAttempt={loadAttempt} error={board.error} onRefresh={board.refresh}
-        onClose={close} onSelect={taskId => setSelection({ ...active, taskId })} />}
-    </div>
-  </ChatTeamContext.Provider>;
-}
-
-function ChatTeamInspector({ run, taskId, workspaceStore, loadAttempt, error, onRefresh, onClose, onSelect }: {
+/** Team content inside the shared Sidecar shell; it owns no panel geometry. */
+export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, error, onRefresh, onClose, onSelect }: {
   run: TeamRun; taskId: string; workspaceStore: PreviewWorkspaceStore;
   loadAttempt: typeof readChatTeamAttempt; error?: string; onRefresh(): void; onClose(): void; onSelect(id: string): void;
 }) {
   const { t } = useTranslation("common");
-  const closeButton = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<string, number>());
   const restoredPosition = useRef<string | undefined>(undefined);
@@ -77,7 +40,7 @@ function ChatTeamInspector({ run, taskId, workspaceStore, loadAttempt, error, on
   const activity = loaded?.key === activityKey ? loaded.activity : undefined;
   const [epoch, setEpoch] = useState(0);
   const completed = run.tasks.filter(value => value.status === "succeeded").length;
-  useEffect(() => { closeButton.current?.focus({ preventScroll: true }); }, []);
+  useEffect(() => { panel.current?.focus({ preventScroll: true }); }, []);
   useEffect(() => {
     if (!threadId || !turnId) return;
     let disposed = false;
@@ -108,11 +71,10 @@ function ChatTeamInspector({ run, taskId, workspaceStore, loadAttempt, error, on
     if (scroll.current) positions.current.set(activityKey, scroll.current.scrollTop);
     onSelect(id);
   }
-  return <aside className="chat-team-inspector team-layout" aria-label={t("teams.teamWorkspace")}
+  return <section ref={panel} tabIndex={-1} className="chat-team-inspector team-layout" aria-label={t("teams.teamWorkspace")}
     onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.stopPropagation(); onClose(); } }}>
     <header className="chat-team-inspector__header">
       <div><strong>{t("teams.teamWorkspace")}</strong><p role="status">{t("teams.completedCount", { done: completed, total: run.tasks.length })} · {t(`teams.status.${run.status}`)}</p></div>
-      <button ref={closeButton} aria-label={t("teams.backToChat")} title={t("teams.backToChat")} onClick={onClose}><X size={18} /></button>
     </header>
     <div className="team-completion-track" role="progressbar" aria-label={t("teams.progress")} aria-valuemin={0} aria-valuemax={run.tasks.length} aria-valuenow={completed}>
       <span style={{ transform: `scaleX(${run.tasks.length ? completed / run.tasks.length : 0})` }} />
@@ -126,6 +88,8 @@ function ChatTeamInspector({ run, taskId, workspaceStore, loadAttempt, error, on
       <TeamTaskStatus run={run} record={record} animate={false} />
       <details className="team-assignment" key={taskId}>
         <summary>{t("teams.assignment")}</summary><h3>{t("teams.role")}</h3><p>{member.instructions}</p><h3>{t("teams.instructions")}</h3><p>{record.task.instructions}</p>
+        <h3>{t("teams.toolProfile")}: {t(`teams.toolProfiles.${member.toolProfile ?? "execution"}`)}</h3>
+        <p>{t(`teams.toolProfileHints.${member.toolProfile ?? "execution"}`)}</p><p>{t("teams.employeeHandoffOnly")}</p>
         <h3>{t("teams.dependencies")}</h3>
         {record.task.dependencies.length ? record.task.dependencies.map(id => <button key={id} onClick={() => select(id)}>{run.tasks.find(r => r.task.id === id)!.task.title}</button>) : <p>{t("teams.noDependencies")}</p>}
       </details>
@@ -138,5 +102,5 @@ function ChatTeamInspector({ run, taskId, workspaceStore, loadAttempt, error, on
       {attempt?.error && <p className="team-error" role="alert">{attempt.error}</p>}
     </div>
     <TeamMemberDock run={run} selectedMemberId={member.id} onSelect={select} />
-  </aside>;
+  </section>;
 }

@@ -1401,6 +1401,7 @@ export const en = {
     },
     toolActivity: {
       toggleDetails: "Toggle details for {{title}}", truncated: "preview truncated",
+      showFull: "Show full content", showLess: "Show less",
       status: { running: "Running", waiting: "Waiting", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
       category: { terminal: "Terminal", fileRead: "File read", web: "Web", planning: "Planning", presentation: "Data view", subagent: "Subagent", interaction: "Interaction", tool: "Tool" },
       command: "command", workspaceFile: "workspace file", currentPage: "current page", usedTool: "Used a tool",

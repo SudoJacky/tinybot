@@ -2,7 +2,7 @@ import { Check, ChevronDown, Pencil, Search, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { TeamMember } from "../../app-core/native/desktopNativeTeams";
+import type { TeamMember, TeamToolProfile } from "../../app-core/native/desktopNativeTeams";
 import { TeamMemberAvatar } from "./TeamMemberAvatar";
 
 export function TeamMemberPicker({ members, selectedIds, disabled, onSelectionChange, onChange }: {
@@ -135,6 +135,15 @@ export function TeamMemberPicker({ members, selectedIds, disabled, onSelectionCh
                         <textarea className="react-form-input" required={checked} value={member.instructions}
                           onChange={event => updateMember(member.id, { instructions: event.target.value })} />
                       </label>
+                      <label className="react-settings-choice__label">{t("teams.toolProfile")}
+                        <select className="react-form-input" value={member.toolProfile ?? "execution"}
+                          onChange={event => updateMember(member.id, { toolProfile: event.target.value as TeamToolProfile })}>
+                          {(["research", "execution", "review"] as const).map(profile =>
+                            <option key={profile} value={profile}>{t(`teams.toolProfiles.${profile}`)}</option>)}
+                        </select>
+                      </label>
+                      <p className="team-picker-hint">{t(`teams.toolProfileHints.${member.toolProfile ?? "execution"}`)}</p>
+                      <p className="team-picker-hint">{t("teams.employeeHandoffOnly")}</p>
                     </div>
                   )}
                 </div>

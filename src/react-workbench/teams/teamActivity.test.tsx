@@ -60,7 +60,7 @@ it("surfaces load and stream failures and allows an explicit refresh", async () 
   act(() => receive({ type: "timeline.error", error: "Stream failed" }));
   await waitFor(() => expect(result.current.activity.worker.error).toBe("Stream failed"));
 });
-it("reads only running or inspected attempts and ignores other turns and private reasoning", async () => {
+it("reads only running or inspected attempts and retains recorded reasoning and tool details for the selected turn", async () => {
   const current = run();
   current.tasks.push({ ...current.tasks[0], task: { ...current.tasks[0].task, id: "history" }, status: "succeeded",
     attempts: [{ ...current.tasks[0].attempts[0], threadId: "history", status: "succeeded" }],
@@ -72,13 +72,14 @@ it("reads only running or inspected attempts and ignores other turns and private
   view.rerender({ selected: "history" });
   await waitFor(() => expect(source.readTimeline).toHaveBeenCalledWith("history"));
   const snapshot = timeline("worker", "Public progress");
-  snapshot.turns[0].steps.push({ ...snapshot.turns[0].steps[0], id: "reasoning", kind: "reasoning", summary: "Private reasoning" });
+  snapshot.turns[0].steps.push({ ...snapshot.turns[0].steps[0], id: "reasoning", kind: "reasoning", summary: "Recorded reasoning" });
   snapshot.turns.push({ ...snapshot.turns[0], id: "other" });
-  expect(projectTeamActivity(snapshot, "turn").map((item) => item.text)).toEqual(["Public progress"]);
-  const tool = { ...snapshot.turns[0].steps[0], id: "tool", kind: "tool_call", toolCall: { id: "call", name: "read_file", argsPreview: "secret input", resultPreview: "secret output" } } satisfies ChatStep;
+  expect(projectTeamActivity(snapshot, "turn").map((item) => item.text)).toEqual(["Public progress", "Recorded reasoning"]);
+  const tool = { ...snapshot.turns[0].steps[0], id: "tool", kind: "tool_call", toolCall: { id: "call", name: "read_file", argsJson: { path: "report.txt" }, resultPreview: "File contents", durationMs: 300 } } satisfies ChatStep;
   snapshot.turns[0].steps.push(tool);
-  expect(projectTeamActivity(snapshot, "turn")[1].text).toBe("read_file");
-  expect(JSON.stringify(projectTeamActivity(snapshot, "turn"))).not.toContain("secret");
+  expect(projectTeamActivity(snapshot, "turn")[2].toolCall).toEqual(tool.toolCall);
+  expect(JSON.stringify(projectTeamActivity(snapshot, "turn"))).not.toContain("private instructions");
+  expect(projectTeamActivity(snapshot, "missing")).toEqual([]);
 });
 
 it("retains full public messages and older activity for reading on demand", () => {

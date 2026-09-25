@@ -1,5 +1,5 @@
 # Teams workbench
-<!-- tinybot-module-fingerprint: sha256:02a4770579ebda42b9c849b4db9f428c0ff14769ad717e205927527c27040759 -->
+<!-- tinybot-module-fingerprint: sha256:472639f53e98d28767079847791629fed7d2deed4dcbaaddd819f1cd4d1f65f3 -->
 
 `TeamsRoute` owns the independent Team home and selected run. It uses the shared
 workspace registry and a `TeamStore`; native persistence and scheduling remain
@@ -32,10 +32,14 @@ The latest attempt is visible by default; earlier attempts are folded with their
 original errors and Thread links. `useTeamActivity` observes only running tasks
 and the inspected task through Chat's canonical timeline and shared event
 subscription. Its read path does not select a Chat session. `TeamActivity` reuses
-Chat Markdown and tool activity components. It retains full public messages and
+Chat Markdown, reasoning disclosures, tool activity and patch diff components.
+The projection retains recorded reasoning, tool arguments/results/timing, plan
+steps and data views in execution order. Tool details expand in place; long
+previews can reveal their full recorded content. It retains full messages and
 shows the last five entries, loading earlier entries into the view in groups of
-20 on request. The complete execution record remains one click away. User input, private reasoning
-and raw tool payloads are excluded. Live patches supersede late initial reads;
+20 on request. The complete execution record remains one click away. User input
+is excluded; reasoning is shown only when present in the canonical projection.
+Live patches supersede late initial reads;
 read and stream errors remain visible with an explicit refresh action.
 Updates are batched and subscriptions are disposed when the observed attempts
 change or the view unmounts. Activity file links use the same inline current-file
@@ -128,7 +132,7 @@ Markdown continues to use the existing Chat renderer and its table/code scrollin
 
 `ChatTeamCard` embeds a recruitment roster in the Chat timeline. Its collapsed
 state does no Team I/O. Expansion loads the board; selecting an employee opens
-`ChatTeamWorkspace` beside Chat and reads only that attempt through the canonical
+a thread-scoped Team tab in the shared Sidecar and reads only that attempt through the canonical
 timeline projection. The inspector reuses `TeamActivity`, `TeamMessage`, task
 statuses, portraits and the member dock from the independent Team route. It shows
 role/task instructions, dependency navigation, activity and reported results.
@@ -137,6 +141,15 @@ idle, so later recruitment waves appear. Only running worker history is refreshe
 failures expose explicit retry and late
 reads are discarded after selection changes. Activity disclosure and reading
 positions survive employee switches. No employee history enters the parent
-conversation or ordinary session list. Escape/Close restores roster focus.
-Below 1000px the inspector occupies the workspace until Back to Chat. Switching
-conversations or opening a Browser/Artifact sidecar closes inspection.
+conversation or ordinary session list. `ChatTeamPanel` owns the employee content;
+Sidecar owns tabs, width, expansion, hiding and narrow-window overlay geometry.
+Escape/Hide restores roster focus. Browser, Artifact and Terminal tabs coexist
+with Team tabs; returning to a Team tab retains the selected employee. Switching
+conversations scopes out its Team tabs. Closing a Team tab never cancels the run.
+
+Member editing exposes Research, Execution and Review tool presets. The selected
+profile travels with the member into plan preparation and the durable run;
+recruitment cards also show its capabilities in assignment details. Research
+defaults to browsing/search/patches, Execution inherits permitted work tools,
+and Review reads files and Team handoffs. All employee outputs are internal
+handoffs; only the main Agent publishes final conclusions and data views.

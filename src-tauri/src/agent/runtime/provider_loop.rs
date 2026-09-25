@@ -614,6 +614,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
             context.settings.selected_tools = catalog.selected_tools;
             context.tool_router =
                 super::tool_router::NativeToolRouter::new(tool_registry.list_tools().tools);
+            context
+                .tool_router
+                .restrict_tools(&catalog.tool_policy, &mut context.settings.selected_tools);
         }
         preparation.next("tool_router_configure");
         #[cfg(test)]

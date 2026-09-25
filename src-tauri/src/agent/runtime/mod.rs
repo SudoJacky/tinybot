@@ -420,6 +420,27 @@ pub trait NativeAgentProvider: Send + Sync + 'static {
 pub struct NativeAgentToolCatalog {
     pub contributors: Vec<Arc<dyn crate::tools::registry::ToolContributor>>,
     pub selected_tools: Option<Vec<String>>,
+    pub tool_policy: NativeAgentToolPolicy,
+}
+
+/// Application-owned ceiling, applied before model exposure and execution routing.
+#[derive(Clone, Debug, Default)]
+pub struct NativeAgentToolPolicy {
+    pub allowed: Option<Vec<String>>,
+    pub denied: Vec<String>,
+}
+
+impl NativeAgentToolPolicy {
+    pub fn allows(&self, id: &str, method: &str) -> bool {
+        !self
+            .denied
+            .iter()
+            .any(|value| value == id || value == method)
+            && self
+                .allowed
+                .as_ref()
+                .is_none_or(|allowed| allowed.iter().any(|value| value == id || value == method))
+    }
 }
 
 pub enum NativeAgentToolPreparation {
@@ -441,6 +462,7 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
             Ok(NativeAgentToolPreparation::Ready(NativeAgentToolCatalog {
                 contributors: Vec::new(),
                 selected_tools: context.settings.selected_tools.clone(),
+                tool_policy: NativeAgentToolPolicy::default(),
             }))
         })
     }

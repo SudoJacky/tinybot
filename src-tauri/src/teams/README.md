@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:142cfa6021cf492ffa340c1b4b913d4180398c34c3ec14659ebc644183330193 -->
+<!-- tinybot-module-fingerprint: sha256:bc8f84129112e6bede16140f60f41abf8a501743e0758e4fe797c4b5ec95f54e -->
 
 The command allocates the run ID before invoking the planner and passes it to
 `prepare_with_id`; planner usage therefore shares the eventual board identity.
@@ -66,9 +66,21 @@ model instructions, not an automatic evidence-quality validator; successful
 publication alone does not certify that the requested outcome was achieved.
 
 The configured limit (1–8) bounds concurrent Team tasks, and a member runs at
-most one task at a time. Native workers inherit ordinary workspace capabilities,
-including any existing subagent facilities; this is not a global bound on all
-descendant agents. Members share the selected workspace. The planner assigns
+most one task at a time. Each member saves a `toolProfile`: `research`,
+`execution` (the backward-compatible default), or `review`. Research retains
+web browsing, file search and workspace patches without shell/MCP; review
+retains file search and Team result reads; execution inherits permitted work
+tools. Every profile retains plan and Team handoff tools and excludes
+`publish_data_view` and coordinator tools, including for synthesis employees.
+Only the main Agent delivers final conclusions and user-facing data views.
+The bridge resolves the profile from the saved employee Thread, attempt and member;
+historical and child Threads retain that ceiling, while only the active attempt
+has board authority. Caller metadata cannot select a different profile. The runtime intersects
+inherited selection with this ceiling before exposing or dispatching tools.
+Research/review skip MCP discovery. Ordinary capability and workspace guards
+still apply; profiles do not grant permissions. Retry uses the saved member
+profile. Execution workers may retain existing subagent facilities; this is not
+a global bound on all descendant agents. Members share the selected workspace. The planner assigns
 file ownership in instructions, but the scheduler does not isolate files or
 merge conflicting edits. Existing permissions and approvals remain enforced
 by the native execution layer.
@@ -160,7 +172,8 @@ wait. Progress-only notifications stay inside the runtime, and UI reads remain
 independent. It continues the existing parent turn; it never creates competing
 parent turns. `team.read_result` reads complete messages or verified artifact ranges. Parent
 cancellation propagates to runs started by that turn. Workers inherit model,
-provider and tool selection, but do not receive coordinator tools.
+provider and tool selection, bounded by their saved tool profile; neither
+coordinator tools nor data-view publication is available to employees.
 
 Run JSON stays at `team-runs/<run-id>.json`. Attempt conversations live under
 `team-runs/<run-id>/conversations/`, with separate indexes, caches and lifecycle

@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:e0b3cc32f787799de11b84ce32bf5a6253cbf1dcc2df4c895d8d9d5f44ab9b01 -->
+<!-- tinybot-module-fingerprint: sha256:f8be2fb63b136deb3469fba7ed97902676a55e7aa925f0e20370120c86b24ae3 -->
 
 `desktopNativeTokenUsage` exposes the v3 snapshot and paginated usage details.
 Settings and Teams reuse this API; renderer adapters never accumulate counters.
@@ -185,3 +185,7 @@ desktopNativeTeams carries optional bounded attempt messages and content-hash ar
 
 TeamRun also carries nullable `parentThreadId` for Chat-owned runs. This ownership
 metadata does not move coordination or storage authority into the renderer.
+
+Team members accept an optional `toolProfile` (`research`, `execution`, `review`).
+The native run persists it; omitted legacy values resolve to `execution`.
+All employee profiles exclude data-view publication and retain internal handoff.

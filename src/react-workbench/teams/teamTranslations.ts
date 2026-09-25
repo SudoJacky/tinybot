@@ -1,4 +1,8 @@
 export const teamEn = {
+  toolProfile: "Tools",
+  toolProfiles: { research: "Research", execution: "Execution", review: "Review" },
+  toolProfileHints: { research: "Browse the web, search files and write evidence. No commands or MCP tools.", execution: "Use inherited work tools, including commands and permitted MCP tools.", review: "Read files and team handoffs. No file changes, commands or MCP tools." },
+  employeeHandoffOnly: "Employees submit internal handoffs. The main agent delivers final conclusions and data views.",
   recruitment: "Agent recruitment", recruitedCount: "{{count}} employees recruited", viewing: "Viewing", teamWorkspace: "Team workspace", backToChat: "Back to chat", role: "Role",
   overallProgress: "Overall progress", progressHint: "Follow the work. Select a task to see its activity.",
   workActivity: "Work activity", loadEarlierActivity: "Load earlier activity",
@@ -115,6 +119,10 @@ export const teamEn = {
   },
 };
 export const teamZh: typeof teamEn = {
+  toolProfile: "工具配置",
+  toolProfiles: { research: "调研", execution: "执行", review: "审核" },
+  toolProfileHints: { research: "浏览网页、检索文件、写入证据；不执行命令或调用 MCP 工具。", execution: "使用继承的工作工具，包括命令执行和已允许的 MCP 工具。", review: "读取文件和团队交付物；不修改文件、执行命令或调用 MCP 工具。" },
+  employeeHandoffOnly: "员工提交内部交接，由主 Agent 给出最终结论和数据视图。",
   recruitment: "员工招聘", recruitedCount: "已招聘 {{count}} 名员工", viewing: "正在查看", teamWorkspace: "团队工作台", backToChat: "返回聊天", role: "身份职责",
   overallProgress: "整体进展", progressHint: "查看工作如何推进，选择任务了解详情。",
   workActivity: "工作过程", loadEarlierActivity: "加载更早的活动",

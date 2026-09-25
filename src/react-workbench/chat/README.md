@@ -1,8 +1,11 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:70a6bde110b039c80f89eeef3c2b6cf8b2f0b9455bea3d03f9ee98d61ce6a047 -->
+<!-- tinybot-module-fingerprint: sha256:b3ff30371c77fbd7e681b8c1f12d0e4f60d49df000c44f4d26900d20ad05b301 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
+`MessageReasoning` shares recorded reasoning disclosure and duration labels with
+the Team workbench. `ToolActivityItem` keeps long previews compact and lets users
+expand their full recorded content without leaving the timeline.
 `useChatSessions` subscribes directly to session-list changes for its mounted
 lifetime, including while an uncreated draft is active. External pet chats and
 generated titles appear without route navigation or changing the active tab.
@@ -122,7 +125,8 @@ semantic changes to React. The page owns tab selection, composer draft
 persistence, scroll restoration, and temporary deleted-row animation snapshots;
 it does not mutate the application's session data. Module tests cover concurrent
 draft creation, ID/title reconciliation, deletion events, and visible failures.
-`SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
+`SidecarResources` owns the shared workspace layout, Browser, Terminal, Artifact,
+and Team tab state and lifecycle
 coordination. The page holds only Sidecar layout presentation and invokes its
 open/toggle operations; resource snapshots never enter page state.
 The Chat header offers an open action only while Sidecar is closed. When visible,
@@ -545,8 +549,9 @@ The optional `onOpenTeams` sidebar action opens the independent Teams route in
 both expanded and collapsed layouts. Workspace Chat also offers `@team` in its
 composer. Recruitment tool results render a lazy `ChatTeamCard` outside grouped
 tool rows. The card loads the board on expansion; employee selection opens the
-shared Team inspector beside Chat (or in place on narrow windows). The inspector
-loads only the selected attempt, keeps the member dock available, and closes when
-switching conversations or opening the other sidecar. Worker conversation content
+Team tab in Sidecar. The panel loads only the selected attempt and keeps the
+member dock available. It shares Sidecar resizing, expansion, hiding and tab
+navigation; Browser and Artifact tabs coexist with it. Team tabs follow the
+parent conversation scope, and closing a tab does not cancel its run. Worker conversation content
 does not enter the parent session. Native Teams owns
 scheduling and durable run state for both entry points.

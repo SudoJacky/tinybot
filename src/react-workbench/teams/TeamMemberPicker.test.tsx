@@ -49,6 +49,8 @@ it("keeps a filtered editor mounted through renaming and retains edits after rem
   await user.click(screen.getByRole("button", { name: "Configure members · 3" }));
   await user.type(screen.getByRole("searchbox"), "analyst");
   await user.click(screen.getByRole("button", { name: "Edit Analyst" }));
+  expect(screen.getByRole("combobox", { name: "Tools" })).toHaveValue("execution");
+  await user.selectOptions(screen.getByRole("combobox", { name: "Tools" }), "review");
   const name = screen.getByRole("textbox", { name: "Display name" });
   await user.clear(name);
   await user.type(name, "Strategist");
@@ -57,6 +59,7 @@ it("keeps a filtered editor mounted through renaming and retains edits after rem
   await user.click(screen.getByRole("checkbox", { name: "Strategist" }));
   await user.click(screen.getByRole("checkbox", { name: "Strategist" }));
   expect(screen.getByRole("textbox", { name: "Instructions" })).toHaveValue("Evaluate options");
+  expect(screen.getByRole("combobox", { name: "Tools" })).toHaveValue("review");
   await user.click(document.body);
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Configure members · 3" }));

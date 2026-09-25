@@ -22,6 +22,22 @@ function scopedState(threadId = "thread-1", workspaceId = "D:/code/tinybot") {
 }
 
 describe("sidecar resource tabs", () => {
+  it("reuses each run tab, preserves employee selection and isolates teams by conversation", () => {
+    let state = reduceSidecarState(scopedState(), { type: "tab.openTeam", threadId: "thread-1", runId: "run", taskId: "alice", title: "Team" });
+    const teamId = state.activeTabId;
+    state = reduceSidecarState(state, { type: "tab.newTerminal" });
+    const terminalId = state.activeTabId;
+    state = reduceSidecarState(state, { type: "tab.openTeam", threadId: "thread-1", runId: "run", taskId: "bob", title: "Team" });
+    expect(state.tabs).toHaveLength(2);
+    expect(activeSidecarTab(state)).toMatchObject({ id: teamId, taskId: "bob" });
+    state = reduceSidecarState(state, { type: "scope.changed", threadId: "thread-2", workspaceId: state.currentWorkspaceId });
+    expect(visibleSidecarTabs(state).map(tab => tab.id)).toEqual([terminalId]);
+    state = reduceSidecarState(state, { type: "scope.changed", threadId: "thread-1", workspaceId: state.currentWorkspaceId });
+    state = reduceSidecarState(state, { type: "tab.activate", tabId: teamId });
+    expect(activeSidecarTab(state)).toMatchObject({ taskId: "bob" });
+    state = reduceSidecarState(state, { type: "tab.close", tabId: teamId });
+    expect(state.activeTabId).toBe(terminalId);
+  });
   it("applies direct resize immediately and restores motion only for presentation changes", () => {
     let state = reduceSidecarState(scopedState(), { type: "tab.newTerminal" });
     for (const width of [504, 700, 999, 999]) {

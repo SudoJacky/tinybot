@@ -7,6 +7,7 @@ import {
   PanelRightClose,
   Plus,
   SquareTerminal,
+  Users,
   X,
 } from "lucide-react";
 import {
@@ -31,6 +32,7 @@ import {
   type SidecarShell,
   type SidecarTab,
   type SidecarTerminalTab,
+  type SidecarTeamTab,
 } from "./sidecarModel";
 import "./Sidecar.css";
 
@@ -52,6 +54,7 @@ export type SidecarProps = {
   renderArtifact: (tab: SidecarArtifactTab) => ReactNode;
   renderBrowser: (tab: SidecarBrowserTab, surfaceVisible: boolean) => ReactNode;
   renderTerminal: (tab: SidecarTerminalTab) => ReactNode;
+  renderTeam?: (tab: SidecarTeamTab) => ReactNode;
 };
 
 export function Sidecar({
@@ -70,6 +73,7 @@ export function Sidecar({
   renderArtifact,
   renderBrowser,
   renderTerminal,
+  renderTeam,
   tabs,
   width,
 }: SidecarProps) {
@@ -411,6 +415,7 @@ export function Sidecar({
       >
         {contentPresent && activeTab?.kind === "browser" ? renderBrowser(activeTab, !hidden) : null}
         {contentPresent && activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
+        {contentPresent && activeTab?.kind === "team" ? renderTeam?.(activeTab) : null}
         {contentPresent && activeTab?.kind === "artifact" ? (
           <div className="react-sidecar__artifact">{renderArtifact(activeTab)}</div>
         ) : null}
@@ -455,6 +460,7 @@ function SidecarEmptyState({
 function sidecarTabIcon(tab: SidecarTab) {
   if (tab.kind === "browser") return Globe2;
   if (tab.kind === "terminal") return SquareTerminal;
+  if (tab.kind === "team") return Users;
   return FileChartColumn;
 }
 

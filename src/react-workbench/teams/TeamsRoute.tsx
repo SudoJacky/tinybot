@@ -46,16 +46,19 @@ export default function TeamsRoute({
   const [members, setMembers] = useState<TeamMember[]>(() => [
     {
       id: "research",
+      toolProfile: "research",
       displayName: t("teams.research"),
       instructions: t("teams.researchInstructions"),
     },
     {
       id: "analysis",
+      toolProfile: "execution",
       displayName: t("teams.analyst"),
       instructions: t("teams.analystInstructions"),
     },
     {
       id: "editor",
+      toolProfile: "execution",
       displayName: t("teams.editor"),
       instructions: t("teams.editorInstructions"),
     },

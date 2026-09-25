@@ -1,11 +1,10 @@
-import { ChatTeamWorkspace } from "../teams/ChatTeamWorkspace";
 import type { ComposerSkillOption } from "../../components/ui/composerContracts";
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useChatApplication } from "./useChatApplication";
-import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
 import {
@@ -1039,15 +1038,24 @@ export function ChatPage({
         workspaceRegistryStore={workspaceRegistryStore}
       >
       {({ availableWorkspaces, chooseWorkspace, workspaceError, workspacePickerPending }) => (
-      <ChatTeamWorkspace
-        sessionId={activeSessionId ?? ""}
+      <SidecarResources
+        ref={sidecarResources}
+        activeSession={activeSession}
+        activeDisplaySession={activeDisplaySession}
+        activeSessionId={activeSessionId}
+        chatStore={chatStore}
         workspaceStore={workspaceStore}
-        sidecarPresentation={sidecar.presentation}
-        onHideSidecar={() => sidecarResources.current?.toggle()}
-        className="react-chat-workspace"
-        data-sidecar-presentation={sidecar.presentation}
-        data-sidecar-layout-motion={sidecar.layoutMotion}
-        style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
+        artifactReviewEpoch={artifactReviewEpoch}
+        sessionResponding={sessionResponding}
+        onLayoutChange={setSidecar}
+        onHide={() => { restoreSidecarFocusRef.current = true; }}
+        onReference={(reference) => {
+          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
+          setComposerFocusRequestId((current) => current + 1);
+        }}
+        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
+        onHandoff={chatActions.completeBrowserHandoff}
+        onError={reportTimelineError}
       >
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined} data-quick-start={showQuickStart || undefined}>
         <header className="react-chat-header">
@@ -1314,25 +1322,7 @@ export function ChatPage({
         </div>
       </main>
 
-      <SidecarResources
-        ref={sidecarResources}
-        activeSession={activeSession}
-        activeDisplaySession={activeDisplaySession}
-        activeSessionId={activeSessionId}
-        chatStore={chatStore}
-        workspaceStore={workspaceStore}
-        artifactReviewEpoch={artifactReviewEpoch}
-        sessionResponding={sessionResponding}
-        onLayoutChange={setSidecar}
-        onHide={() => { restoreSidecarFocusRef.current = true; }}
-        onReference={(reference) => {
-          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
-          setComposerFocusRequestId((current) => current + 1);
-        }}
-        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
-        onHandoff={chatActions.completeBrowserHandoff}
-        onError={reportTimelineError}
-      />
+
 
       {presentDrawer ? (
         <aside
@@ -1360,7 +1350,7 @@ export function ChatPage({
           </div>
         </aside>
       ) : null}
-      </ChatTeamWorkspace>
+      </SidecarResources>
       )}
       </ChatSessionWorkspace>
     </section>

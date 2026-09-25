@@ -6,11 +6,13 @@ export type TeamModel = {
   providerId?: string | null;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
 };
+export type TeamToolProfile = "research" | "execution" | "review";
 export type TeamMember = {
   id: string;
   displayName: string;
   instructions: string;
   model?: TeamModel | null;
+  toolProfile?: TeamToolProfile;
 };
 export type TeamTask = {
   id: string;
