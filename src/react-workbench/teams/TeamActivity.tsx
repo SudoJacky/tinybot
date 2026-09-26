@@ -42,7 +42,6 @@ export function TeamActivity({ activity, onRefresh, threadId, workspacePath, wor
     </div>);
   }
   return <section className="team-activity" aria-label={t("teams.recentActivity")}>
-    <h3>{t("teams.workActivity")}</h3>
     {activity?.error && <div className="team-error" role="alert">
       {activity.error}<button onClick={onRefresh}>{t("teams.refresh")}</button>
     </div>}

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ChevronDown, FileText, ListTodo, Pause, Play, Square, ChartNoAxesColumn } from "lucide-react";
 import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
 import { createDesktopNativeThreadsApi } from "../../app-core/native/desktopNativeThreads";
 import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
@@ -14,6 +15,7 @@ import { TeamMemberDock } from "./TeamMemberDock";
 import { TeamMemberAvatar } from "./TeamMemberAvatar";
 import { TeamTaskStatus } from "./TeamTaskStatus";
 import { TeamMessage } from "./TeamMessage";
+import teamWorkspaceIcon from "./assets/team-workspace.png";
 import "./teams.css";
 import "./chatTeamCard.css";
 
@@ -50,7 +52,6 @@ export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, loadUs
   const [loaded, setLoaded] = useState<{ key: string; activity: Activity }>();
   const activity = loaded?.key === activityKey ? loaded.activity : undefined;
   const [epoch, setEpoch] = useState(0);
-  const completed = run.tasks.filter(value => value.status === "succeeded").length;
   useEffect(() => { panel.current?.focus({ preventScroll: true }); }, []);
   useEffect(() => {
     if (!threadId || !turnId) return;
@@ -95,26 +96,26 @@ export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, loadUs
   return <section ref={panel} tabIndex={-1} className="chat-team-inspector team-layout" aria-label={t("teams.teamWorkspace")}
     onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented) { event.stopPropagation(); onClose(); } }}>
     <header className="chat-team-inspector__header">
-      <div><strong>{t("teams.teamWorkspace")}</strong><p role="status">{t("teams.completedCount", { done: completed, total: run.tasks.length })} · {t(`teams.status.${run.status}`)}</p></div>
+      <div className="chat-team-inspector__identity">
+        <img src={teamWorkspaceIcon} alt="" className="chat-team-inspector__icon" />
+        <div><h2>{t("teams.teamWorkspace")}</h2><p role="status">{t(`teams.status.${run.status}`)}</p></div>
+      </div>
       <div className="chat-team-inspector__controls">
         {run.status === "running" ? <>
-          <button disabled={busy || !!pending} onClick={() => void onControl("pause")}>{t("teams.pause")}</button>
-          <button disabled={busy || pending === "cancel"} onClick={() => void onControl("cancel")}>{t("teams.stop")}</button>
+          <button disabled={busy || !!pending} onClick={() => void onControl("pause")}><Pause size={15} aria-hidden="true" />{t("teams.pause")}</button>
+          <button disabled={busy || pending === "cancel"} onClick={() => void onControl("cancel")}><Square size={14} aria-hidden="true" />{t("teams.stop")}</button>
         </> : canExecute(run) ? <button disabled={busy || pending === "start"} onClick={onExecute}>
-          {run.status === "planned" ? t("teams.start") : t("teams.resume")}
+          <Play size={15} aria-hidden="true" />{run.status === "planned" ? t("teams.start") : t("teams.resume")}
         </button> : null}
+        <div className="chat-team-inspector__tabs" role="tablist" aria-label={t("teams.details")}>
+          <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}><ListTodo size={16} aria-hidden="true" />{t("teams.tasks")}</button>
+          <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><FileText size={16} aria-hidden="true" />{t("teams.files")}</button>
+          <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}><ChartNoAxesColumn size={16} aria-hidden="true" />{usageText("usage.tab")}</button>
+        </div>
       </div>
     </header>
     {pending && <p className="chat-team-inspector__notice" role="status">{t(`teams.${pending === "start" ? "loading" : pending === "pause" ? "pausing" : "cancelling"}`)}</p>}
     {controlError && <p className="chat-team-inspector__notice team-error" role="alert">{controlError}</p>}
-    <div className="team-completion-track" role="progressbar" aria-label={t("teams.progress")} aria-valuemin={0} aria-valuemax={run.tasks.length} aria-valuenow={completed}>
-      <span style={{ transform: `scaleX(${run.tasks.length ? completed / run.tasks.length : 0})` }} />
-    </div>
-    <div className="chat-team-inspector__tabs" role="tablist" aria-label={t("teams.details")}>
-      <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}>{t("teams.tasks")}</button>
-      <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}>{t("teams.files")}</button>
-      <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}>{usageText("usage.tab")}</button>
-    </div>
     <div className="chat-team-inspector__scroll" ref={scroll} onScroll={event => {
       if (restoredPosition.current === activityKey) positions.current.set(activityKey, event.currentTarget.scrollTop);
     }}>
@@ -125,17 +126,23 @@ export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, loadUs
           ? <UsageHistory key={run.id} load={loadUsageDetails} teamRunId={run.id} tasks={Object.fromEntries(run.tasks.map(value => [value.task.id, value.task.title]))} />
           : <p>{usageText("profile.unavailable")}</p>
         : <>
-      <div className="team-worker-heading"><TeamMemberAvatar memberId={member.id} /><div><span>{member.displayName}</span><h2>{record.task.title}</h2></div></div>
-      <TeamTaskStatus run={run} record={record} animate={false} />
+      <details className="team-assignment" key={taskId}>
+        <summary className="team-worker-heading">
+          <TeamMemberAvatar memberId={member.id} />
+          <span className="team-worker-heading__text"><strong>{member.displayName}</strong><span>{record.task.title}</span></span>
+          <TeamTaskStatus run={run} record={record} animate={false} />
+          <span className="team-assignment__label">{t("teams.assignment")}<ChevronDown size={15} aria-hidden="true" /></span>
+        </summary>
+        <div className="team-assignment__content">
+          <h3>{t("teams.role")}</h3><p>{member.instructions}</p><h3>{t("teams.instructions")}</h3><p>{record.task.instructions}</p>
+          <h3>{t("teams.toolProfile")}: {t(`teams.toolProfiles.${member.toolProfile ?? "execution"}`)}</h3>
+          <p>{t(`teams.toolProfileHints.${member.toolProfile ?? "execution"}`)}</p><p>{t("teams.employeeHandoffOnly")}</p>
+          <h3>{t("teams.dependencies")}</h3>
+          {record.task.dependencies.length ? record.task.dependencies.map(id => <button key={id} onClick={() => select(id)}>{run.tasks.find(r => r.task.id === id)!.task.title}</button>) : <p>{t("teams.noDependencies")}</p>}
+        </div>
+      </details>
       {["failed", "interrupted", "cancelled"].includes(record.status) && run.status !== "running" &&
         <div><p>{t("teams.retryHint")}</p><button disabled={busy} onClick={() => void onControl("retry", [record.task.id])}>{t("teams.retry")}</button></div>}
-      <details className="team-assignment" key={taskId}>
-        <summary>{t("teams.assignment")}</summary><h3>{t("teams.role")}</h3><p>{member.instructions}</p><h3>{t("teams.instructions")}</h3><p>{record.task.instructions}</p>
-        <h3>{t("teams.toolProfile")}: {t(`teams.toolProfiles.${member.toolProfile ?? "execution"}`)}</h3>
-        <p>{t(`teams.toolProfileHints.${member.toolProfile ?? "execution"}`)}</p><p>{t("teams.employeeHandoffOnly")}</p>
-        <h3>{t("teams.dependencies")}</h3>
-        {record.task.dependencies.length ? record.task.dependencies.map(id => <button key={id} onClick={() => select(id)}>{run.tasks.find(r => r.task.id === id)!.task.title}</button>) : <p>{t("teams.noDependencies")}</p>}
-      </details>
       {run.tasks.filter(r => r.task.memberId === member.id).length > 1 && <div className="chat-team-inspector__assignments">
         {run.tasks.filter(r => r.task.memberId === member.id).map(r => <button key={r.task.id} aria-pressed={taskId === r.task.id} onClick={() => select(r.task.id)}>{r.task.title}</button>)}
       </div>}
@@ -145,7 +152,7 @@ export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, loadUs
       </div>}
       {attempt ? <TeamActivity key={attempt.threadId} activity={activity} onRefresh={() => setEpoch(n => n + 1)} threadId={attempt.threadId}
         workspacePath={run.spec.workspacePath} workspaceStore={workspaceStore} savedView={views.current.get(attempt.threadId)} onViewChange={view => views.current.set(attempt.threadId, view)} /> : <p>{t("teams.noActivity")}</p>}
-      {attempt?.output && <section><h3>{t("teams.output")}</h3><TeamMessage key={attempt.threadId} runId={run.id} attempt={attempt} workspacePath={run.spec.workspacePath} workspaceStore={workspaceStore} /></section>}
+      {attempt?.output && <section className="chat-team-inspector__output"><h3>{t("teams.output")}</h3><TeamMessage key={attempt.threadId} runId={run.id} attempt={attempt} workspacePath={run.spec.workspacePath} workspaceStore={workspaceStore} /></section>}
       {attempt?.error && <p className="team-error" role="alert">{attempt.error}</p>}
       </>}
     </div>

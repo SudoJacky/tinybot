@@ -1,4 +1,3 @@
-import { Check, Loader2, AlertCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 import { TeamMemberAvatar } from "./TeamMemberAvatar";
@@ -19,17 +18,11 @@ export function TeamMemberDock({ run, selectedMemberId, onSelect }: {
       return <button key={member.id} className={`team-dock-member is-${state}`}
         disabled={!task} aria-pressed={selectedMemberId === member.id}
         aria-label={task ? t("teams.viewMemberTask", { member: member.displayName, task: task.task.title }) : member.displayName}
-        title={task?.task.title ?? member.instructions}
+        title={`${member.displayName} · ${task?.task.title ?? member.instructions}`}
         onClick={() => task && onSelect(task.task.id)}>
-        <TeamMemberAvatar memberId={member.id}>
-          <span className="team-dock-state" aria-hidden="true">
-            {state === "running" ? <Loader2 size={12} className="team-running-indicator" />
-              : state === "succeeded" ? <Check size={12} />
-              : ["failed", "interrupted", "cancelled"].includes(state) ? <AlertCircle size={12} /> : null}
-          </span>
-        </TeamMemberAvatar>
+        <TeamMemberAvatar memberId={member.id} />
         <strong>{member.displayName}</strong>
-        <span>{state === "idle" ? t("teams.idleMember") : t(`teams.status.${state}`)}</span>
+        <span className={`team-status is-${state}`}><span className="team-state-dot" aria-hidden="true" />{state === "idle" ? t("teams.idleMember") : t(`teams.status.${state}`)}</span>
       </button>;
     })}
   </nav>;

@@ -116,8 +116,11 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
   function openTeam(run: TeamRun, taskId: string, trigger?: HTMLButtonElement) {
     setTeamRuns(current => ({ ...current, [run.id]: current[run.id]?.revision > run.revision ? current[run.id] : run }));
     if (trigger) teamTrigger.current = trigger;
+    const firstOpen = sidecar.presentation === "closed" && !sidecar.tabs.some(tab =>
+      tab.kind === "team" && tab.threadId === teamScopeId && tab.runId === run.id);
     dispatchSidecar({ type: "tab.openTeam", threadId: teamScopeId, runId: run.id, taskId,
       title: tCommon("teams.teamWorkspace") });
+    if (firstOpen) dispatchSidecar({ type: "presentation.toggleExpanded" });
   }
   function closeTeamView() {
     dispatchSidecar({ type: "presentation.hide" });

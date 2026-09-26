@@ -1,9 +1,11 @@
 # Teams in Chat and Sidecar
-<!-- tinybot-module-fingerprint: sha256:67d3c6e6c835eb337f666b668872f247d46620001da9cc663474a13f57257cc0 -->
+<!-- tinybot-module-fingerprint: sha256:0d54c3f523ef45d46b04fd78ffbfd865d1adabfe8fbe5c21c4d4acdb6c1d1881 -->
 
 The main Agent recruits employees through `team.recruit` while working in Chat. The native Team store owns run revisions, scheduling, retries and durable attempt Threads. Employees use the saved Research, Execution or Review tool profile selected at recruitment and hand work back internally; only the main Agent gives the final user answer. This renderer does not prepare a manual plan or create an independent Team run.
 
 `ChatTeamCard` shows the recruited roster in the parent conversation. Expanding it loads the board; selecting an employee opens `ChatTeamPanel` in a Team tab of the shared Sidecar. The panel shows saved instructions, prerequisites, actual tool profile, task status, activity, output and errors. Each attempt can be selected independently; its timeline and reading position stay with that attempt. `TeamMemberDock` navigates among members without selecting an employee Thread as the ordinary Chat session. The run board refreshes while visible, and late older revisions cannot replace newer snapshots.
+
+The workspace header uses the generated transparent orange collaboration image from `assets/team-workspace.png`, with run controls and Tasks, Files and Usage together. The employee row expands its saved task brief; recorded activity stays in a flat reading surface above the fixed, horizontally scrollable member dock. Each member retains its actual status, including failed, interrupted and cancelled work. Attempt scroll restoration owns the reading position, with browser scroll anchoring disabled to prevent asynchronous content from moving the restored position. The header shows run status without substituting employee completion counts for main-task progress.
 
 The Chat header's `ChatTeamHistory` lists durable runs, including older independent runs with no `parentThreadId`. Opening one sets only a display scope for Sidecar; it never changes run ownership or imports employee messages into Chat. History is available from an empty draft as well as an existing conversation. Hiding Sidecar closes the view without cancelling native work. Switching conversations scopes their Team tabs separately.
 

@@ -38,7 +38,7 @@
   background: currentColor;
   flex-shrink: 0;
 }
-.team-status:is(.is-failed, .is-interrupted) {
+.team-status:is(.is-failed, .is-interrupted, .is-cancelled) {
   color: var(--color-error);
 }
 .team-error {
@@ -77,34 +77,9 @@
 @keyframes team-running-spin {
   to { transform: rotate(360deg); }
 }
-.team-completion-track {
-  height: 2px;
-  flex-shrink: 0;
-  overflow: hidden;
-  background: var(--color-surface-soft);
-}
-.team-completion-track > span {
-  display: block;
-  height: 100%;
-  background: var(--color-success);
-  transform-origin: left;
-  transition: transform 240ms cubic-bezier(0.23, 1, 0.32, 1);
-}
-.team-assignment > section {
-  border-bottom: 1px solid var(--color-hairline);
-  padding-block: 20px;
-}
-.team-assignment > section > p {
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 @media (prefers-reduced-motion: reduce) {
   .team-running-indicator {
     animation: none;
-  }
-  .team-completion-track > span {
-    transition: none;
   }
   .team-layout * {
     scroll-behavior: auto !important;
@@ -123,41 +98,47 @@
 .team-file-group > p { margin-top: 6px; }
 .team-activity summary, .team-files summary { cursor: pointer; padding-block: 10px; color: var(--color-muted); }
 .team-activity summary:focus-visible, .team-files summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.team-worker-heading { display: flex; align-items: center; gap: 12px; }
-.team-worker-heading > div { min-width: 0; }
-.team-worker-heading > div > span { color: var(--color-muted); font-size: 12px; }
-.team-worker-heading h2 { margin-top: 4px; font-size: 17px; line-height: 1.5; }
-.team-worker-heading .team-avatar { width: 40px; height: 40px; }
-.team-assignment { margin-top: 16px; }
-.team-assignment summary { cursor: pointer; padding-block: 8px; color: var(--color-muted); }
+.team-worker-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.team-worker-heading__text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; flex: 1; }
+.team-worker-heading__text strong { font-size: 14px; font-weight: 650; }
+.team-worker-heading__text > span { color: var(--color-muted); font-size: 13px; }
+.team-worker-heading .team-avatar { width: 36px; height: 36px; }
+.team-assignment summary { cursor: pointer; padding: 12px 14px; list-style: none; background: var(--color-surface-soft); border-radius: 9px; }
+.team-assignment summary::-webkit-details-marker { display: none; }
+.team-assignment__label { display: inline-flex; align-items: center; gap: 6px; color: var(--color-muted); font-size: 12px; margin-left: auto; }
+.team-assignment[open] .team-assignment__label svg { transform: rotate(180deg); }
+.team-assignment__content { padding: 4px 14px 16px; border-bottom: 1px solid var(--color-hairline); }
+.team-assignment__content h3 { font-size: 12px; margin-top: 14px; margin-bottom: 5px; }
 .team-assignment summary:focus-visible {
   outline: 2px solid var(--color-primary); outline-offset: 2px;
 }
-.team-work-event { margin-block: 10px; }
-.team-work-event.is-message { padding-block: 8px; }
+.team-work-event { margin-block: 8px; min-width: 0; }
+.team-work-event.is-message { padding-block: 12px; }
+.team-work-event:is(.is-plan, .is-delegate) { padding-block: 12px; border-top: 1px solid var(--color-hairline); }
 .team-work-event .react-message-markdown { font-size: 14px; line-height: 1.8; }
 .team-work-event .react-message-markdown p { color: var(--color-ink); }
-.team-work-event .react-timeline-activity__header { gap: 10px; }
+.team-work-event .react-timeline-activity__header { gap: 12px; min-height: 40px; }
+.team-work-event .react-timeline-activity__heading { flex: 1; flex-wrap: wrap; }
+.team-work-event .react-timeline-activity__title { white-space: normal; overflow-wrap: anywhere; font-size: 13px; }
+.team-work-event .react-timeline-activity__meta { font-size: 11px; }
+.team-work-event .react-tool-activity__status { font-size: 11px; }
+.team-work-event .react-tool-activity__status[data-status="active"] { color: var(--color-primary-active); }
+.team-work-event .react-tool-activity__details { padding-left: 28px; }
+.team-work-event .react-tool-activity__preview { border: 0; border-left: 2px solid var(--color-hairline); border-radius: 0; background: transparent; }
 .team-member-dock {
   display: flex; justify-content: safe center; gap: 8px; overflow-x: auto;
   flex-shrink: 0; padding: 12px 4px 2px; scrollbar-width: thin;
 }
 .team-layout .team-dock-member {
-  display: flex; flex-direction: column; flex: 0 0 116px; gap: 6px;
-  padding: 12px 10px; min-width: 0; border: 1px solid transparent; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; flex: 0 0 104px; gap: 4px;
+  padding: 8px 10px; min-width: 0; border: 1px solid transparent; border-radius: 9px;
   background: var(--color-surface-soft); transition: background 160ms ease, border-color 160ms ease;
 }
 .team-dock-member strong, .team-dock-member > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team-dock-member strong { font-size: 12px; font-weight: 500; }
-.team-dock-member > span:last-child { font-size: 11px; color: var(--color-muted); }
-.team-layout .team-dock-member[aria-pressed="true"] { border-color: var(--color-primary); background: var(--color-panel); }
+.team-dock-member > span:last-child { font-size: 11px; }
+.team-layout .team-dock-member[aria-pressed="true"] { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-canvas)); }
 .team-dock-member .team-avatar { width: 30px; height: 30px; }
-.team-dock-state:not(:empty) {
-  position: absolute; right: -5px; bottom: -3px; width: 17px; height: 17px;
-  display: grid; place-items: center; border-radius: 50%; background: var(--color-panel); color: var(--color-primary-active);
-}
-.team-dock-member.is-succeeded .team-dock-state { color: var(--team-success-ink); }
-.team-dock-member:is(.is-failed, .is-interrupted, .is-cancelled) .team-dock-state { color: var(--color-error); }
 .team-layout .team-dock-member:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 @media (hover: hover) and (pointer: fine) {
   .team-layout .team-dock-member:hover {
@@ -172,4 +153,8 @@
 @media (max-height: 650px) {
   .team-layout .team-dock-member { padding-block: 7px; gap: 3px; }
   .team-member-dock { padding-top: 8px; }
+}
+@container (max-width: 540px) {
+  .team-worker-heading__text { flex-basis: calc(100% - 46px); }
+  .team-worker-heading > .team-status { margin-left: 46px; }
 }

@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:3e63ec8251a7a3fdce5caf44fbcfb979cad843fc6dabd0b5d6684613d5e70050 -->
+<!-- tinybot-module-fingerprint: sha256:3ba441c2135153a338b26e0b0eab6493072ca9c7499cfbb4481b9e1917de684b -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
@@ -67,6 +67,12 @@ resize handle. Width is persisted separately from resource state. The live and
 restored width is clamped against the measured Chat workspace: docked mode
 preserves the minimum Chat column, while narrow overlay mode preserves a
 viewport gutter.
+Opening a new Team tab while Sidecar is hidden uses the existing expanded
+presentation, giving the workspace the larger reading column. Selecting another
+member, reopening an existing Team tab, or opening a Team beside an already
+visible resource preserves the current presentation and saved docked width.
+Restore, pointer and keyboard resizing, and the narrow overlay all keep using
+the shared Sidecar geometry; Team content defines no separate panel width.
 Direct pointer, keyboard and viewport-clamp width updates are immediate; the
 ephemeral reducer `layoutMotion` policy restores the 220 ms grid transition
 when presentation changes. Only numeric width is persisted.

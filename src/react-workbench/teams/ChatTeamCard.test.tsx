@@ -98,6 +98,8 @@ it("shares tabs, expansion and hide controls with Browser while retaining the se
   fireEvent.click(screen.getByRole("button", { name: /View Bob/ }));
   await screen.findByText("Report from team-1-1-b-1");
   expect(screen.getAllByRole("complementary")).toHaveLength(1);
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("expanded");
+  fireEvent.click(screen.getByRole("button", { name: "Restore Sidecar" }));
   fireEvent.click(screen.getByRole("button", { name: "Expand Sidecar" }));
   expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("expanded");
   fireEvent.click(screen.getByRole("button", { name: "Restore Sidecar" }));
@@ -110,16 +112,46 @@ it("shares tabs, expansion and hide controls with Browser while retaining the se
   expect(browserRuntime.closeSession).not.toHaveBeenCalled();
   expect(browserRuntime.closeTab).not.toHaveBeenCalled();
   fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft" });
-  expect(Number(screen.getByRole("separator").getAttribute("aria-valuenow"))).toBeGreaterThan(520);
+  const adjustedWidth = Number(screen.getByRole("separator").getAttribute("aria-valuenow"));
+  expect(adjustedWidth).toBeGreaterThan(520);
   fireEvent.click(screen.getByRole("button", { name: "Hide Sidecar" }));
   await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
   await screen.findByText("Report from team-1-1-a-1");
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("docked");
+  expect(Number(screen.getByRole("separator").getAttribute("aria-valuenow"))).toBe(adjustedWidth);
   expect(screen.getAllByRole("tab", { name: "Team workspace" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Close Team workspace tab" }));
   expect(screen.queryByRole("tab", { name: "Team workspace" })).toBeNull();
   expect(screen.getAllByRole("tab")).toHaveLength(1);
   expect(browserRuntime.closeSession).not.toHaveBeenCalled();
+});
+
+it("opens a new Team beside an existing Browser without changing its presentation or resource", async () => {
+  const loadRun = vi.fn().mockResolvedValue(run);
+  const loadAttempt = vi.fn().mockResolvedValue([]);
+  const { container } = render(<Workspace sessionId="s1" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamCard runId={run.id} loadRun={loadRun} />
+  </Workspace>);
+  // Open the resource shell with a recruitment card, then remove only its Team tab.
+  const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Restore Sidecar" }));
+  fireEvent.click(screen.getByRole("button", { name: "New Sidecar tab" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /Browser/ }));
+  await screen.findByRole("tab", { name: "Example" });
+  fireEvent.click(screen.getByRole("button", { name: "Close Team workspace tab" }));
+  const browserTab = screen.getByRole("tab", { name: "Example" });
+  const width = screen.getByRole("separator").getAttribute("aria-valuenow");
+  fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+  await screen.findByRole("region", { name: "Team workspace" });
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("docked");
+  expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe(width);
+  expect(screen.getByRole("tab", { name: "Example" })).toBe(browserTab);
+  expect(browserRuntime.closeSession).not.toHaveBeenCalled();
+  expect(browserRuntime.closeTab).not.toHaveBeenCalled();
 });
 
 it("opens a legacy independent run from an empty Chat without changing its ownership", async () => {
