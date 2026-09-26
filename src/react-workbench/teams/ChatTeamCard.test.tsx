@@ -19,7 +19,9 @@ function Workspace({ sessionId, loadRun, loadAttempt, teamsStore, children }: {
     onLayoutChange={vi.fn()} onHide={vi.fn()} onReference={vi.fn()} onAskForSpreadsheetChange={vi.fn()} onHandoff={vi.fn()}
     onError={vi.fn()} loadTeamRun={loadRun} loadTeamAttempt={loadAttempt} teamsStore={teamsStore}>{children}</SidecarResources>;
 }
-import { ChatTeamCard, recruitedRunId } from "./ChatTeamCard";
+import { ChatTeamCard } from "./ChatTeamCard";
+import { teamRecruitment } from "./teamRecruitment";
+import { recruitmentRun } from "../chat/test/teamRecruitmentFixtures";
 import { ChatTeamHistory } from "./ChatTeamHistory";
 import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 
@@ -30,10 +32,12 @@ const run: TeamRun = {
   tasks:["a","b"].map((id)=>({task:{id,title:`Research ${id}`,memberId:id,instructions:"Write a report",dependencies:[]},status:"succeeded",attempts:[{threadId:`team-1-1-${id}-1`,turnId:`turn-${id}`,status:"succeeded",startedAt:"",finishedAt:"",output:"Done",error:null}]})),
 };
 
+const batch = { memberIds: ["a", "b"], tasks: [{ taskId: "a", memberId: "a" }, { taskId: "b", memberId: "b" }] };
+
 it("loads the board only on expansion and only the selected employee conversation", async () => {
   const loadRun=vi.fn().mockResolvedValue(run);
   const loadAttempt=vi.fn().mockResolvedValue([{id:"report",kind:"message",text:"Verified research",status:"completed"}]);
-  const {container}=render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}><main><ChatTeamCard runId={run.id} loadRun={loadRun} /></main></Workspace>);
+  const {container}=render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}><main><ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} /></main></Workspace>);
   expect(loadRun).not.toHaveBeenCalled();
   expect(loadAttempt).not.toHaveBeenCalled();
   const details=container.querySelector("details")!;
@@ -54,9 +58,53 @@ it("loads the board only on expansion and only the selected employee conversatio
   await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole("button",{name:/Alice/})));
 });
 
-it("recognizes only recruitment results and preserves native result envelopes",()=>{
-  expect(recruitedRunId({id:"tool",name:"team.recruit",resultJson:{raw:{runId:run.id,tasks:[]}}})).toBe(run.id);
-  expect(recruitedRunId({id:"tool",name:"read_file",resultJson:{raw:{runId:run.id,tasks:[]}}})).toBeUndefined();
+it("confirms batch identities against native envelopes without treating cumulative tasks as new hires",()=>{
+  const tool = { id: "tool", name: "team.recruit", argsJson: { runId: run.id, members: [], tasks: [{ id: "b", memberId: "b" }] },
+    resultJson: { status: "success", raw: { runId: run.id, tasks: batch.tasks } } };
+  expect(teamRecruitment(tool, "completed")).toEqual({ kind: "batch", runId: run.id, batch: { memberIds: ["b"], tasks: [batch.tasks[1]] } });
+  expect(teamRecruitment({ ...tool, name: "read_file" }, "completed")).toBeUndefined();
+  expect(teamRecruitment(tool, "running")).toBeUndefined();
+  expect(teamRecruitment({ ...tool, argsJson: undefined }, "completed")).toEqual({ kind: "legacy", runId: run.id });
+  expect(teamRecruitment({ ...tool, argsJson: { members: [], tasks: [{ id: "b", memberId: "a" }] } }, "completed")).toEqual({ kind: "invalid" });
+});
+
+it("opens a reused employee's new task and keeps the card selection aligned with the member dock", async () => {
+  const latest = recruitmentRun();
+  latest.tasks.push({ ...latest.tasks[0], task: { ...latest.tasks[0].task, id: "summarize", title: "Summarize evidence" },
+    attempts: [{ ...latest.tasks[0].attempts[0], threadId: "summary-worker", turnId: "summary-turn" }] });
+  const loadRun = vi.fn().mockResolvedValue(latest);
+  const loadAttempt = vi.fn(async (threadId: string) => [{ id: threadId, kind: "message" as const, text: `Record ${threadId}`, status: "completed" as const }]);
+  const { container } = render(<Workspace sessionId="recruitment-chat" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamCard runId={latest.id} loadRun={loadRun} batch={{ memberIds: ["researcher-a"], tasks: [{ taskId: "summarize", memberId: "researcher-a" }] }} />
+  </Workspace>);
+  const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  const row = await screen.findByRole("button", { name: /Alex.*Summarize evidence/ });
+  fireEvent.click(row);
+  await screen.findByText("Record summary-worker");
+  expect(loadAttempt).toHaveBeenLastCalledWith("summary-worker", "summary-turn");
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+  const dock = container.querySelector(".team-member-dock")!;
+  expect(dock.querySelector('[aria-pressed="true"]')?.textContent).toContain("Alex");
+  fireEvent.click(dock.querySelectorAll("button")[1]);
+  await screen.findByText("Record compare-worker");
+  expect(row.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(row);
+  await screen.findByText("Record summary-worker");
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+});
+
+it("reports missing batch evidence instead of filling the card with the cumulative roster", async () => {
+  const loadRun = vi.fn().mockResolvedValue(run);
+  const { container } = render(<ChatTeamCard runId={run.id} loadRun={loadRun}
+    batch={{ memberIds: ["missing"], tasks: [{ taskId: "missing", memberId: "missing" }] }} />);
+  const card = container.querySelector("details")!;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  expect((await screen.findByRole("alert")).textContent).toContain("missing from this team snapshot");
+  expect(container.querySelector(".chat-team-card__employees")).toBeNull();
+  expect(screen.getByRole("button", { name: "View team" }).hasAttribute("disabled")).toBe(true);
 });
 
 it("discards late employee reads and closes inspection when switching conversations", async () => {
@@ -65,7 +113,7 @@ it("discards late employee reads and closes inspection when switching conversati
   const pending = new Map<string, (items: Items) => void>();
   const loadAttempt = vi.fn((threadId: string) => new Promise<Items>(resolve => pending.set(threadId, resolve)));
   const props = { workspaceStore: { readThreadFile: vi.fn() }, sidecarPresentation: "closed", onHideSidecar: vi.fn(), loadRun, loadAttempt };
-  const { container, rerender } = render(<Workspace {...props} sessionId="parent"><ChatTeamCard runId={run.id} loadRun={loadRun} /></Workspace>);
+  const { container, rerender } = render(<Workspace {...props} sessionId="parent"><ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} /></Workspace>);
   const details = container.querySelector("details")!;
   details.open = true;
   fireEvent(details, new Event("toggle"));
@@ -88,7 +136,7 @@ it("shares tabs, expansion and hide controls with Browser while retaining the se
     { id: "report", kind: "message", text: `Report from ${threadId}`, status: "completed" },
   ]);
   const { container } = render(<Workspace sessionId="s1" loadRun={loadRun} loadAttempt={loadAttempt}>
-    <ChatTeamCard runId={run.id} loadRun={loadRun} />
+    <ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} />
   </Workspace>);
   const details = container.querySelector("details")!;
   details.open = true;
@@ -131,7 +179,7 @@ it("opens a new Team beside an existing Browser without changing its presentatio
   const loadRun = vi.fn().mockResolvedValue(run);
   const loadAttempt = vi.fn().mockResolvedValue([]);
   const { container } = render(<Workspace sessionId="s1" loadRun={loadRun} loadAttempt={loadAttempt}>
-    <ChatTeamCard runId={run.id} loadRun={loadRun} />
+    <ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} />
   </Workspace>);
   // Open the resource shell with a recruitment card, then remove only its Team tab.
   const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
@@ -184,7 +232,7 @@ it("opens historical artifact records inside the Sidecar attempt view", async ()
     { id: threadId, kind: "message", text: `Record ${threadId}`, status: "completed" },
   ]);
   const { container } = render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}>
-    <ChatTeamCard runId={historyRun.id} loadRun={loadRun} />
+    <ChatTeamCard batch={batch} runId={historyRun.id} loadRun={loadRun} />
   </Workspace>);
   const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
   card.open = true;

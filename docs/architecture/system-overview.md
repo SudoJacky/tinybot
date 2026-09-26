@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:3d4ba93c7349b73a65fd14fb6aa0a0ec351bb9d825656e71b5cce4b4a10f2939 -->
+<!-- tinybot-doc-fingerprint: sha256:f33c6d2bfaf35d7ca7de7f713a371871cfefba7ed2107b1c6c369735ebabb6bf -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -355,7 +355,11 @@ for the next result or all tasks; progress-only notifications
 do not produce empty tool responses or additional model requests. They
 share the same scheduler and durable board. Attempt conversations have separate
 per-run storage/index/cache scopes; Chat cards load board and employee history
-only when expanded/selected. This adds neither an Agent Loop nor a second result
+only when expanded/selected. Each recruitment card keeps the successful call's
+task/member IDs from canonical arguments; the cumulative native snapshot confirms
+those IDs, while the latest board updates their status. Later recruitment does
+not expand an old card's batch. Older records without batch evidence explain the
+limitation and retain access to the team. This adds neither an Agent Loop nor a second result
 authority. Employee selection opens a thread-scoped Team tab in the shared
 Sidecar, reusing Team activity, results and the member dock. Sidecar owns tab
 selection, resizing, expansion and narrow-window overlays for all resource kinds.

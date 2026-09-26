@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:ecda7b851fb53a0448a724cc7c2d28f7c88e6c9d392f908c16720e964c4f8ef4 -->
+<!-- tinybot-module-fingerprint: sha256:2ad597f5f7114d95f83bc3ec0ed29f8eabeb91e0a54c2dff5f3a495cf6530ad5 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -546,8 +546,15 @@ keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
 
 Workspace Chat offers `@team` in its
-composer. Recruitment tool results render a lazy `ChatTeamCard` outside grouped
-tool rows. The card loads the board on expansion; employee selection opens the
+composer. Successful recruitment tool results render a lazy `ChatTeamCard` outside grouped
+tool rows. Each card takes stable task/member IDs from the full canonical call
+arguments, cross-checked against its successful result. Cumulative result tasks
+and preview text never define a batch. The latest board supplies status only;
+later recruitment, same-name employees and timeline reloads retain each card's
+scope. Older calls without arguments explain the missing batch and offer View
+team, while invalid records show an error alongside their original tool details.
+Failed and unfinished calls keep their normal tool status.
+The card loads the board on expansion; employee selection opens the
 Team tab in Sidecar. The panel loads only the selected attempt and keeps the
 member dock available. It shares Sidecar resizing, expansion, hiding and tab
 navigation; Browser and Artifact tabs coexist with it. Team tabs follow the

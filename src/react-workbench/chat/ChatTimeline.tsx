@@ -1,4 +1,5 @@
-import { ChatTeamCard, recruitedRunId } from "../teams/ChatTeamCard";
+import { ChatTeamCard } from "../teams/ChatTeamCard";
+import { teamRecruitment } from "../teams/teamRecruitment";
 import type { ProviderRetryStatus } from "../../app-core/chat/providerRetryStatus";
 import { memo, useMemo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -320,7 +321,7 @@ function hookDecisionLabel(decision: string, t: TFunction<"chat">): string {
 function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
   const groups: Array<ChatStep | ChatStep[]> = [];
   for (const step of steps) {
-    if (step.kind !== "tool_call" || !step.toolCall || recruitedRunId(step.toolCall)) {
+    if (step.kind !== "tool_call" || !step.toolCall || step.toolCall.name === "team.recruit") {
       groups.push(step);
       continue;
     }
@@ -677,6 +678,7 @@ function CanonicalChatStep({
   step: ChatStep;
 }) {
   const { i18n, t } = useTranslation("chat");
+  const { t: teamText } = useTranslation("common");
   if (step.kind === "reasoning") {
     return <MessageReasoning streaming={step.status === "running"} text={step.summary ?? ""} />;
   }
@@ -693,8 +695,9 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "tool_call" && step.toolCall) {
-    const teamRunId = recruitedRunId(step.toolCall);
-    if (teamRunId) return <ChatTeamCard runId={teamRunId} />;
+    const recruitment = teamRecruitment(step.toolCall, step.status);
+    if (recruitment && recruitment.kind !== "invalid") return <ChatTeamCard runId={recruitment.runId}
+      batch={recruitment.kind === "batch" ? recruitment.batch : undefined} />;
     const activity = isApplyPatchToolCall(step.toolCall) && patchChangeSetFromToolResult(step.toolCall.resultJson)?.files.length
       ? <PatchDiffCard
           status={step.status}
@@ -707,6 +710,7 @@ function CanonicalChatStep({
         />;
     return (
       <>
+        {recruitment?.kind === "invalid" && <p role="alert">{teamText("teams.recruitmentInvalid")}</p>}
         {activity}
         <CanonicalDataViews artifacts={step.artifacts ?? []} onOpen={onOpenArtifact} />
       </>
