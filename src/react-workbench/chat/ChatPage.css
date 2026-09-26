@@ -4677,7 +4677,7 @@
 
 @media (max-width: 860px) {
 
-  .react-chat-page {
+  .react-chat-page:not([data-session-sidebar-collapsed="true"]) {
     grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
   }
 }

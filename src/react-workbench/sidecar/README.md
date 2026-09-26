@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:3ba441c2135153a338b26e0b0eab6493072ca9c7499cfbb4481b9e1917de684b -->
+<!-- tinybot-module-fingerprint: sha256:b8e525e53ab0e3ed68ba58f486b5909b951cc6d1736cb85ed25df67a510ddea1 -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
@@ -35,6 +35,12 @@ by `SidecarResources`:
   Chat history can open an independent run in the current renderer scope,
   including a new Chat without a Thread. This scope does not change the run's
   recorded `parentThreadId` or import worker history into the conversation.
+  The current Chat can supply its canonical main plan. A nonempty plan is shown
+  only for the actually visible Team whose recorded parent matches that Chat.
+  That same `teamPlan` value feeds the shared Team header and a context visibility
+  flag consumed by the floating note. Hiding, closing, changing resources or
+  scopes clears it synchronously, including while inert exit content remains.
+  Geometry callbacks and Effects never decide which progress entry is visible.
 - Terminal resources belong to the active workspace. Regular conversations
   share `DEFAULT_SIDECAR_WORKSPACE_ID`, which asks Rust to resolve Tinybot's
   configured default workspace rather than inventing a renderer path.

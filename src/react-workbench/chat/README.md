@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2ad597f5f7114d95f83bc3ec0ed29f8eabeb91e0a54c2dff5f3a495cf6530ad5 -->
+<!-- tinybot-module-fingerprint: sha256:3ba5d3c24d858022ca64138bc8c85c4363967d945bb1ab2d490ea686944e87d3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -218,6 +218,18 @@ manual expansion stays open. Failed and interrupted Turns reconcile unfinished
 steps to their terminal outcome. Each floating step shows its status through a
 labelled leading icon, without a duplicate text column; the heading retains the
 overall progress count. Reduced motion disables its spatial transitions.
+The current session's nonempty canonical plan moves to the visible Team header
+only when the run's recorded `parentThreadId` matches that session. Sidecar
+provides the same render-time visibility fact to the header and floating note;
+the latter stays mounted with no DOM while hidden, preserving manual expansion
+and restarting its automatic reading interval when visible again. Revisions
+received while hidden retain the existing update behavior. `PlanSteps` shares
+recorded explanation and statuses between both locations. A closed Sidecar,
+another resource, or unrelated/independent Team history restores the floating
+note. An absent or empty plan presents no counter. The timeline's session ID
+must match before any main progress is passed into Sidecar.
+At narrow widths, the collapsed session sidebar keeps its actual compact width;
+the 150–210px sidebar reservation applies only while expanded.
 Form completion refreshes stop capabilities even when the active Turn ID and
 status are unchanged, because a live resume acknowledgement may arrive before
 the persisted resolution. Successful form-command status no longer stays above the composer; failures remain visible.

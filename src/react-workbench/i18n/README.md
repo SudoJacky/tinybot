@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:21ab7756b0f27efb70b63233ef09984db3c95659141e78da243879a4eba54f2a -->
+<!-- tinybot-module-fingerprint: sha256:0f8cc7cee3d5add6ad127bbc487d95afbce3f7c8781c97098ee085f3e6ffc038 -->
 
 Settings usage resources cover purposes, request outcomes, source identities,
 missing-usage explanations and the shared Team Usage tab in English and Chinese.
@@ -58,6 +58,8 @@ Context-window usage and latest-call cache-hit labels are localized here while
 their Token counts and computed percentage remain language-neutral values.
 Chat's floating plan-note label and expand/collapse actions are localized here;
 canonical step text and progress counts remain Agent-authored and numeric data.
+The Team header's Main task label and no-current-step state reuse the Chat plan
+namespace in both languages; recorded step text is never translated or invented.
 Provider model settings also localize automatic, fallback, and custom
 context-window modes, enabled-model counts, image-input controls, and the
 unsupported-image composer message while model IDs and numeric limits stay

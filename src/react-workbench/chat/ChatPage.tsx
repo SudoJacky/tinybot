@@ -3,9 +3,10 @@ import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
 import { ChatTeamHistory } from "../teams/ChatTeamHistory";
+import { ChatTeamContext } from "../teams/chatTeamContext";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useChatApplication } from "./useChatApplication";
-import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
 import {
@@ -503,7 +504,8 @@ export function ChatPage({
     : "";
   const activeContextUsage = timelineSummary.contextUsage;
   const latestFailedTurnId = timelineSummary.latestFailedTurnId;
-  const floatingPlan = activeSession && timelineLoaded ? timelineSummary.floatingPlan : undefined;
+  const floatingPlan = activeSession && timelineLoaded && timelineSummary.sessionId === activeSession.id
+    ? timelineSummary.floatingPlan : undefined;
 
   useEffect(() => {
     return () => {
@@ -1045,6 +1047,7 @@ export function ChatPage({
         workspaceStore={workspaceStore}
         artifactReviewEpoch={artifactReviewEpoch}
         sessionResponding={sessionResponding}
+        mainPlan={floatingPlan}
         onLayoutChange={setSidecar}
         onHide={() => { restoreSidecarFocusRef.current = true; }}
         onReference={(reference) => {
@@ -1103,7 +1106,7 @@ export function ChatPage({
         </header>
 
         {floatingPlan ? (
-          <FloatingPlanStatus
+          <ChatFloatingPlanStatus
             identityKey={floatingPlan.identityKey}
             plan={floatingPlan.plan}
             revisionKey={floatingPlan.revisionKey}
@@ -1520,4 +1523,9 @@ function projectDraftSessionSummary(draft: DraftSession): SessionSummary {
 
 function boundedSpreadsheetSelectionValue(value: string): string {
   return value.length > 12000 ? `${value.slice(0, 12000)}\n[Selection excerpt truncated; read the referenced range for all values.]` : value;
+}
+
+function ChatFloatingPlanStatus(props: ComponentProps<typeof FloatingPlanStatus>) {
+  const team = useContext(ChatTeamContext);
+  return <FloatingPlanStatus {...props} hidden={team?.mainPlanVisible} />;
 }

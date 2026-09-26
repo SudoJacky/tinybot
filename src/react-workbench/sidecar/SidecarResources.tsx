@@ -1,4 +1,5 @@
 import type { TeamRun, TeamStore } from "../../app-core/native/desktopNativeTeams";
+import type { TimelinePlan } from "../chat/useChatTimelineSummary";
 import { ChatTeamContext } from "../teams/chatTeamContext";
 import { ChatTeamPanel, readChatTeamAttempt } from "../teams/ChatTeamPanel";
 import { chatTeamsApi, useChatTeamRun } from "../teams/useChatTeamRun";
@@ -36,6 +37,7 @@ export type SidecarResourcesHandle = {
 type Props = {
   ref?: Ref<SidecarResourcesHandle>;
   children?: ReactNode;
+  mainPlan?: TimelinePlan;
   loadTeamRun?: typeof chatTeamsApi.get;
   loadTeamAttempt?: typeof readChatTeamAttempt;
   teamsStore?: TeamStore;
@@ -71,7 +73,7 @@ const LazySidecarTerminal = lazy(async () => {
   return { default: module.SidecarTerminal };
 });
 
-export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get, loadTeamAttempt = readChatTeamAttempt, teamsStore = chatTeamsApi, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
+export function SidecarResources({ ref, children, mainPlan, loadTeamRun = chatTeamsApi.get, loadTeamAttempt = readChatTeamAttempt, teamsStore = chatTeamsApi, activeSession, activeDisplaySession, activeSessionId, chatStore, workspaceStore, artifactReviewEpoch,
   sessionResponding, onLayoutChange, onHide, onReference, onAskForSpreadsheetChange: handleSpreadsheetAskForChange,
   onHandoff, onError: reportTimelineError }: Props) {
   const { t } = useTranslation("chat");
@@ -112,6 +114,8 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
   const cachedTeamRun = teamTab ? teamRuns[teamTab.runId] : undefined;
   const teamRun = teamBoard.run && (!cachedTeamRun || teamBoard.run.revision >= cachedTeamRun.revision)
     ? teamBoard.run : cachedTeamRun;
+  const teamPlan = workspaceStore && teamVisible && activeSessionId && teamRun?.parentThreadId === activeSessionId
+    && mainPlan?.plan.steps.length ? mainPlan : undefined;
   const teamControls = useSidecarTeamControls(teamRun, teamsStore, acceptTeamRun, teamBoard.refresh);
   function openTeam(run: TeamRun, taskId: string, trigger?: HTMLButtonElement) {
     setTeamRuns(current => ({ ...current, [run.id]: current[run.id]?.revision > run.revision ? current[run.id] : run }));
@@ -537,6 +541,7 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
   return (
     <ChatTeamContext.Provider value={workspaceStore ? {
       run: teamVisible ? teamRun : undefined, selectedTaskId: teamVisible ? teamTab?.taskId : undefined,
+      mainPlanVisible: !!teamPlan,
       open: openTeam,
     } : null}>
       <div className="react-chat-workspace" data-sidecar-presentation={sidecar.presentation}
@@ -552,7 +557,7 @@ export function SidecarResources({ ref, children, loadTeamRun = chatTeamsApi.get
         renderArtifact={renderSidecarArtifact}
         renderBrowser={renderSidecarBrowser}
         renderTerminal={renderSidecarTerminal}
-        renderTeam={tab => teamRun && workspaceStore && <ChatTeamPanel key={tab.id} run={teamRun} taskId={tab.taskId}
+        renderTeam={tab => teamRun && workspaceStore && <ChatTeamPanel key={tab.id} run={teamRun} taskId={tab.taskId} mainPlan={teamPlan}
           workspaceStore={workspaceStore} loadAttempt={loadTeamAttempt} loadUsageDetails={teamsStore.loadUsageDetails}
           error={teamBoard.error} controlError={teamControls.error} busy={teamControls.busy} pending={teamControls.pending}
           onRefresh={teamBoard.refresh} onExecute={teamControls.execute} onControl={teamControls.control}

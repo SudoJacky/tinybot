@@ -20,6 +20,16 @@
 .chat-team-inspector__identity h2 { font-size: 17px; font-weight: 650; }
 .chat-team-inspector__icon { width: 48px; height: 48px; object-fit: contain; image-rendering: pixelated; flex: none; }
 .chat-team-inspector__header p { margin-top: 4px; font-size: 12px; }
+.team-main-plan { flex-basis: 100%; min-width: 0; font-size: 13px; }
+.team-main-plan > summary { display: flex; align-items: baseline; gap: 6px; cursor: pointer; list-style: none; line-height: 1.6; }
+.team-main-plan > summary::-webkit-details-marker { display: none; }
+.team-main-plan > summary strong { flex-shrink: 0; font-weight: 600; }
+.team-main-plan > summary > span { min-width: 0; overflow-wrap: anywhere; color: var(--color-muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.team-main-plan > summary > svg { flex-shrink: 0; align-self: center; margin-left: auto; }
+.team-main-plan[open] > summary > svg { transform: rotate(180deg); }
+.team-main-plan > summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; border-radius: 4px; }
+.team-main-plan__steps { max-height: min(34vh, 280px); overflow: auto; padding: 10px 0 2px; overflow-wrap: anywhere; }
+.team-main-plan__steps .react-canonical-plan__explanation { white-space: pre-wrap; margin: 0 0 10px; }
 .chat-team-inspector__scroll { flex: 1; min-block-size: 0; overflow: auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 4px 24px 24px; display: flex; flex-direction: column; gap: 16px; overflow-wrap: anywhere; }
 .chat-team-inspector__scroll > * { flex-shrink: 0; min-width: 0; }
 .chat-team-inspector .team-assignment p { white-space: pre-wrap; }

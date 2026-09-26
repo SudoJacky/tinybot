@@ -772,6 +772,7 @@ export const zh = {
       label: "任务执行失败", cancelled: "任务已取消", interrupted: "任务已中断", copyError: "复制错误",
     },
     plan: {
+      mainTask: "主任务", noCurrentStep: "暂无进行中步骤",
       floatingLabel: "任务进度", floatingExpand: "展开任务进度", floatingCollapse: "收起任务进度",
       label: "执行计划", completed: "已完成 {{completed}}/{{total}}", status: { completed: "已完成", inProgress: "执行中", failed: "失败", cancelled: "已取消", pending: "待执行" },
       collapse: "收起", expand: "展开",

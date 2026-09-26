@@ -1,8 +1,8 @@
-import type { TFunction } from "i18next";
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Circle, ListChecks, Loader2, X } from "lucide-react";
+import { ChevronDown, ChevronUp, ListChecks } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PlanState } from "../../app-core/chat/chatTurnContracts";
+import { PlanSteps } from "./PlanSteps";
 
 export const FLOATING_PLAN_AUTO_COLLAPSE_MS = 5_000;
 
@@ -10,12 +10,11 @@ type FloatingPlanStatusProps = {
   identityKey: string;
   plan: PlanState;
   revisionKey: string;
+  hidden?: boolean;
 };
 
 type DisplayMode = "auto" | "expanded" | "collapsed";
-type PlanStepStatus = PlanState["steps"][number]["status"];
-
-export function FloatingPlanStatus({ identityKey, plan, revisionKey }: FloatingPlanStatusProps) {
+export function FloatingPlanStatus({ identityKey, plan, revisionKey, hidden = false }: FloatingPlanStatusProps) {
   const { t } = useTranslation("chat");
   const contentId = useId();
   const [displayMode, setDisplayMode] = useState<DisplayMode>("auto");
@@ -39,12 +38,16 @@ export function FloatingPlanStatus({ identityKey, plan, revisionKey }: FloatingP
   }, [identityKey, revisionKey]);
 
   useEffect(() => {
-    if (displayMode !== "auto") return;
+    if (displayMode !== "auto" || hidden) return;
     const timer = window.setTimeout(() => {
       setDisplayMode("collapsed");
     }, FLOATING_PLAN_AUTO_COLLAPSE_MS);
     return () => window.clearTimeout(timer);
-  }, [displayMode, revisionKey]);
+  }, [displayMode, revisionKey, hidden]);
+
+  // Keep disclosure state while another surface displays this plan. Hidden time
+  // does not consume the automatic reading interval when the note returns.
+  if (hidden || !plan.steps.length) return null;
 
   const progressLabel = t("plan.completed", {
     completed: plan.completed,
@@ -84,17 +87,7 @@ export function FloatingPlanStatus({ identityKey, plan, revisionKey }: FloatingP
             max={Math.max(plan.total, 1)}
             value={plan.completed}
           />
-          {plan.explanation ? <p className="react-canonical-plan__explanation">{plan.explanation}</p> : null}
-          <ol className="react-canonical-plan__steps">
-            {plan.steps.map((step, index) => (
-              <li data-status={step.status} key={`${index}:${step.step}`}>
-                <span aria-label={planStepStatusLabel(step.status, t)} className="react-canonical-plan__step-icon" role="img">
-                  <FloatingPlanStepIcon status={step.status} />
-                </span>
-                <span>{step.step}</span>
-              </li>
-            ))}
-          </ol>
+          <PlanSteps plan={plan} />
         </div>
       </section>
 
@@ -112,24 +105,4 @@ export function FloatingPlanStatus({ identityKey, plan, revisionKey }: FloatingP
       </button>
     </div>
   );
-}
-
-function FloatingPlanStepIcon({ status }: { status: PlanStepStatus }) {
-  switch (status) {
-    case "completed": return <Check size={13} />;
-    case "in_progress": return <Loader2 size={13} />;
-    case "failed": return <AlertTriangle size={13} />;
-    case "cancelled": return <X size={13} />;
-    default: return <Circle size={10} />;
-  }
-}
-
-function planStepStatusLabel(status: PlanStepStatus, t: TFunction<"chat">): string {
-  switch (status) {
-    case "completed": return t("plan.status.completed");
-    case "in_progress": return t("plan.status.inProgress");
-    case "failed": return t("plan.status.failed");
-    case "cancelled": return t("plan.status.cancelled");
-    default: return t("plan.status.pending");
-  }
 }

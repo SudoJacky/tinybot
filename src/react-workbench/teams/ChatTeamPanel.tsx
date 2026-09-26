@@ -15,6 +15,8 @@ import { TeamMemberDock } from "./TeamMemberDock";
 import { TeamMemberAvatar } from "./TeamMemberAvatar";
 import { TeamTaskStatus } from "./TeamTaskStatus";
 import { TeamMessage } from "./TeamMessage";
+import { TeamMainPlan } from "./TeamMainPlan";
+import type { TimelinePlan } from "../chat/useChatTimelineSummary";
 import teamWorkspaceIcon from "./assets/team-workspace.png";
 import "./teams.css";
 import "./chatTeamCard.css";
@@ -25,8 +27,9 @@ export async function readChatTeamAttempt(threadId: string, turnId: string) {
   return projectTeamActivity(createAgentTimelineModel().load(threadId, [payload]), turnId);
 }
 /** Team content inside the shared Sidecar shell; it owns no panel geometry. */
-export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, loadUsageDetails, error, controlError, busy, pending, onRefresh, onClose, onSelect, onExecute, onControl }: {
+export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttempt, loadUsageDetails, error, controlError, busy, pending, onRefresh, onClose, onSelect, onExecute, onControl }: {
   run: TeamRun; taskId: string; workspaceStore: PreviewWorkspaceStore;
+  mainPlan?: TimelinePlan;
   loadAttempt: typeof readChatTeamAttempt; loadUsageDetails?: UsageDetailsLoader;
   error?: string; controlError?: string; busy: boolean; pending?: "start" | "pause" | "cancel";
   onRefresh(): void; onClose(): void; onSelect(id: string): void; onExecute(): void;
@@ -113,6 +116,7 @@ export function ChatTeamPanel({ run, taskId, workspaceStore, loadAttempt, loadUs
           <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}><ChartNoAxesColumn size={16} aria-hidden="true" />{usageText("usage.tab")}</button>
         </div>
       </div>
+      {mainPlan && <TeamMainPlan key={mainPlan.identityKey} plan={mainPlan.plan} />}
     </header>
     {pending && <p className="chat-team-inspector__notice" role="status">{t(`teams.${pending === "start" ? "loading" : pending === "pause" ? "pausing" : "cancelling"}`)}</p>}
     {controlError && <p className="chat-team-inspector__notice team-error" role="alert">{controlError}</p>}

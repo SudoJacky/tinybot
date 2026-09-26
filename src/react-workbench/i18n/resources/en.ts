@@ -1322,6 +1322,7 @@ export const en = {
       label: "Task execution failed", cancelled: "Task cancelled", interrupted: "Task interrupted", copyError: "Copy error",
     },
     plan: {
+      mainTask: "Main task", noCurrentStep: "No step in progress",
       floatingLabel: "Task progress", floatingExpand: "Expand task progress", floatingCollapse: "Collapse task progress",
       label: "Execution plan", completed: "{{completed}} of {{total}} completed", status: { completed: "Completed", inProgress: "In progress", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
       collapse: "Collapse", expand: "Expand",
