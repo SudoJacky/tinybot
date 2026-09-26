@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:3cf4bd62ecb33219613cb70c5ae44b1820c72559231cc37f6fef7c3da3513247 -->
+<!-- tinybot-doc-fingerprint: sha256:b28c5101c18ac32dbdc5ea6d2ac237df569cbddaa6a6ddee78e8fe28d5987e72 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -43,7 +43,7 @@ Tool contributors
 Registry entries + capability/config availability
     |
     v
-Per-Turn selection and deferred activation
+Application tool ceiling, per-Turn selection and deferred activation
     |
     v
 Provider adapter encodes visible tool definitions
@@ -309,3 +309,11 @@ execute exclusively through the asynchronous bridge, never generic Worker RPC.
 Worker model/tool options are inherited, while coordinator tools are excluded
 from worker scopes. Result-file reads retain the existing workspace capability
 and content-identity checks.
+
+Team employee tool ceilings come from the saved employee Thread, attempt and member,
+not caller-supplied role metadata. Historical and child Threads keep the same ceiling;
+only the live attempt receives board tools. The runtime removes excluded entries before
+provider encoding and uses the same router for activation and execution.
+`publish_data_view` remains available to ordinary Chat but is excluded from
+every employee preset, including synthesis. Research/review also exclude shell
+and MCP; patch command fusion is removed when command tools are absent.

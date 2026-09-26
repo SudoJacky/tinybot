@@ -73,7 +73,6 @@ export const en = {
       }
 },
     routes: {
-      teams: "Teams",
       automations: "Automations",
       chat: "Chat",
       graphs: "Agent Graphs",
@@ -1323,6 +1322,7 @@ export const en = {
       label: "Task execution failed", cancelled: "Task cancelled", interrupted: "Task interrupted", copyError: "Copy error",
     },
     plan: {
+      mainTask: "Main task", noCurrentStep: "No step in progress",
       floatingLabel: "Task progress", floatingExpand: "Expand task progress", floatingCollapse: "Collapse task progress",
       label: "Execution plan", completed: "{{completed}} of {{total}} completed", status: { completed: "Completed", inProgress: "In progress", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
       collapse: "Collapse", expand: "Expand",
@@ -1401,6 +1401,7 @@ export const en = {
     },
     toolActivity: {
       toggleDetails: "Toggle details for {{title}}", truncated: "preview truncated",
+      showFull: "Show full content", showLess: "Show less",
       status: { running: "Running", waiting: "Waiting", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
       category: { terminal: "Terminal", fileRead: "File read", web: "Web", planning: "Planning", presentation: "Data view", subagent: "Subagent", interaction: "Interaction", tool: "Tool" },
       command: "command", workspaceFile: "workspace file", currentPage: "current page", usedTool: "Used a tool",

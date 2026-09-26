@@ -13,11 +13,13 @@ src-tauri/src/teams/runtime.rs
 src-tauri/src/teams/store.rs
 src/app-core/native/desktopNativeTeams.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d892025795940a154f4ad6a2e5666c385f93fbe60dfd84d10a7b13cbe58dfe00 -->
+<!-- tinybot-doc-fingerprint: sha256:e1c95769770cd0557198d77762a93234d68d8adad1daa08b0b893d233a4af02b -->
 
 Team commands are available to the main desktop window. They return a `TeamRun`
-object or reject with an error string. The independent Teams route uses the typed renderer adapter to prepare a plan,
-confirm assignments, execute work, and inspect results and attempt Threads.
+object or reject with an error string. Chat recruitment and its Sidecar inspector
+use the typed renderer adapter to list runs, control work and inspect attempt
+Threads. The prepare/revise commands remain supported backend APIs, without a
+separate manual Teams page in the renderer.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
@@ -209,7 +211,15 @@ coordination tools require the current Thread to own that run.
 
 Recruitment appends new immutable member/task definitions through the running
 scheduler, or restarts an eligible idle run. It cannot change goal or concurrency.
-Members inherit the parent's model, provider, reasoning and tool options.
+Members inherit the parent's model, provider and reasoning options. Optional
+member `toolProfile` accepts `research`, `execution` (default), or `review` and
+narrows inherited tool selection. Research permits web browsing, file search and
+patches; Review permits file search and Team result reads. Neither includes
+shell or MCP tools. Execution retains permitted inherited work tools. All three
+retain Team handoff tools and exclude `publish_data_view` and coordinator tools.
+A synthesis employee also submits an internal handoff; only the main Agent
+publishes final conclusions and data views. The saved member profile survives
+retry, and unknown profile values fail validation.
 Chat runs leave `finalTaskId` empty: the parent integrates results in its existing
 Turn. Standalone plans still require a final task covering all tasks.
 

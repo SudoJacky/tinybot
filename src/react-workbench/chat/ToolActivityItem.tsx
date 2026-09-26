@@ -1,4 +1,4 @@
-import { Children, memo, useMemo, type ReactNode } from "react";
+import { Children, memo, useMemo, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -108,27 +108,37 @@ export function ToolActivityFrame({
 }
 
 function ToolActivityPreviewBlock({ preview }: { preview: ToolActivityPreview }) {
+  const { t } = useTranslation("chat");
+  const [expanded, setExpanded] = useState(false);
   const clipped = clippedPreview(preview.content);
+  const text = expanded ? preview.content : clipped.text;
+  const lines = expanded ? preview.content.replace(/\r\n?/g, "\n").split("\n") : clipped.lines;
+  const more = clipped.truncated ? <button type="button" aria-expanded={expanded}
+    className="react-tool-activity__expand" onClick={() => setExpanded(value => !value)}>
+    {t(expanded ? "toolActivity.showLess" : "toolActivity.showFull")}
+  </button> : null;
   if (preview.kind === "file") {
     return (
       <div className="react-tool-activity__preview react-tool-activity__preview--code" data-preview-kind={preview.kind}>
         <div className="react-tool-activity__code-lines">
-          {clipped.lines.map((line, index) => (
+          {lines.map((line, index) => (
             <div key={`${preview.lineStart ?? 1}:${index}`}>
               <span aria-hidden="true">{(preview.lineStart ?? 1) + index}</span>
               <code>{line || " "}</code>
             </div>
           ))}
         </div>
-        <PreviewMeta meta={preview.meta} truncated={clipped.truncated} />
+        <PreviewMeta meta={preview.meta} truncated={clipped.truncated && !expanded} />
+        {more}
       </div>
     );
   }
   return (
     <div className="react-tool-activity__preview" data-preview-kind={preview.kind}>
       {preview.kind === "command" ? <span aria-hidden="true" className="react-tool-activity__prompt">$</span> : null}
-      {preview.kind === "prose" ? <p>{clipped.text}</p> : <pre>{clipped.text}</pre>}
-      <PreviewMeta meta={preview.meta} truncated={clipped.truncated} />
+      {preview.kind === "prose" ? <p>{text}</p> : <pre>{text}</pre>}
+      <PreviewMeta meta={preview.meta} truncated={clipped.truncated && !expanded} />
+      {more}
     </div>
   );
 }
@@ -240,7 +250,7 @@ function genericDescriptor(
   inputOverride?: string,
 ): ToolActivityDescriptor {
   const input = inputOverride || structuredPreview(toolCall.argsJson ?? toolCall.argsPreview);
-  const output = structuredResultPreview(toolCall) || fallbackSummary;
+  const output = structuredResultPreview(toolCall) || fallbackSummary || structuredPreview(toolCall.resultJson ?? toolCall.resultPreview);
   return {
     category,
     input: input ? { content: input, kind: "code" } : undefined,

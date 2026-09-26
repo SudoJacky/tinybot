@@ -1,7 +1,10 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import type { PlanState } from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSource } from "./chatTimelineSource";
 import { projectLatestContextUsage, type ContextUsageDefaults } from "./chatContextUsage";
+
+export type TimelinePlan = { identityKey: string; revisionKey: string; plan: PlanState };
 
 /** Page state deliberately excludes streaming text, tool payloads and timestamps. */
 export function useChatTimelineSummary(source: ChatTimelineSource, defaults: ContextUsageDefaults) {
@@ -44,7 +47,7 @@ function projectSummary(timeline: ChatTimelineSnapshot | null, defaults: Context
   };
 }
 
-function latestTurnPlan(timeline: ChatTimelineSnapshot | null) {
+function latestTurnPlan(timeline: ChatTimelineSnapshot | null): TimelinePlan | undefined {
   const turns = timeline?.turns ?? [];
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];

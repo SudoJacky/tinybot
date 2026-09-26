@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:c42b8e512686195e333dff8a0e7df25ea4d6c15eab9863808c4d0e4f28892e3e -->
+<!-- tinybot-module-fingerprint: sha256:c70d94595df7eece80d57e136a1dff5ec84d3e72daf3c45772b28f0be87b46c1 -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -202,3 +202,9 @@ coordinator instructions/tools only to the root local-worker conversation.
 The dispatcher routes TeamCoordinator calls asynchronously; waiting continues
 the same parent Turn with bounded committed result summaries. Explicit saved
 Team attempt IDs select the isolated run store before ordinary execution.
+
+Team catalog preparation resolves the saved employee Thread, attempt and member profile,
+including historical Threads and descendants of that employee.
+It supplies an application-owned tool ceiling to the runtime, skips MCP discovery
+for research/review employees, and retains Team handoff tools for the active attempt. Employee
+publication of user-facing data views is excluded; ordinary Chat is unchanged.

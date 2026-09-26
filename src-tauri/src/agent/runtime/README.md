@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:0d2d0568eb92a10d1e296cdb88c1458aabff8f716a3dce1525bf87f1fc8db886 -->
+<!-- tinybot-module-fingerprint: sha256:3efd5fce49081762de27b7cd7141a8320696426f4181bd61c17929505d0b3147 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -515,3 +515,9 @@ evidence and optional `userAnnotation` separately as a user-authored change
 request. Existing reference count and serialized-size limits apply to both.
 
 A successful registry-bound team.complete_task must be the sole call in its batch. The loop commits its tool observation and terminal summary without another provider request. Invalid submissions remain recoverable tool errors; Team persistence and dependency release belong to the outer scheduler.
+
+`NativeAgentToolCatalog.tool_policy` carries an application-owned allow/deny
+ceiling. The router intersects explicit selection and registry entries before
+configuration, so provider definitions, deferred activation, continuation and
+execution share the same retained tools. Missing command tools also remove
+patch `thenRun` fusion. The policy never grants capabilities.

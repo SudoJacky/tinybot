@@ -38,7 +38,14 @@ export type SidecarArtifactTab = SidecarTabBase & {
   threadId: string;
 };
 
-export type SidecarTab = SidecarBrowserTab | SidecarTerminalTab | SidecarArtifactTab;
+export type SidecarTeamTab = SidecarTabBase & {
+  kind: "team";
+  threadId: string;
+  runId: string;
+  taskId: string;
+};
+
+export type SidecarTab = SidecarBrowserTab | SidecarTerminalTab | SidecarArtifactTab | SidecarTeamTab;
 
 export type SidecarState = {
   activeTabId: string;
@@ -66,6 +73,7 @@ export type SidecarEvent =
   }
   | { type: "tab.newTerminal"; shell?: SidecarShell }
   | { type: "tab.openArtifact"; artifactId: string; threadId: string; title: string }
+  | { type: "tab.openTeam"; runId: string; taskId: string; threadId: string; title: string }
   | { type: "tab.activate"; tabId: string }
   | { type: "tab.close"; tabId: string };
 
@@ -157,6 +165,14 @@ function reduceSidecarEvent(state: SidecarState, event: SidecarEvent): SidecarSt
         threadId: event.threadId,
         title: event.title,
       });
+    }
+    case "tab.openTeam": {
+      const id = `team:${encodeURIComponent(event.threadId)}:${encodeURIComponent(event.runId)}`;
+      const tab: SidecarTeamTab = { id, kind: "team", threadId: event.threadId, runId: event.runId, taskId: event.taskId, title: event.title };
+      return state.tabs.some(value => value.id === id)
+        ? { ...state, activeTabId: id, presentation: state.presentation === "closed" ? "docked" : state.presentation,
+          tabs: state.tabs.map(value => value.id === id ? tab : value) }
+        : openTab(state, tab);
     }
     case "tab.activate":
       return visibleSidecarTabs(state).some((tab) => tab.id === event.tabId)

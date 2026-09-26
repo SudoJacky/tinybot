@@ -18,6 +18,17 @@ pub(crate) struct TeamMember {
     pub display_name: String,
     pub instructions: String,
     pub model: Option<TeamModel>,
+    #[serde(default)]
+    pub tool_profile: TeamToolProfile,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TeamToolProfile {
+    Research,
+    #[default]
+    Execution,
+    Review,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

@@ -1,8 +1,28 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { ChatTeamWorkspace } from "./ChatTeamWorkspace";
-import { ChatTeamCard, recruitedRunId } from "./ChatTeamCard";
+import type { ComponentProps, ReactNode } from "react";
+import { SidecarResources } from "../sidecar/SidecarResources";
+import { createStores, sidecarBrowserRuntime } from "../chat/test/ChatPageTestHarness";
+
+const browserRuntime = sidecarBrowserRuntime();
+const stores = createStores({ browserRuntime });
+function Workspace({ sessionId, loadRun, loadAttempt, teamsStore, children }: {
+  sessionId: string; children: ReactNode;
+  loadRun: ComponentProps<typeof SidecarResources>["loadTeamRun"];
+  loadAttempt: ComponentProps<typeof SidecarResources>["loadTeamAttempt"];
+  teamsStore?: ComponentProps<typeof SidecarResources>["teamsStore"];
+}) {
+  const session = { id: sessionId, title: "Research", updatedAtMs: 0 };
+  return <SidecarResources activeSessionId={sessionId} activeSession={session} activeDisplaySession={session}
+    chatStore={stores.chatStore} workspaceStore={{ readThreadFile: vi.fn() }} artifactReviewEpoch={0} sessionResponding={false}
+    onLayoutChange={vi.fn()} onHide={vi.fn()} onReference={vi.fn()} onAskForSpreadsheetChange={vi.fn()} onHandoff={vi.fn()}
+    onError={vi.fn()} loadTeamRun={loadRun} loadTeamAttempt={loadAttempt} teamsStore={teamsStore}>{children}</SidecarResources>;
+}
+import { ChatTeamCard } from "./ChatTeamCard";
+import { teamRecruitment } from "./teamRecruitment";
+import { recruitmentRun } from "../chat/test/teamRecruitmentFixtures";
+import { ChatTeamHistory } from "./ChatTeamHistory";
 import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 
 afterEach(cleanup);
@@ -12,10 +32,12 @@ const run: TeamRun = {
   tasks:["a","b"].map((id)=>({task:{id,title:`Research ${id}`,memberId:id,instructions:"Write a report",dependencies:[]},status:"succeeded",attempts:[{threadId:`team-1-1-${id}-1`,turnId:`turn-${id}`,status:"succeeded",startedAt:"",finishedAt:"",output:"Done",error:null}]})),
 };
 
+const batch = { memberIds: ["a", "b"], tasks: [{ taskId: "a", memberId: "a" }, { taskId: "b", memberId: "b" }] };
+
 it("loads the board only on expansion and only the selected employee conversation", async () => {
   const loadRun=vi.fn().mockResolvedValue(run);
   const loadAttempt=vi.fn().mockResolvedValue([{id:"report",kind:"message",text:"Verified research",status:"completed"}]);
-  const {container}=render(<ChatTeamWorkspace sessionId="parent" workspaceStore={{readThreadFile:vi.fn()}} sidecarPresentation="closed" onHideSidecar={vi.fn()} loadRun={loadRun} loadAttempt={loadAttempt}><main><ChatTeamCard runId={run.id} loadRun={loadRun} /></main></ChatTeamWorkspace>);
+  const {container}=render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}><main><ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} /></main></Workspace>);
   expect(loadRun).not.toHaveBeenCalled();
   expect(loadAttempt).not.toHaveBeenCalled();
   const details=container.querySelector("details")!;
@@ -31,23 +53,67 @@ it("loads the board only on expansion and only the selected employee conversatio
   expect(panel.contains(screen.getByText("Verified research"))).toBe(true);
   fireEvent.click(panel.querySelectorAll("nav button")[1]);
   await waitFor(()=>expect(loadAttempt).toHaveBeenLastCalledWith("team-1-1-b-1","turn-b"));
-  fireEvent.keyDown(panel,{key:"Escape"});
+  fireEvent.keyDown(screen.getByRole("region", { name: "Team workspace" }),{key:"Escape"});
   await waitFor(()=>expect(screen.queryByRole("complementary")).toBeNull());
   await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole("button",{name:/Alice/})));
 });
 
-it("recognizes only recruitment results and preserves native result envelopes",()=>{
-  expect(recruitedRunId({id:"tool",name:"team.recruit",resultJson:{raw:{runId:run.id,tasks:[]}}})).toBe(run.id);
-  expect(recruitedRunId({id:"tool",name:"read_file",resultJson:{raw:{runId:run.id,tasks:[]}}})).toBeUndefined();
+it("confirms batch identities against native envelopes without treating cumulative tasks as new hires",()=>{
+  const tool = { id: "tool", name: "team.recruit", argsJson: { runId: run.id, members: [], tasks: [{ id: "b", memberId: "b" }] },
+    resultJson: { status: "success", raw: { runId: run.id, tasks: batch.tasks } } };
+  expect(teamRecruitment(tool, "completed")).toEqual({ kind: "batch", runId: run.id, batch: { memberIds: ["b"], tasks: [batch.tasks[1]] } });
+  expect(teamRecruitment({ ...tool, name: "read_file" }, "completed")).toBeUndefined();
+  expect(teamRecruitment(tool, "running")).toBeUndefined();
+  expect(teamRecruitment({ ...tool, argsJson: undefined }, "completed")).toEqual({ kind: "legacy", runId: run.id });
+  expect(teamRecruitment({ ...tool, argsJson: { members: [], tasks: [{ id: "b", memberId: "a" }] } }, "completed")).toEqual({ kind: "invalid" });
+});
+
+it("opens a reused employee's new task and keeps the card selection aligned with the member dock", async () => {
+  const latest = recruitmentRun();
+  latest.tasks.push({ ...latest.tasks[0], task: { ...latest.tasks[0].task, id: "summarize", title: "Summarize evidence" },
+    attempts: [{ ...latest.tasks[0].attempts[0], threadId: "summary-worker", turnId: "summary-turn" }] });
+  const loadRun = vi.fn().mockResolvedValue(latest);
+  const loadAttempt = vi.fn(async (threadId: string) => [{ id: threadId, kind: "message" as const, text: `Record ${threadId}`, status: "completed" as const }]);
+  const { container } = render(<Workspace sessionId="recruitment-chat" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamCard runId={latest.id} loadRun={loadRun} batch={{ memberIds: ["researcher-a"], tasks: [{ taskId: "summarize", memberId: "researcher-a" }] }} />
+  </Workspace>);
+  const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  const row = await screen.findByRole("button", { name: /Alex.*Summarize evidence/ });
+  fireEvent.click(row);
+  await screen.findByText("Record summary-worker");
+  expect(loadAttempt).toHaveBeenLastCalledWith("summary-worker", "summary-turn");
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+  const dock = container.querySelector(".team-member-dock")!;
+  expect(dock.querySelector('[aria-pressed="true"]')?.textContent).toContain("Alex");
+  fireEvent.click(dock.querySelectorAll("button")[1]);
+  await screen.findByText("Record compare-worker");
+  expect(row.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(row);
+  await screen.findByText("Record summary-worker");
+  expect(row.getAttribute("aria-pressed")).toBe("true");
+});
+
+it("reports missing batch evidence instead of filling the card with the cumulative roster", async () => {
+  const loadRun = vi.fn().mockResolvedValue(run);
+  const { container } = render(<ChatTeamCard runId={run.id} loadRun={loadRun}
+    batch={{ memberIds: ["missing"], tasks: [{ taskId: "missing", memberId: "missing" }] }} />);
+  const card = container.querySelector("details")!;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  expect((await screen.findByRole("alert")).textContent).toContain("missing from this team snapshot");
+  expect(container.querySelector(".chat-team-card__employees")).toBeNull();
+  expect(screen.getByRole("button", { name: "View team" }).hasAttribute("disabled")).toBe(true);
 });
 
 it("discards late employee reads and closes inspection when switching conversations", async () => {
   const loadRun = vi.fn().mockResolvedValue(run);
-  type Items = Awaited<ReturnType<NonNullable<Parameters<typeof ChatTeamWorkspace>[0]["loadAttempt"]>>>;
+  type Items = Awaited<ReturnType<NonNullable<Parameters<typeof Workspace>[0]["loadAttempt"]>>>;
   const pending = new Map<string, (items: Items) => void>();
   const loadAttempt = vi.fn((threadId: string) => new Promise<Items>(resolve => pending.set(threadId, resolve)));
   const props = { workspaceStore: { readThreadFile: vi.fn() }, sidecarPresentation: "closed", onHideSidecar: vi.fn(), loadRun, loadAttempt };
-  const { container, rerender } = render(<ChatTeamWorkspace {...props} sessionId="parent"><ChatTeamCard runId={run.id} loadRun={loadRun} /></ChatTeamWorkspace>);
+  const { container, rerender } = render(<Workspace {...props} sessionId="parent"><ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} /></Workspace>);
   const details = container.querySelector("details")!;
   details.open = true;
   fireEvent(details, new Event("toggle"));
@@ -59,6 +125,166 @@ it("discards late employee reads and closes inspection when switching conversati
   pending.get("team-1-1-b-1")!([{ id: "b", kind: "message", text: "Current Bob record", status: "completed" }]);
   await screen.findByText("Current Bob record");
   expect(screen.queryByText("Stale Alice record")).toBeNull();
-  rerender(<ChatTeamWorkspace {...props} sessionId="different-conversation"><p>New conversation</p></ChatTeamWorkspace>);
-  expect(screen.queryByRole("complementary")).toBeNull();
+  rerender(<Workspace {...props} sessionId="different-conversation"><p>New conversation</p></Workspace>);
+  expect(screen.queryByRole("tab", { name: "Team workspace" })).toBeNull();
+});
+
+
+it("shares tabs, expansion and hide controls with Browser while retaining the selected employee", async () => {
+  const loadRun = vi.fn().mockResolvedValue(run);
+  const loadAttempt = vi.fn().mockImplementation(async (threadId: string) => [
+    { id: "report", kind: "message", text: `Report from ${threadId}`, status: "completed" },
+  ]);
+  const { container } = render(<Workspace sessionId="s1" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} />
+  </Workspace>);
+  const details = container.querySelector("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+  await screen.findByText("Report from team-1-1-a-1");
+  fireEvent.click(screen.getByRole("button", { name: /View Bob/ }));
+  await screen.findByText("Report from team-1-1-b-1");
+  expect(screen.getAllByRole("complementary")).toHaveLength(1);
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("expanded");
+  fireEvent.click(screen.getByRole("button", { name: "Restore Sidecar" }));
+  fireEvent.click(screen.getByRole("button", { name: "Expand Sidecar" }));
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("expanded");
+  fireEvent.click(screen.getByRole("button", { name: "Restore Sidecar" }));
+  fireEvent.click(screen.getByRole("button", { name: "New Sidecar tab" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /Browser/ }));
+  await waitFor(() => expect(browserRuntime.createSession).toHaveBeenCalled());
+  expect(screen.queryByRole("region", { name: "Team workspace" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "Team workspace" }));
+  await screen.findByText("Report from team-1-1-b-1");
+  expect(browserRuntime.closeSession).not.toHaveBeenCalled();
+  expect(browserRuntime.closeTab).not.toHaveBeenCalled();
+  fireEvent.keyDown(screen.getByRole("separator"), { key: "ArrowLeft" });
+  const adjustedWidth = Number(screen.getByRole("separator").getAttribute("aria-valuenow"));
+  expect(adjustedWidth).toBeGreaterThan(520);
+  fireEvent.click(screen.getByRole("button", { name: "Hide Sidecar" }));
+  await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+  await screen.findByText("Report from team-1-1-a-1");
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("docked");
+  expect(Number(screen.getByRole("separator").getAttribute("aria-valuenow"))).toBe(adjustedWidth);
+  expect(screen.getAllByRole("tab", { name: "Team workspace" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Close Team workspace tab" }));
+  expect(screen.queryByRole("tab", { name: "Team workspace" })).toBeNull();
+  expect(screen.getAllByRole("tab")).toHaveLength(1);
+  expect(browserRuntime.closeSession).not.toHaveBeenCalled();
+});
+
+it("opens a new Team beside an existing Browser without changing its presentation or resource", async () => {
+  const loadRun = vi.fn().mockResolvedValue(run);
+  const loadAttempt = vi.fn().mockResolvedValue([]);
+  const { container } = render(<Workspace sessionId="s1" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} />
+  </Workspace>);
+  // Open the resource shell with a recruitment card, then remove only its Team tab.
+  const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Restore Sidecar" }));
+  fireEvent.click(screen.getByRole("button", { name: "New Sidecar tab" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /Browser/ }));
+  await screen.findByRole("tab", { name: "Example" });
+  fireEvent.click(screen.getByRole("button", { name: "Close Team workspace tab" }));
+  const browserTab = screen.getByRole("tab", { name: "Example" });
+  const width = screen.getByRole("separator").getAttribute("aria-valuenow");
+  fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
+  await screen.findByRole("region", { name: "Team workspace" });
+  expect(container.querySelector(".react-chat-workspace")?.getAttribute("data-sidecar-presentation")).toBe("docked");
+  expect(screen.getByRole("separator").getAttribute("aria-valuenow")).toBe(width);
+  expect(screen.getByRole("tab", { name: "Example" })).toBe(browserTab);
+  expect(browserRuntime.closeSession).not.toHaveBeenCalled();
+  expect(browserRuntime.closeTab).not.toHaveBeenCalled();
+});
+
+it("opens a legacy independent run from an empty Chat without changing its ownership", async () => {
+  const legacy = { ...run, id: "legacy", parentThreadId: null };
+  const loadRun = vi.fn().mockResolvedValue(legacy);
+  const loadAttempt = vi.fn().mockResolvedValue([{ id: "old", kind: "message", text: "Saved worker result", status: "completed" }]);
+  const loadRuns = vi.fn().mockResolvedValue([legacy]);
+  const { container } = render(<Workspace sessionId="" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamHistory sessionId="" loadRuns={loadRuns} />
+  </Workspace>);
+  const history = container.querySelector(".chat-team-history") as HTMLDetailsElement;
+  history.open = true;
+  fireEvent(history, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Research.*Independent team run/ }));
+  await screen.findByText("Saved worker result");
+  expect(legacy.parentThreadId).toBeNull();
+  expect(loadAttempt).toHaveBeenCalledExactlyOnceWith("team-1-1-a-1", "turn-a");
+  expect(screen.getByRole("tab", { name: "Team workspace" })).toBeTruthy();
+});
+
+it("opens historical artifact records inside the Sidecar attempt view", async () => {
+  const historyRun = structuredClone(run);
+  historyRun.tasks[0].attempts.unshift({
+    threadId: "old-thread", turnId: "old-turn", status: "failed", startedAt: "", finishedAt: "", output: null,
+    error: "Old attempt failed", message: { summary: "", unresolved: "", sequence: 1,
+      artifacts: [{ path: "report.md", bytes: 5, sha256: "hash" }] },
+  });
+  const loadRun = vi.fn().mockResolvedValue(historyRun);
+  const loadAttempt = vi.fn().mockImplementation(async (threadId: string) => [
+    { id: threadId, kind: "message", text: `Record ${threadId}`, status: "completed" },
+  ]);
+  const { container } = render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}>
+    <ChatTeamCard batch={batch} runId={historyRun.id} loadRun={loadRun} />
+  </Workspace>);
+  const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
+  card.open = true;
+  fireEvent(card, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Alice/ }));
+  await screen.findByText("Record team-1-1-a-1");
+  fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+  const earlier = screen.getByText("Earlier attempts (1)").closest("details") as HTMLDetailsElement;
+  earlier.open = true;
+  fireEvent(earlier, new Event("toggle"));
+  fireEvent.click(screen.getByRole("button", { name: "Open execution record" }));
+  await screen.findByText("Record old-thread");
+  expect(loadAttempt).toHaveBeenLastCalledWith("old-thread", "old-turn");
+  expect(screen.getByRole("tab", { name: "Tasks" }).getAttribute("aria-selected")).toBe("true");
+});
+
+it("keeps an in-flight control response with its own run when opening another history row", async () => {
+  const first = structuredClone(run);
+  first.id = "run-a";
+  first.status = "running";
+  first.spec.goal = "Goal A";
+  first.tasks[0].task.title = "A task";
+  const second = structuredClone(run);
+  second.id = "run-b";
+  second.status = "running";
+  second.spec.goal = "Goal B";
+  second.tasks[0].task.title = "B task";
+  let resolvePause!: (value: TeamRun) => void;
+  const control = vi.fn(() => new Promise<TeamRun>(resolve => { resolvePause = resolve; }));
+  const loadRun = vi.fn(async (id: string) => id === first.id ? first : second);
+  const loadAttempt = vi.fn().mockResolvedValue([]);
+  const { container } = render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}
+    teamsStore={{ control } as unknown as ComponentProps<typeof SidecarResources>["teamsStore"]}>
+    <ChatTeamHistory sessionId="parent" loadRuns={async () => [first, second]} />
+  </Workspace>);
+  const history = container.querySelector(".chat-team-history") as HTMLDetailsElement;
+  history.open = true;
+  fireEvent(history, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Goal A.*This conversation/ }));
+  await screen.findByText("A task");
+  fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+  expect(control).toHaveBeenCalledOnce();
+  history.open = true;
+  fireEvent(history, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Goal B.*This conversation/ }));
+  await screen.findByText("B task");
+  await act(async () => resolvePause({ ...first, status: "paused", revision: first.revision + 1 }));
+  expect(screen.getByText("B task")).toBeTruthy();
+  expect(screen.queryByText("Pausing…")).toBeNull();
+  history.open = true;
+  fireEvent(history, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", { name: /Goal A.*This conversation/ }));
+  await screen.findByText("A task");
+  expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
 });

@@ -79,11 +79,72 @@ fn authorized_run(
     Ok(Some(run))
 }
 
+pub(crate) fn worker_tool_policy(
+    threads: &WorkspaceThreadStore,
+    context: &AgentTurnContext,
+) -> Result<Option<crate::agent::runtime::NativeAgentToolPolicy>, String> {
+    if !threads.is_team_scope() {
+        return Ok(None);
+    }
+    // The ceiling survives completion and follows child Threads back to their employee.
+    // Board authority below still requires the exact live attempt.
+    let operation = threads.begin_operation().map_err(|e| e.message)?;
+    let mut thread_id = context.session_id.clone();
+    let mut visited = std::collections::HashSet::new();
+    let thread = loop {
+        if !visited.insert(thread_id.clone()) {
+            return Err("Team Thread ancestry contains a cycle".into());
+        }
+        let thread = operation
+            .thread()
+            .read_thread(ReadThreadRequest {
+                thread_id,
+                limit: Some(0),
+                ..Default::default()
+            })
+            .map_err(|e| e.message)?
+            .thread;
+        if thread.source == "team" {
+            break thread;
+        }
+        thread_id = thread
+            .parent_thread_id
+            .ok_or("Team Thread has no saved employee origin")?;
+    };
+    drop(operation);
+    let run_id = thread
+        .metadata
+        .extra
+        .get("teamRunId")
+        .and_then(Value::as_str)
+        .ok_or("Team Thread is missing its run origin")?;
+    let path = store::path(&store::directory(threads.data_root())?, run_id)?;
+    let active = store::lock()?;
+    let run = store::read(&path, &active)?;
+    let record = run
+        .tasks
+        .iter()
+        .find(|record| {
+            record
+                .attempts
+                .iter()
+                .any(|attempt| attempt.thread_id == thread.thread_id)
+        })
+        .ok_or("Team attempt has no saved task")?;
+    let member = run
+        .spec
+        .members
+        .iter()
+        .find(|member| member.id == record.task.member_id)
+        .ok_or("Team attempt has no saved member")?;
+    Ok(Some(member.tool_profile.policy()))
+}
+
 pub(crate) fn available(
     threads: &WorkspaceThreadStore,
     context: &AgentTurnContext,
 ) -> Result<bool, String> {
-    authorized_run(threads, context).map(|r| r.is_some())
+    Ok(authorized_run(threads, context)?.is_some())
 }
 
 #[derive(Deserialize, Default)]

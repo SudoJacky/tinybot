@@ -1,15 +1,15 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:6e766c21b358d14b10704672c612bfda5a65710cad38c918094c502189fd24e2 -->
+<!-- tinybot-module-fingerprint: sha256:b8e525e53ab0e3ed68ba58f486b5909b951cc6d1736cb85ed25df67a510ddea1 -->
 
 Tabs retain a 150px width and scroll horizontally with the mouse wheel while hiding the scrollbar. Horizontal trackpad gestures and Ctrl-wheel zoom remain native. Activating a tab reveals its whole container, including Close; the unused More control is omitted.
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
-thread-scoped Browser and Artifact resources, workspace-scoped Terminal
+thread-scoped Browser, Artifact and Team resources, workspace-scoped Terminal
 resources, their tab selection, and the docked, hidden, or expanded Sidecar
 layout.
 
 The module owns renderer state, presentation, and resource lifecycle coordination.
-`SidecarResources.tsx` provisions and
+`SidecarResources.tsx` owns the Chat/Sidecar layout and Team selection context, provisions and
 releases native resources, the native Browser runtime owns WebView2 sessions
 and tabs, and the desktop Terminal runtime owns user PTY processes. Sidecar
 must not become a second authority for either native lifecycle.
@@ -27,6 +27,20 @@ by `SidecarResources`:
 - Browser resources belong to the current Thread and bind one-to-one to native
   WebView2 tabs in that Thread's shared Browser Session.
 - Artifact resources belong to the Thread that produced the Artifact.
+- Team resources identify a run and selected task within the parent Thread.
+  Recruitment cards open or reuse the run tab; `ChatTeamPanel` supplies its
+  content, with only the selected attempt loaded at a time. Team tabs share the shell
+  controls and can coexist with Browser, Artifact and Terminal tabs. Closing
+  their renderer tab does not cancel or otherwise mutate the native Team run.
+  Chat history can open an independent run in the current renderer scope,
+  including a new Chat without a Thread. This scope does not change the run's
+  recorded `parentThreadId` or import worker history into the conversation.
+  The current Chat can supply its canonical main plan. A nonempty plan is shown
+  only for the actually visible Team whose recorded parent matches that Chat.
+  That same `teamPlan` value feeds the shared Team header and a context visibility
+  flag consumed by the floating note. Hiding, closing, changing resources or
+  scopes clears it synchronously, including while inert exit content remains.
+  Geometry callbacks and Effects never decide which progress entry is visible.
 - Terminal resources belong to the active workspace. Regular conversations
   share `DEFAULT_SIDECAR_WORKSPACE_ID`, which asks Rust to resolve Tinybot's
   configured default workspace rather than inventing a renderer path.
@@ -59,6 +73,12 @@ resize handle. Width is persisted separately from resource state. The live and
 restored width is clamped against the measured Chat workspace: docked mode
 preserves the minimum Chat column, while narrow overlay mode preserves a
 viewport gutter.
+Opening a new Team tab while Sidecar is hidden uses the existing expanded
+presentation, giving the workspace the larger reading column. Selecting another
+member, reopening an existing Team tab, or opening a Team beside an already
+visible resource preserves the current presentation and saved docked width.
+Restore, pointer and keyboard resizing, and the narrow overlay all keep using
+the shared Sidecar geometry; Team content defines no separate panel width.
 Direct pointer, keyboard and viewport-clamp width updates are immediate; the
 ephemeral reducer `layoutMotion` policy restores the 220 ms grid transition
 when presentation changes. Only numeric width is persisted.

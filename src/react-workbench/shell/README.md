@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:e2c3fa91cf705c1a179e84b4814f5527f74f0db8677cd13255b5b486a2db5fa8 -->
+<!-- tinybot-module-fingerprint: sha256:23f1e56a2b1a01ee6afca5464a4909bf973db98620aa7fa2aeee2951e9227412 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -15,11 +15,8 @@ the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
 `appRoutes.ts` defines route names independently of their renderer, allowing
 route modules to type navigation callbacks without importing `RouteSurface`.
-After its first visit, Team stays mounted in a hidden route container. Shell
-navigation and execution-record round trips preserve its draft, pending request,
-selection and scroll. Hidden Team content is excluded from focus and accessibility
-navigation while its running-run polling continues. This retention lasts for the
-app session; it does not persist unsaved drafts across reloads.
+Legacy `teams` navigation resolves to Chat, where durable runs remain available
+through Team history. The shell no longer mounts a hidden Team route.
 The shell also marks only the first Chat mount in an app lifetime as a fresh,
 uncreated conversation. Once Chat finishes session hydration, later route
 remounts can restore the tabs opened during that same app lifetime.
@@ -117,6 +114,5 @@ The main shell hosts missed-automation notices across all routes. The hook lives
 in `automations/`; the shell supplies navigation for its View tasks action.
 The pet quick-chat window keeps its message host without polling for misses.
 
-Resources > Teams and the Chat sidebar open a separate lazy Teams route. The
-shell passes the Team store, workspace registry, route navigation, and existing
-Thread-opening callback; orchestration and plan state stay in the Teams module.
+Resources and the Chat sidebar have no separate Teams page; Team recruitment
+and history live in Chat and its shared Sidecar.

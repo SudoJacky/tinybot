@@ -1,8 +1,11 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a966b6c657a85db6b108ffb311943542cb45ba69ffe5dea8f0ac77750092714f -->
+<!-- tinybot-module-fingerprint: sha256:e1844aceea5517ef3d5232e36eb4e86ae8b9f6fb35f86f90b2d74f23838a2d31 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
+`MessageReasoning` shares recorded reasoning disclosure and duration labels with
+the Team workbench. `ToolActivityItem` keeps long previews compact and lets users
+expand their full recorded content without leaving the timeline.
 `useChatSessions` subscribes directly to session-list changes for its mounted
 lifetime, including while an uncreated draft is active. External pet chats and
 generated titles appear without route navigation or changing the active tab.
@@ -122,7 +125,8 @@ semantic changes to React. The page owns tab selection, composer draft
 persistence, scroll restoration, and temporary deleted-row animation snapshots;
 it does not mutate the application's session data. Module tests cover concurrent
 draft creation, ID/title reconciliation, deletion events, and visible failures.
-`SidecarResources` owns Browser, Terminal, and Artifact state and lifecycle
+`SidecarResources` owns the shared workspace layout, Browser, Terminal, Artifact,
+and Team tab state and lifecycle
 coordination. The page holds only Sidecar layout presentation and invokes its
 open/toggle operations; resource snapshots never enter page state.
 The Chat header offers an open action only while Sidecar is closed. When visible,
@@ -219,6 +223,18 @@ manual expansion stays open. Failed and interrupted Turns reconcile unfinished
 steps to their terminal outcome. Each floating step shows its status through a
 labelled leading icon, without a duplicate text column; the heading retains the
 overall progress count. Reduced motion disables its spatial transitions.
+The current session's nonempty canonical plan moves to the visible Team header
+only when the run's recorded `parentThreadId` matches that session. Sidecar
+provides the same render-time visibility fact to the header and floating note;
+the latter stays mounted with no DOM while hidden, preserving manual expansion
+and restarting its automatic reading interval when visible again. Revisions
+received while hidden retain the existing update behavior. `PlanSteps` shares
+recorded explanation and statuses between both locations. A closed Sidecar,
+another resource, or unrelated/independent Team history restores the floating
+note. An absent or empty plan presents no counter. The timeline's session ID
+must match before any main progress is passed into Sidecar.
+At narrow widths, the collapsed session sidebar keeps its actual compact width;
+the 150–210px sidebar reservation applies only while expanded.
 Form completion refreshes stop capabilities even when the active Turn ID and
 status are unchanged, because a live resume acknowledgement may arrive before
 the persisted resolution. Successful form-command status no longer stays above the composer; failures remain visible.
@@ -550,12 +566,24 @@ The sidebar header exposes a clock-icon Scheduled shortcut below Tinybot and
 keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
 
-The optional `onOpenTeams` sidebar action opens the independent Teams route in
-both expanded and collapsed layouts. Workspace Chat also offers `@team` in its
-composer. Recruitment tool results render a lazy `ChatTeamCard` outside grouped
-tool rows. The card loads the board on expansion; employee selection opens the
-shared Team inspector beside Chat (or in place on narrow windows). The inspector
-loads only the selected attempt, keeps the member dock available, and closes when
-switching conversations or opening the other sidecar. Worker conversation content
+Workspace Chat offers `@team` in its
+composer. Successful recruitment tool results render a lazy `ChatTeamCard` outside grouped
+tool rows. Each card takes stable task/member IDs from the full canonical call
+arguments (objects or JSON strings from saved function calls), cross-checked
+against its successful result. Cumulative result tasks
+and preview text never define a batch. The latest board supplies status only;
+later recruitment, same-name employees and timeline reloads retain each card's
+scope. Older calls without arguments explain the missing batch and offer View
+team, while invalid records show an error alongside their original tool details.
+Failed and unfinished calls keep their normal tool status.
+The card loads the board on expansion; employee selection opens the
+Team tab in Sidecar. The panel loads only the selected attempt and keeps the
+member dock available. It shares Sidecar resizing, expansion, hiding and tab
+navigation; Browser and Artifact tabs coexist with it. Team tabs follow the
+parent conversation scope, and closing a tab does not cancel its run. Worker conversation content
 does not enter the parent session. Native Teams owns
-scheduling and durable run state for both entry points.
+scheduling and durable run state.
+The header's Team history lists saved runs even in a new Chat. Independent legacy
+runs remain independent when opened there. The Sidecar Team view provides native
+pause, cancel, resume and explicit failed-task retry, plus attempt history,
+files and run-scoped usage. Hiding the panel changes only the view.
