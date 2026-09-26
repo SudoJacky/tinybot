@@ -3,6 +3,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime};
 
 use super::recorder::ThreadRecorder;
@@ -12,8 +14,26 @@ const MIN_ROLLOUT_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const RUN_MARKER_STALE_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn spawn_rollout_compression_worker(data_root: PathBuf, recorder: ThreadRecorder) {
-    if let Err(error) = std::thread::Builder::new()
+#[derive(Debug)]
+pub(super) struct RolloutCompressionWorker {
+    worker: Option<JoinHandle<()>>,
+}
+
+impl Drop for RolloutCompressionWorker {
+    fn drop(&mut self) {
+        if let Some(worker) = self.worker.take() {
+            if worker.join().is_err() {
+                eprintln!("rollout_compression_worker_panicked_during_shutdown");
+            }
+        }
+    }
+}
+
+pub(super) fn spawn_rollout_compression_worker(
+    data_root: PathBuf,
+    recorder: ThreadRecorder,
+) -> Arc<RolloutCompressionWorker> {
+    let worker = match std::thread::Builder::new()
         .name("tinybot-rollout-compression".to_string())
         .spawn(move || {
             if let Err(error) = run_rollout_compression_worker(&data_root, &recorder) {
@@ -23,10 +43,14 @@ pub(super) fn spawn_rollout_compression_worker(data_root: PathBuf, recorder: Thr
                     error.message
                 );
             }
-        })
-    {
-        eprintln!("rollout_compression_worker_spawn_failed error={error}");
-    }
+        }) {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            eprintln!("rollout_compression_worker_spawn_failed error={error}");
+            None
+        }
+    };
+    Arc::new(RolloutCompressionWorker { worker })
 }
 
 pub(super) fn open_rollout_reader(

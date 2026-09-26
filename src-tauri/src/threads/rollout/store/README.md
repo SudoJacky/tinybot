@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:237db10a1e88b8d290db96fad235c8c9d60143c5c586c7c20c2d58675a8a7bf8 -->
+<!-- tinybot-module-fingerprint: sha256:f424ce481fe57f7da4b2e0383f6364396bdc35686aaa833cbcebe45fa51247fc -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -13,6 +13,9 @@ write.
 
 Production constructors receive the application data root explicitly. The
 workspace-relative `.tinybot` convenience constructors are test-only.
+RPC clones share ownership of the startup compression worker. Releasing the last
+RPC waits for that worker and its recorder to finish before the storage directory
+can be removed; background compression cannot outlive its owning store.
 
 | Path | Role |
 | --- | --- |
