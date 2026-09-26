@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("ChatTimeline", () => {
-  test("keeps each successful recruitment batch through later waves, status updates, reopening and canonical reload", () => {
+  test.each(["object", "json-string"])("keeps each successful recruitment batch through later waves, status updates, reopening and canonical reload (%s arguments)", (argumentFormat) => {
     const first = recruitmentRun();
     first.revision = 1;
     first.tasks = first.tasks.slice(0, 2);
@@ -28,7 +28,11 @@ describe("ChatTimeline", () => {
     const open = vi.fn();
     const persisted = recruitmentRuntime(latest);
     const view = (run: typeof latest, payload = persisted) => {
-      const turns = createAgentTimelineModel().load("recruitment-chat", [JSON.parse(JSON.stringify(payload))]).turns;
+      const items = payload.timeline.items.map(item => ({ ...item, data: { ...item.data,
+        args: argumentFormat === "json-string" ? JSON.stringify(item.data.args) : item.data.args,
+      } }));
+      const saved = { ...payload, timeline: { ...payload.timeline, items } };
+      const turns = createAgentTimelineModel().load("recruitment-chat", [JSON.parse(JSON.stringify(saved))]).turns;
       // Preview text is presentation-only; identity must use the full arguments.
       turns[0].steps[0].toolCall!.argsPreview = "Clipped display preview";
       return <ChatTeamContext.Provider value={{ run, selectedTaskId: "verify", open }}>
@@ -42,6 +46,7 @@ describe("ChatTimeline", () => {
       return cards;
     };
     let cards = expand(container);
+    expect(cards).toHaveLength(1);
     expect(within(cards[0]).getAllByRole("button")).toHaveLength(2);
     rerender(view(latest));
     cards = expand(container);
@@ -113,11 +118,24 @@ describe("ChatTimeline", () => {
       : failure === "mismatched" ? { ...item.data.result, raw: { ...item.data.result.raw, runId: "different-run", tasks: [{ taskId: "sources", memberId: "wrong-member" }] } }
       : failure === "invalid-result" ? { raw: '{"runId": "truncated' } : item.data.result;
     const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, status: failure === "running" ? "running" : payload.status, timeline: { ...payload.timeline, items: [{ ...item, status, data: { ...item.data, status, result,
-      args: failure === "invalid-args" ? '{"tasks": [' : item.data.args } }] } }]).turns;
+      args: failure === "invalid-args" ? '{"tasks": [' : JSON.stringify(item.data.args) } }] } }]).turns;
     const { container } = render(<ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
     expect(container.querySelector(".chat-team-card")).toBeNull();
     expect(container.querySelector(".react-tool-activity")).not.toBeNull();
     if (["truncated", "mismatched", "invalid-args", "invalid-result"].includes(failure)) expect(screen.getByRole("alert").textContent).toContain("incomplete or inconsistent");
+  });
+
+  test.each(["null", "[]", '{"arguments":{"members":[],"tasks":[]}}'])("keeps invalid saved argument shapes explicit instead of treating them as missing (%s)", (args) => {
+    const run = recruitmentRun();
+    const payload = recruitmentRuntime(run, [["sources", "compare"]]);
+    const item = payload.timeline.items[0];
+    const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, timeline: { ...payload.timeline,
+      items: [{ ...item, data: { ...item.data, args } }],
+    } }]).turns;
+    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
+    expect(container.querySelector(".chat-team-card")).toBeNull();
+    expect(container.querySelector(".react-tool-activity")).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("incomplete or inconsistent");
   });
 
   test("shows real retry progress while running and hides it on completion or failure", () => {

@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:294cd7061a2e715a84c1917812294d08cd7065cc652f6e35cbaa5a62049ef09a -->
+<!-- tinybot-doc-fingerprint: sha256:241a436b4786fd389ff3f60b0b3ccf9281ecf8be4c5ee98b4050ac5158e8c588 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -356,7 +356,8 @@ do not produce empty tool responses or additional model requests. They
 share the same scheduler and durable board. Attempt conversations have separate
 per-run storage/index/cache scopes; Chat cards load board and employee history
 only when expanded/selected. Each recruitment card keeps the successful call's
-task/member IDs from canonical arguments; the cumulative native snapshot confirms
+task/member IDs from canonical arguments, including JSON strings retained by
+historical function calls; the cumulative native snapshot confirms
 those IDs, while the latest board updates their status. Later recruitment does
 not expand an old card's batch. Older records without batch evidence explain the
 limitation and retain access to the team. This adds neither an Agent Loop nor a second result

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:3ba5d3c24d858022ca64138bc8c85c4363967d945bb1ab2d490ea686944e87d3 -->
+<!-- tinybot-module-fingerprint: sha256:1f04383fd229322b7898bba8246559ea034940ba0c969afc86e8cde297310ab8 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -560,7 +560,8 @@ navigation callback; Chat does not own automation execution or scheduling.
 Workspace Chat offers `@team` in its
 composer. Successful recruitment tool results render a lazy `ChatTeamCard` outside grouped
 tool rows. Each card takes stable task/member IDs from the full canonical call
-arguments, cross-checked against its successful result. Cumulative result tasks
+arguments (objects or JSON strings from saved function calls), cross-checked
+against its successful result. Cumulative result tasks
 and preview text never define a batch. The latest board supplies status only;
 later recruitment, same-name employees and timeline reloads retain each card's
 scope. Older calls without arguments explain the missing batch and offer View

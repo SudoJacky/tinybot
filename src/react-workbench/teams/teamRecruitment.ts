@@ -21,7 +21,12 @@ export function teamRecruitment(tool: ToolCallState, status: ChatStepStatus): Te
   }
   // Older saved calls may retain the result without the original arguments.
   if (tool.argsJson == null) return { kind: "legacy", runId: snapshot.runId };
-  const args = tool.argsJson;
+  let args = tool.argsJson;
+  // Replayed function calls retain their arguments as a JSON string.
+  if (typeof args === "string") {
+    try { args = JSON.parse(args); }
+    catch { return { kind: "invalid" }; }
+  }
   if (!record(args) || !Array.isArray(args.tasks) || !args.tasks.length || !Array.isArray(args.members)
     || (args.runId != null && args.runId !== snapshot.runId)) return { kind: "invalid" };
   const memberIds = new Set<string>();
