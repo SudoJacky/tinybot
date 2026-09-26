@@ -1,4 +1,4 @@
-import { Children, useMemo, type ReactNode } from "react";
+import { Children, memo, useMemo, type ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -33,7 +33,7 @@ type ToolActivityPreview = {
   meta?: string;
 };
 
-export function ToolActivityItem({
+export const ToolActivityItem = memo(function ToolActivityItem({
   fallbackSummary,
   status,
   toolCall,
@@ -61,7 +61,14 @@ export function ToolActivityItem({
       ))}
     </ToolActivityFrame>
   );
-}
+}, (previous, next) => {
+  if (previous.status !== next.status || previous.fallbackSummary !== next.fallbackSummary) return false;
+  // Turn projection creates new wrappers for unchanged calls. Their payloads
+  // retain canonical Item references, so compare the small wrapper, not JSON.
+  const keys = Object.keys(previous.toolCall) as (keyof ToolCallState)[];
+  return keys.length === Object.keys(next.toolCall).length
+    && keys.every((key) => Object.is(previous.toolCall[key], next.toolCall[key]));
+});
 
 export function ToolActivityFrame({
   category,

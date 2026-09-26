@@ -1,4 +1,4 @@
-import { Children, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Children, memo, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChatDisclosureIcon } from "./ChatDisclosureIcon";
 import "./TimelineActivity.css";
 
@@ -98,10 +98,21 @@ export function TimelineActivity({
           role="region"
         >
           <div className="react-timeline-activity__content-inner" hidden={!expanded && !present}>
-            {expanded || present || keepMounted ? children : null}
+            {keepMounted ? (
+              <RetainedActivityContent visible={expanded || present}>{children}</RetainedActivityContent>
+            ) : expanded || present ? children : null}
           </div>
         </div>
       ) : null}
     </div>
   );
 }
+
+// Hidden details retain interaction state, but consume new snapshots only when
+// shown again. In particular, each answer token must not render the tool trace.
+const RetainedActivityContent = memo(function RetainedActivityContent({ children }: {
+  children: ReactNode;
+  visible: boolean;
+}) {
+  return children;
+}, (previous, next) => !previous.visible && !next.visible);

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:70a6bde110b039c80f89eeef3c2b6cf8b2f0b9455bea3d03f9ee98d61ce6a047 -->
+<!-- tinybot-module-fingerprint: sha256:a966b6c657a85db6b108ffb311943542cb45ba69ffe5dea8f0ac77750092714f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -205,7 +205,12 @@ open content does not animate on mount, and reduced motion switches immediately.
 Details unmount by default;
 tools and compaction opt into `keepMounted` to preserve their existing preview
 lifecycle. Execution summaries also keep their children mounted so folding the
-whole trace preserves individually expanded rows. Flat legacy tool groups use
+whole trace preserves individually expanded rows. Retained details stop consuming
+parent updates after the closing transition and receive the latest content when
+reopened; headers and summaries stay live. `ToolActivityItem` also skips unchanged
+canonical calls when a projected Turn creates new wrappers around the same payloads.
+This keeps completed tool rows stable while subsequent text streams, including
+when the execution trace remains open. Flat legacy tool groups use
 the same list renderer without a disclosure shell. Business-specific renderers
 own content and lifecycle decisions; they do not create disclosure buttons or IDs.
 `FloatingPlanStatus` mirrors the latest canonical plan at the top right across Turns.
@@ -227,8 +232,12 @@ The control exposes its pressed state and remains usable while code streams.
 Streaming
 prose uses Streamdown's incremental 160 ms opacity fade, with character boundaries
 for uninterrupted CJK text and no stagger delay. Existing character nodes are
-reused without replaying their fade; completed messages render without animation
-wrappers. Code and math are excluded by Streamdown's animation plugin, and the
+reused without replaying their fade. Replies longer than 2,000 source characters
+stream without character animation, bounding the number of animation nodes and
+avoiding per-character reconciliation and layout work for long paragraphs.
+Crossing that budget keeps the Markdown tree and code-control state mounted;
+content is neither truncated nor delayed. Completed messages render without
+animation wrappers. Code and math are excluded by Streamdown's animation plugin, and the
 existing reduced-motion rule disables the fade. Tests cover CJK appends, new
 paragraphs, Markdown completion, and the existing streaming render boundary.
 `ViewportContent` mounts expensive Markdown and chart bodies within 800 pixels

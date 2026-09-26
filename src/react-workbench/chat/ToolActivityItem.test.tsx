@@ -3,12 +3,64 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
 import { ToolActivityItem } from "./ToolActivityItem";
 
-afterEach(cleanup);
+const activityRender = vi.hoisted(() => vi.fn());
+vi.mock("./TimelineActivity", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./TimelineActivity")>();
+  return { ...original, TimelineActivity: (props: Parameters<typeof original.TimelineActivity>[0]) => {
+    activityRender();
+    return <original.TimelineActivity {...props} />;
+  } };
+});
+
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("ToolActivityItem", () => {
+  it("skips unchanged canonical tools during streaming but renders revised results and status", async () => {
+    const user = userEvent.setup();
+    const sessionId = "performance";
+    const turnId = "active";
+    const tool = {
+      schemaVersion: "tinybot.turn_item.v2", sessionId, turnId, itemId: "tool", sequence: 1,
+      revision: 1, kind: "tool_call", status: "completed", createdAt: "2026-09-26T10:00:00Z",
+      data: { type: "tool_call", name: "exec_command", toolCallId: "tool", args: { command: "npm test" },
+        result: { stdout: "Tests passed" }, timing: { durationMs: 100 } },
+    };
+    const answer = { ...tool, itemId: "answer", sequence: 2, kind: "assistant_message", status: "running",
+      data: { type: "assistant_message", messageId: "answer", modelCallId: "call", phase: "final_answer", content: "Streaming" } };
+    const model = createAgentTimelineModel();
+    const initial = model.load(sessionId, [{ runtimeEvents: [], timeline: {
+      schemaVersion: "tinybot.timeline.v2", sessionId, turnId, snapshotRevision: 1, items: [tool, answer],
+    } }]);
+    const view = (snapshot: typeof initial) => {
+      const step = snapshot.turns[0].steps[0];
+      return <ToolActivityItem status={step.status} toolCall={step.toolCall!} fallbackSummary={step.summary} />;
+    };
+    const { rerender } = render(view(initial));
+    await user.click(screen.getByRole("button", { name: "Toggle details for Ran npm test" }));
+    activityRender.mockClear();
+    for (let revision = 2; revision <= 20; revision += 1) {
+      rerender(view(model.applyPatch(sessionId, {
+        schemaVersion: "tinybot.timeline_patch.v2", sessionId, turnId, snapshotRevision: 1,
+        item: { ...answer, revision, data: { ...answer.data, content: `Streaming ${revision}` } },
+      })));
+    }
+    expect(activityRender).not.toHaveBeenCalled();
+    rerender(view(model.applyPatch(sessionId, {
+      schemaVersion: "tinybot.timeline_patch.v2", sessionId, turnId, snapshotRevision: 1,
+      item: { ...tool, revision: 2, status: "failed", data: { ...tool.data,
+        timing: { durationMs: 200 }, result: { stderr: "Updated failure" } } },
+    })));
+    expect(activityRender).toHaveBeenCalled();
+    expect(screen.getByText("Failed")).toBeVisible();
+    expect(screen.getByText("Terminal · 200ms")).toBeVisible();
+    expect(screen.getByText("Updated failure")).toBeVisible();
+    expect(screen.queryByText("Tests passed")).toBeNull();
+  });
+
   it("keeps a completed command collapsed until its preview is requested", async () => {
     const user = userEvent.setup();
     render(<ToolActivityItem

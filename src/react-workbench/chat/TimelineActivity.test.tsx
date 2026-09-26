@@ -123,6 +123,37 @@ describe("TimelineActivity", () => {
     expect(screen.getByRole("region", { name: "Tool" })).toHaveTextContent("Tool details");
   });
 
+  it("defers hidden detail work and delivers the latest snapshot on reopening without losing state", async () => {
+    const user = userEvent.setup();
+    const rendered = vi.fn();
+    function Detail({ revision }: { revision: number }) {
+      rendered(revision);
+      return <><input aria-label="Draft" /><span>Revision {revision}</span></>;
+    }
+    const view = (revision: number) => (
+      <TimelineActivity icon={null} keepMounted title="Trace"><Detail revision={revision} /></TimelineActivity>
+    );
+    const { rerender } = render(view(0));
+    rendered.mockClear();
+    rerender(view(1));
+    expect(rendered).not.toHaveBeenCalled();
+    const trigger = screen.getByRole("button", { name: "Trace" });
+    await user.click(trigger);
+    const input = screen.getByRole("textbox", { name: "Draft" });
+    await user.type(input, "Retained draft");
+    await user.click(trigger);
+    rendered.mockClear();
+    for (let revision = 1; revision <= 30; revision += 1) rerender(view(revision));
+    expect(rendered).not.toHaveBeenCalled();
+    expect(input).not.toBeVisible();
+    await user.click(trigger);
+    expect(screen.getByText("Revision 30")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Draft" })).toBe(input);
+    expect(input).toHaveValue("Retained draft");
+    rerender(view(31));
+    expect(screen.getByText("Revision 31")).toBeVisible();
+  });
+
   it("hides the collapsed preview on expansion and keeps the summary outside the trigger", async () => {
     const user = userEvent.setup();
     render(<TimelineActivity
