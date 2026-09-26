@@ -4,5 +4,6 @@ import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 export const ChatTeamContext = createContext<{
   run?: TeamRun;
   selectedTaskId?: string;
+  mainPlanVisible?: boolean;
   open(run: TeamRun, taskId: string, trigger: HTMLButtonElement): void;
 } | null>(null);

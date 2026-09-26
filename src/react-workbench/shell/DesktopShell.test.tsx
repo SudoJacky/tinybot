@@ -513,9 +513,10 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Teams", "Agent Graphs", "Memory", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Agent Graphs", "Memory", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
+    expect(within(resourcesMenu).queryByRole("menuitem", { name: "Teams" })).toBeNull();
     expect(within(resourcesMenu).queryByRole("menuitem", { name: "GitHub" })).toBeNull();
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
 
@@ -1473,13 +1474,13 @@ it("opens scheduled tasks from a missed reminder while viewing Chat", async () =
   expect(services.automationStore.run).not.toHaveBeenCalled();
 });
 
-it("opens the independent Teams route from Chat and returns to Chat", async () => {
+it("offers Team history in Chat without a standalone Teams navigation entry", async () => {
   const services = createServices();
   localStorage.setItem("tinybot.quick-start.v1", "dismissed");
   render(<DesktopShell services={services} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Teams" }));
-  expect(await screen.findByRole("heading", { name: "Put your team to work" })).toBeTruthy();
-  expect(await screen.findByRole("textbox", { name: "Team goal" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
-  await waitFor(() => expect(screen.queryByRole("heading", { name: "Put your team to work" })).toBeNull());
+  expect(await screen.findByText("Recent team runs")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Teams" })).toBeNull();
+  await userEvent.setup().click(screen.getByRole("button", { name: "Resources" }));
+  expect(within(screen.getByRole("menu", { name: "Resources menu" })).queryByRole("menuitem", { name: "Teams" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Put your team to work" })).toBeNull();
 });

@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b16b6ac0896143ae4b8ada14f052a5a72988443bfebcabe258b8fcbc3ee85929 -->
+<!-- tinybot-doc-fingerprint: sha256:bcfd0eeb7c85393c7a53cc20630dd3976287afdbd4788823ed55381f562db508 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -242,3 +242,8 @@ Form continuation restores the checkpoint's effective settings and composed
 instructions, including coordinator metadata and the working directory, before
 building runtime services. It does not recompose the paused Turn from changed
 application defaults. Snapshots without execution context fail explicitly.
+
+Team member `toolProfile` is saved with the run and resolved from the active
+attempt during tool preparation. It narrows inherited tools independently of
+role instructions. All employees, including synthesis roles, submit internal
+handoffs; only the main Agent publishes final conclusions and data views.

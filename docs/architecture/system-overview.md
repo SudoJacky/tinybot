@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:55c1cf14fbfe23682d48bf0da8ef6b6f126c0c2277b3ee908ce49cdc646a5184 -->
+<!-- tinybot-doc-fingerprint: sha256:241a436b4786fd389ff3f60b0b3ccf9281ecf8be4c5ee98b4050ac5158e8c588 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -314,8 +314,9 @@ existing application window.
   session and subscribes to canonical activity for running and inspected tasks.
   Recent activity and latest attempts are shown first, with older records folded.
   Overall progress and the selected member's work use separate panes linked by
-  task selection and a persistent bottom member dock. Public messages and tool
-  activity reuse Chat renderers; reading positions remain per task attempt.
+  task selection and a persistent bottom member dock. Messages, recorded reasoning,
+  tool inputs/results, patch diffs and data views reuse Chat renderers. Tool
+  previews can reveal their full recorded content; reading positions remain per task attempt.
   Its Files view groups reported artifacts by producer task and attempt, reusing
   verified artifact reads and the separate current-workspace file preview.
   See the [Team module](../../src-tauri/src/teams/README.md) and [Team API](../api/teams.md).
@@ -339,26 +340,49 @@ existing application window.
 - [Desktop runtime](../../src-tauri/src/desktop/README.md)
 - [Native runtime services](../../src-tauri/src/runtime/README.md)
 
-The Teams workbench is an independent lazy route, with a goal composer and a
-shared plan/execution/result page. A typed native adapter supplies durable run
-revisions and attempt Threads. Renderer polling never owns the scheduler;
-explicit pause, cancel and retry requests remain backend decisions.
-After its first visit, the shell keeps Team mounted across route navigation for
-the app session. Unsaved plans, in-flight preparation, selected tasks and scroll
-positions survive execution-record round trips. Polling covers known running
-runs even on the Team home or while the route is hidden; durable state remains
-owned by the native Team store.
+Teams are recruited by the main Agent in Chat and inspected in the shared
+Sidecar. A typed native adapter supplies durable run revisions and attempt
+Threads. Renderer polling never owns the scheduler; explicit pause, cancel and
+retry requests remain backend decisions. The former independent Teams route
+resolves to Chat, where saved runs remain reachable through Team history.
 
 Team collaboration uses a run-scoped shared message board: completion publishes a full handoff with summary, unresolved issues and artifact references. Handoff text has no size limit; artifact bodies are read in verified ranges on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.
 
 Chat also exposes `@team`: the main Agent dynamically recruits employees through
 native coordinator tools, appends DAG tasks, waits for committed handoffs and
-integrates results in its existing Turn. The independent Teams route and Chat
-use event-driven waits for the next result or all tasks; progress-only notifications
+integrates results in its existing Turn. Team execution uses event-driven waits
+for the next result or all tasks; progress-only notifications
 do not produce empty tool responses or additional model requests. They
 share the same scheduler and durable board. Attempt conversations have separate
 per-run storage/index/cache scopes; Chat cards load board and employee history
-only when expanded/selected. This adds neither an Agent Loop nor a second result
-authority. Employee selection opens a side workspace using the standalone Team
-activity, results and member dock; narrow windows switch between Chat and details.
+only when expanded/selected. Each recruitment card keeps the successful call's
+task/member IDs from canonical arguments, including JSON strings retained by
+historical function calls; the cumulative native snapshot confirms
+those IDs, while the latest board updates their status. Later recruitment does
+not expand an old card's batch. Older records without batch evidence explain the
+limitation and retain access to the team. This adds neither an Agent Loop nor a second result
+authority. Employee selection opens a thread-scoped Team tab in the shared
+Sidecar, reusing Team activity, results and the member dock. Sidecar owns tab
+selection, resizing, expansion and narrow-window overlays for all resource kinds.
+Team tabs coexist with Browser, Artifact and Terminal tabs; closing a Team tab
+does not cancel its native run.
+The current parent Chat's nonempty canonical plan can appear in the visible
+Team header across Tasks, Files and Usage. One render-time Sidecar ownership
+and visibility decision supplies that header and suppresses the floating plan
+note. Hiding Team or selecting another resource restores the note; unrelated
+or independent historical runs never borrow current Chat progress. Plan counts
+and steps remain canonical, separate from employee task completion.
+Chat's history entry can open any durable run, including an older independent
+run with no `parentThreadId` and a new Chat without a Thread. The Sidecar scope
+is only a view choice; it does not rewrite the run's parent or import employee
+messages into the main conversation. The Sidecar inspector selects recorded
+attempts, reuses Team Files and run-scoped Usage, and sends pause, cancel,
+resume and explicit task retry to the native Team store. Long execution requests
+remain separate from these controls; revision checks reject stale snapshots.
 See [Team API](../api/teams.md#chat-coordinator-tools).
+
+Team members persist a Research, Execution or Review tool profile. The bridge
+resolves that profile from the saved employee Thread and attempt, including
+historical and child Threads, and the runtime applies it
+as a ceiling to tool visibility and dispatch. Every employee excludes data-view
+publication and submits internal handoffs for main-Agent integration.

@@ -23,6 +23,33 @@ afterEach(() => {
 });
 
 describe("FloatingPlanStatus", () => {
+  it("preserves a manual expansion while hidden and gives unseen revisions their reading interval", () => {
+    vi.useFakeTimers();
+    const view = render(<FloatingPlanStatus identityKey="first" plan={plan} revisionKey="1" />);
+    act(() => vi.advanceTimersByTime(FLOATING_PLAN_AUTO_COLLAPSE_MS));
+    fireEvent.click(screen.getByRole("button", { name: /Expand task progress/ }));
+    view.rerender(<FloatingPlanStatus identityKey="first" plan={plan} revisionKey="1" hidden />);
+    act(() => vi.advanceTimersByTime(FLOATING_PLAN_AUTO_COLLAPSE_MS * 2));
+    expect(screen.queryByRole("region", { name: "Task progress" })).toBeNull();
+    view.rerender(<FloatingPlanStatus identityKey="first" plan={plan} revisionKey="2" />);
+    act(() => vi.advanceTimersByTime(FLOATING_PLAN_AUTO_COLLAPSE_MS * 2));
+    expect(screen.getByRole("region", { name: "Task progress" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Collapse task progress/ }));
+    view.rerender(<FloatingPlanStatus identityKey="first" plan={plan} revisionKey="3" hidden />);
+    act(() => vi.advanceTimersByTime(FLOATING_PLAN_AUTO_COLLAPSE_MS * 2));
+    view.rerender(<FloatingPlanStatus identityKey="first" plan={plan} revisionKey="3" />);
+    expect(screen.getByRole("region", { name: "Task progress" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(FLOATING_PLAN_AUTO_COLLAPSE_MS));
+    expect(screen.getByRole("button", { name: /Expand task progress/ })).toBeTruthy();
+    view.rerender(<FloatingPlanStatus identityKey="new-plan" plan={plan} revisionKey="3" />);
+    expect(screen.getByRole("region", { name: "Task progress" })).toBeTruthy();
+  });
+
+  it("does not present an empty plan as zero progress", () => {
+    render(<FloatingPlanStatus identityKey="empty" revisionKey="0" plan={{ completed: 0, total: 0, steps: [] }} />);
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
   it("auto-collapses, then lets the user toggle the capsule", () => {
     vi.useFakeTimers();
     render(<FloatingPlanStatus identityKey="turn-1:plan-1" plan={plan} revisionKey="revision-1" />);

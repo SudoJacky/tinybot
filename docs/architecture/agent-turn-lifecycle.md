@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:3607779c85951682f7696cc60f8a9411e6666549efe60e26cf291578135e6ce5 -->
+<!-- tinybot-doc-fingerprint: sha256:391c44159068c983118970f462eab873399b7c1cf5886df9f49123f3220c8c8b -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -57,6 +57,10 @@ Ordinary and resumed form Turns use one `prepare_turn` assembly path. Persistenc
 trace and hooks are installed before the dispatcher captures child-Turn services.
 Provider streaming, tool preparation and tool dispatch cross asynchronous
 interfaces. Blocking test fixtures have separate adapters.
+The bridge resolves a Team employee tool ceiling from the saved employee Thread,
+attempt and member profile, including historical and child Threads. Board tools
+still require the active attempt. The runtime applies the ceiling before exposing tools or restoring
+deferred activation; it also governs actual dispatch.
 The bridge dispatcher discovers Graph/MCP/workspace-thread contributions and
 performs application-specific execution. Discovery cancellation preserves its
 phase and transport details before provider execution. Child cancellation still

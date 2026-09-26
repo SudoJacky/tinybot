@@ -1,11 +1,12 @@
-import { ChatTeamWorkspace } from "../teams/ChatTeamWorkspace";
 import type { ComposerSkillOption } from "../../components/ui/composerContracts";
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
+import { ChatTeamHistory } from "../teams/ChatTeamHistory";
+import { ChatTeamContext } from "../teams/chatTeamContext";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useChatApplication } from "./useChatApplication";
-import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
 import {
@@ -115,7 +116,6 @@ export type ChatPageProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
-  onOpenTeams?: () => void;
   onOpenAutomations?: () => void;
   onActiveWorkspaceChange?: (workingDirectory?: string) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
@@ -245,7 +245,6 @@ export function ChatPage({
   onActiveWorkspaceChange,
   onMascotMoodChange,
   onSessionSidebarCollapsedChange,
-  onOpenTeams,
   onOpenAutomations,
   onStartupSessionHydrated,
   onStopGenerationTargetChange,
@@ -505,7 +504,8 @@ export function ChatPage({
     : "";
   const activeContextUsage = timelineSummary.contextUsage;
   const latestFailedTurnId = timelineSummary.latestFailedTurnId;
-  const floatingPlan = activeSession && timelineLoaded ? timelineSummary.floatingPlan : undefined;
+  const floatingPlan = activeSession && timelineLoaded && timelineSummary.sessionId === activeSession.id
+    ? timelineSummary.floatingPlan : undefined;
 
   useEffect(() => {
     return () => {
@@ -1020,7 +1020,6 @@ export function ChatPage({
         actions={{
           onCancelDeleteConfirmation: (sessionId) => dispatchDelete({ type: "row-left", sessionId }),
           onCollapsedChange: handleSessionSidebarCollapsedChange,
-          onOpenTeams,
           onOpenAutomations,
           onCreateSession: handleCreateSession,
           onDeleteSession: handleDeleteSession,
@@ -1039,15 +1038,25 @@ export function ChatPage({
         workspaceRegistryStore={workspaceRegistryStore}
       >
       {({ availableWorkspaces, chooseWorkspace, workspaceError, workspacePickerPending }) => (
-      <ChatTeamWorkspace
-        sessionId={activeSessionId ?? ""}
+      <SidecarResources
+        ref={sidecarResources}
+        activeSession={activeSession}
+        activeDisplaySession={activeDisplaySession}
+        activeSessionId={activeSessionId}
+        chatStore={chatStore}
         workspaceStore={workspaceStore}
-        sidecarPresentation={sidecar.presentation}
-        onHideSidecar={() => sidecarResources.current?.toggle()}
-        className="react-chat-workspace"
-        data-sidecar-presentation={sidecar.presentation}
-        data-sidecar-layout-motion={sidecar.layoutMotion}
-        style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
+        artifactReviewEpoch={artifactReviewEpoch}
+        sessionResponding={sessionResponding}
+        mainPlan={floatingPlan}
+        onLayoutChange={setSidecar}
+        onHide={() => { restoreSidecarFocusRef.current = true; }}
+        onReference={(reference) => {
+          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
+          setComposerFocusRequestId((current) => current + 1);
+        }}
+        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
+        onHandoff={chatActions.completeBrowserHandoff}
+        onError={reportTimelineError}
       >
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined} data-quick-start={showQuickStart || undefined}>
         <header className="react-chat-header">
@@ -1059,6 +1068,7 @@ export function ChatPage({
             onClose={handleCloseSessionTab}
           />
           <div className="react-chat-header__actions">
+            <ChatTeamHistory sessionId={activeSessionId} />
             {sidecar.presentation === "closed" ? (
               <button
                 aria-label={t("sidecar.show")}
@@ -1096,7 +1106,7 @@ export function ChatPage({
         </header>
 
         {floatingPlan ? (
-          <FloatingPlanStatus
+          <ChatFloatingPlanStatus
             identityKey={floatingPlan.identityKey}
             plan={floatingPlan.plan}
             revisionKey={floatingPlan.revisionKey}
@@ -1314,25 +1324,7 @@ export function ChatPage({
         </div>
       </main>
 
-      <SidecarResources
-        ref={sidecarResources}
-        activeSession={activeSession}
-        activeDisplaySession={activeDisplaySession}
-        activeSessionId={activeSessionId}
-        chatStore={chatStore}
-        workspaceStore={workspaceStore}
-        artifactReviewEpoch={artifactReviewEpoch}
-        sessionResponding={sessionResponding}
-        onLayoutChange={setSidecar}
-        onHide={() => { restoreSidecarFocusRef.current = true; }}
-        onReference={(reference) => {
-          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== reference.id), reference]);
-          setComposerFocusRequestId((current) => current + 1);
-        }}
-        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
-        onHandoff={chatActions.completeBrowserHandoff}
-        onError={reportTimelineError}
-      />
+
 
       {presentDrawer ? (
         <aside
@@ -1360,7 +1352,7 @@ export function ChatPage({
           </div>
         </aside>
       ) : null}
-      </ChatTeamWorkspace>
+      </SidecarResources>
       )}
       </ChatSessionWorkspace>
     </section>
@@ -1531,4 +1523,9 @@ function projectDraftSessionSummary(draft: DraftSession): SessionSummary {
 
 function boundedSpreadsheetSelectionValue(value: string): string {
   return value.length > 12000 ? `${value.slice(0, 12000)}\n[Selection excerpt truncated; read the referenced range for all values.]` : value;
+}
+
+function ChatFloatingPlanStatus(props: ComponentProps<typeof FloatingPlanStatus>) {
+  const team = useContext(ChatTeamContext);
+  return <FloatingPlanStatus {...props} hidden={team?.mainPlanVisible} />;
 }

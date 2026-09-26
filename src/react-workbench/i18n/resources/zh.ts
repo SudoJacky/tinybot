@@ -75,7 +75,6 @@ export const zh = {
       }
 },
     routes: {
-      teams: "团队",
       automations: "自动化", chat: "聊天", graphs: "Agent Graph", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", openExternal: "在外部浏览器中打开 {{label}}",
@@ -773,6 +772,7 @@ export const zh = {
       label: "任务执行失败", cancelled: "任务已取消", interrupted: "任务已中断", copyError: "复制错误",
     },
     plan: {
+      mainTask: "主任务", noCurrentStep: "暂无进行中步骤",
       floatingLabel: "任务进度", floatingExpand: "展开任务进度", floatingCollapse: "收起任务进度",
       label: "执行计划", completed: "已完成 {{completed}}/{{total}}", status: { completed: "已完成", inProgress: "执行中", failed: "失败", cancelled: "已取消", pending: "待执行" },
       collapse: "收起", expand: "展开",
@@ -851,6 +851,7 @@ export const zh = {
     },
     toolActivity: {
       toggleDetails: "展开或收起 {{title}} 的详情", truncated: "预览已截断",
+      showFull: "显示完整内容", showLess: "收起内容",
       status: { running: "执行中", waiting: "等待中", failed: "失败", cancelled: "已取消", pending: "待执行" },
       category: { terminal: "终端", fileRead: "读取文件", web: "网页", planning: "计划", presentation: "数据视图", subagent: "子 Agent", interaction: "交互", tool: "工具" },
       command: "命令", workspaceFile: "工作区文件", currentPage: "当前页面", usedTool: "使用了工具",

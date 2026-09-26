@@ -7,6 +7,9 @@ import { parseDataViewDocument } from "../../app-core/chat/dataView";
 import type { ReactChatMessage } from "./messageActions";
 import { ChatTimeline, type ChatTimelineActions } from "./ChatTimeline";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
+import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
+import { ChatTeamContext } from "../teams/chatTeamContext";
+import { recruitmentRun, recruitmentRuntime } from "./test/teamRecruitmentFixtures";
 
 afterEach(() => {
   cleanup();
@@ -14,6 +17,127 @@ afterEach(() => {
 });
 
 describe("ChatTimeline", () => {
+  test.each(["object", "json-string"])("keeps each successful recruitment batch through later waves, status updates, reopening and canonical reload (%s arguments)", (argumentFormat) => {
+    const first = recruitmentRun();
+    first.revision = 1;
+    first.tasks = first.tasks.slice(0, 2);
+    first.spec.members = first.spec.members.slice(0, 2);
+    const latest = recruitmentRun();
+    latest.tasks[0].status = "succeeded";
+    latest.tasks[1].status = "failed";
+    const open = vi.fn();
+    const persisted = recruitmentRuntime(latest);
+    const view = (run: typeof latest, payload = persisted) => {
+      const items = payload.timeline.items.map(item => ({ ...item, data: { ...item.data,
+        args: argumentFormat === "json-string" ? JSON.stringify(item.data.args) : item.data.args,
+      } }));
+      const saved = { ...payload, timeline: { ...payload.timeline, items } };
+      const turns = createAgentTimelineModel().load("recruitment-chat", [JSON.parse(JSON.stringify(saved))]).turns;
+      // Preview text is presentation-only; identity must use the full arguments.
+      turns[0].steps[0].toolCall!.argsPreview = "Clipped display preview";
+      return <ChatTeamContext.Provider value={{ run, selectedTaskId: "verify", open }}>
+        <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />
+      </ChatTeamContext.Provider>;
+    };
+    const { container, rerender, unmount } = render(view(first, recruitmentRuntime(first, [["sources", "compare"]])));
+    const expand = (root: HTMLElement) => {
+      const cards = Array.from(root.querySelectorAll<HTMLDetailsElement>(".chat-team-card"));
+      for (const card of cards) { card.open = true; fireEvent(card, new Event("toggle")); }
+      return cards;
+    };
+    let cards = expand(container);
+    expect(cards).toHaveLength(1);
+    expect(within(cards[0]).getAllByRole("button")).toHaveLength(2);
+    rerender(view(latest));
+    cards = expand(container);
+    expect(cards).toHaveLength(2);
+    expect(cards[0].querySelector("summary")?.textContent).toContain("Employees in this batch: 2 · Tasks: 2");
+    expect(cards[1].querySelector("summary")?.textContent).toContain("Employees in this batch: 1 · Tasks: 1");
+    expect(within(cards[0]).getAllByRole("button")).toHaveLength(2);
+    expect(within(cards[0]).queryByText("Verify evidence")).toBeNull();
+    expect(within(cards[0]).getByText("Completed")).toBeTruthy();
+    expect(within(cards[0]).getByText("Failed")).toBeTruthy();
+    const second = within(cards[1]).getByRole("button", { name: /Alex.*Verify evidence/ });
+    expect(second.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(second);
+    expect(open).toHaveBeenLastCalledWith(latest, "verify", second);
+    rerender(view(first));
+    expect(within(cards[0]).getByText("Failed")).toBeTruthy();
+    expect(within(cards[1]).getByText("Verify evidence")).toBeTruthy();
+    cards[0].open = false; fireEvent(cards[0], new Event("toggle"));
+    cards = expand(container);
+    expect(within(cards[0]).getAllByRole("button")).toHaveLength(2);
+    unmount();
+    const reloaded = render(view(latest));
+    cards = expand(reloaded.container);
+    expect(within(cards[0]).getAllByRole("button")).toHaveLength(2);
+    expect(within(cards[1]).getAllByRole("button")).toHaveLength(1);
+    expect(within(cards[0]).queryByText("Verify evidence")).toBeNull();
+  });
+
+  test("counts existing employees once when a later call assigns them multiple new tasks", () => {
+    const run = recruitmentRun();
+    run.tasks.push(...["summarize", "cross-check"].map(id => ({ ...run.tasks[0], task: { ...run.tasks[0].task, id, title: id } })));
+    const payload = recruitmentRuntime(run, [["sources", "compare"], ["verify"], ["summarize", "cross-check"]]);
+    expect(payload.timeline.items[2].data.args.members).toEqual([]);
+    const turns = createAgentTimelineModel().load("recruitment-chat", [payload]).turns;
+    const open = vi.fn();
+    const { container } = render(<ChatTeamContext.Provider value={{ run, open }}><ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} /></ChatTeamContext.Provider>);
+    const cards = container.querySelectorAll<HTMLDetailsElement>(".chat-team-card");
+    const later = cards[2]; later.open = true; fireEvent(later, new Event("toggle"));
+    expect(later.querySelector("summary")?.textContent).toContain("Employees in this batch: 1 · Tasks: 2");
+    expect(within(later).getAllByRole("button")).toHaveLength(2);
+    expect(within(later).queryByText("Collect sources")).toBeNull();
+    fireEvent.click(within(later).getByRole("button", { name: /cross-check/ }));
+    expect(open).toHaveBeenLastCalledWith(run, "cross-check", expect.any(HTMLButtonElement));
+  });
+
+  test("makes a legacy recruitment scope explicit and keeps the team reachable without inventing a roster", () => {
+    const run = recruitmentRun();
+    const payload = recruitmentRuntime(run, [["sources", "compare"]]);
+    const item = payload.timeline.items[0];
+    const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, timeline: { ...payload.timeline, items: [{ ...item, data: { ...item.data, args: undefined } }] } }]).turns;
+    const open = vi.fn();
+    const { container } = render(<ChatTeamContext.Provider value={{ run, open }}><ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} /></ChatTeamContext.Provider>);
+    const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
+    card.open = true; fireEvent(card, new Event("toggle"));
+    expect(card.querySelector("summary")?.textContent).toBe("Agent recruitment");
+    expect(screen.getByText(/no recruitment batch details/)).toBeTruthy();
+    expect(card.querySelector(".chat-team-card__employees")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View team" }));
+    expect(open).toHaveBeenCalledWith(run, "sources", expect.any(HTMLButtonElement));
+  });
+
+  test.each(["running", "failed", "cancelled", "denied", "truncated", "mismatched", "invalid-args", "invalid-result"])("retains the original tool record without a success card for %s recruitment", (failure) => {
+    const run = recruitmentRun();
+    const payload = recruitmentRuntime(run, [["sources", "compare"]]);
+    const item = payload.timeline.items[0];
+    const status = ["running", "failed", "cancelled"].includes(failure) ? failure : "completed";
+    const result = failure === "running" ? undefined : failure === "denied" ? { ...item.data.result, status: "denied" }
+      : failure === "truncated" ? { ...item.data.result, truncated: true }
+      : failure === "mismatched" ? { ...item.data.result, raw: { ...item.data.result.raw, runId: "different-run", tasks: [{ taskId: "sources", memberId: "wrong-member" }] } }
+      : failure === "invalid-result" ? { raw: '{"runId": "truncated' } : item.data.result;
+    const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, status: failure === "running" ? "running" : payload.status, timeline: { ...payload.timeline, items: [{ ...item, status, data: { ...item.data, status, result,
+      args: failure === "invalid-args" ? '{"tasks": [' : JSON.stringify(item.data.args) } }] } }]).turns;
+    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
+    expect(container.querySelector(".chat-team-card")).toBeNull();
+    expect(container.querySelector(".react-tool-activity")).not.toBeNull();
+    if (["truncated", "mismatched", "invalid-args", "invalid-result"].includes(failure)) expect(screen.getByRole("alert").textContent).toContain("incomplete or inconsistent");
+  });
+
+  test.each(["null", "[]", '{"arguments":{"members":[],"tasks":[]}}'])("keeps invalid saved argument shapes explicit instead of treating them as missing (%s)", (args) => {
+    const run = recruitmentRun();
+    const payload = recruitmentRuntime(run, [["sources", "compare"]]);
+    const item = payload.timeline.items[0];
+    const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, timeline: { ...payload.timeline,
+      items: [{ ...item, data: { ...item.data, args } }],
+    } }]).turns;
+    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
+    expect(container.querySelector(".chat-team-card")).toBeNull();
+    expect(container.querySelector(".react-tool-activity")).not.toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("incomplete or inconsistent");
+  });
+
   test("shows real retry progress while running and hides it on completion or failure", () => {
     const base = completedTurn();
     const retry = { turnId: base.id, modelCallId: "model-1", attempt: 1, maxRetries: 3, delayMs: 200, reason: "server_error" as const };

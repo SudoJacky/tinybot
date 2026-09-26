@@ -48,7 +48,7 @@ import {
   type DesktopPetPreferences,
 } from "../../app-core/desktop-pet/desktopPetState";
 import { RouteSurface, type SettingsNavigationRequest } from "./RouteSurface";
-import type { AppRoute } from "./appRoutes";
+import { resolveAppRoute, type ActiveAppRoute, type AppRoute } from "./appRoutes";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 
 type RouteHistory = {
@@ -82,7 +82,6 @@ type TopMenuCommandId =
   | "stop-generation"
   | "search-sessions"
   | "open-chat"
-  | "open-teams"
   | "open-automations"
   | "open-graphs"
   | "open-memory"
@@ -123,10 +122,9 @@ type TopMenuItem = {
 const menuCommand = (command: TopMenuCommand): TopMenuEntry => ({ kind: "command", command });
 const menuSeparator = (id: string): TopMenuEntry => ({ kind: "separator", id });
 
-function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
+function createRouteLabels(t: TFunction<"common">): Record<ActiveAppRoute, string> {
   return {
     chat: t("routes.chat"),
-    teams: t("routes.teams"),
     automations: t("routes.automations"),
     graphs: t("routes.graphs"),
     memory: t("routes.memory"),
@@ -138,7 +136,7 @@ function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
 
 function createTopMenuItems(
   t: TFunction<"common">,
-  routeLabels: Record<AppRoute, string>,
+  routeLabels: Record<ActiveAppRoute, string>,
   shortcuts: ShortcutPreferences,
 ): TopMenuItem[] {
   return [
@@ -164,7 +162,6 @@ function createTopMenuItems(
     icon: Folder,
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
-      menuCommand({ id: "open-teams", label: routeLabels.teams, route: "teams" }),
       menuCommand({ id: "open-automations", label: routeLabels.automations, route: "automations" }),
       menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
@@ -221,7 +218,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     current: "chat",
     forward: [],
   });
-  const route = routeHistory.current;
+  const route = resolveAppRoute(routeHistory.current);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [menuMotionSource, setMenuMotionSource] = useState<MotionSource>("pointer");
   const [settingsNavigationRequest, setSettingsNavigationRequest] = useState<SettingsNavigationRequest | null>(null);
@@ -333,13 +330,14 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   }, [services.chatStore]);
 
   const navigateToRoute = useCallback((nextRoute: AppRoute) => {
+    const destination = resolveAppRoute(nextRoute);
     setRouteHistory((current) => {
-      if (nextRoute === current.current) {
+      if (destination === resolveAppRoute(current.current)) {
         return current;
       }
       return {
-        back: [...current.back, current.current],
-        current: nextRoute,
+        back: [...current.back, resolveAppRoute(current.current)],
+        current: destination,
         forward: [],
       };
     });

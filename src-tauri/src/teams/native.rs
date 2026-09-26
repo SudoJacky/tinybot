@@ -104,7 +104,8 @@ impl TaskExecutor for NativeTeamExecutor {
                  Reuse relevant evidence, cite its source, and make missing evidence or conflicting findings explicit.\n\
                  Other members may work in parallel in the shared workspace. Respect the file ownership in your assignment and avoid editing files outside it. Use task-specific evidence indexes; let the coordinator assemble shared indexes. Do not modify another task's published artifacts.\n\n\
                  ## Handoff\n\
-                 Produce the deliverable required by your assignment so downstream teammates can use it. Put detailed evidence in workspace artifacts. \
+                 All employee output is an internal handoff, including synthesis and review. Only the main agent delivers final conclusions and publishes data views to the user; publish_data_view is unavailable to employees. \
+                 Produce the deliverable required by your assignment so downstream teammates can use it. Put detailed evidence in workspace artifacts when your tool profile permits writes; otherwise include it in your handoff. \
                  Check your task's completion criteria against your actual findings or changes. Once they are met, hand off instead of expanding into adjacent work. \
                  Further work should address a specific remaining question or conflict within your scope. If a criterion cannot be met after reasonable attempts, record the missing evidence, attempted checks and effect on the result in unresolved; do not claim that criterion was satisfied or keep repeating the same blocked approach. \
                  Finish by calling team.complete_task alone with a useful summary of findings, workspace-relative artifact paths, and unresolved issues. \

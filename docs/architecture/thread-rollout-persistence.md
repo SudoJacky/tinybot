@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:a2aa41c5b2cc2547999dbfdfc84dd1e9d724177abb51b5b30168fcc8db88ddc0 -->
+<!-- tinybot-doc-fingerprint: sha256:cf5dd9ed9e6ed5be9330bca58c644f3b855b1f22b4cc6b263d26c30ad7dab8a0 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -229,3 +229,8 @@ paths and compressed representation. Destination conflicts are errors. A durable
 migration marker prevents repeated ordinary-history scans. After migration,
 ordinary startup/listing never traverses Team conversations; explicit saved
 attempt IDs resolve their owning board before opening the run's scope.
+
+Team member tool profiles live in the durable run specification. Attempts and
+retries resolve the saved member rather than accepting a caller role override;
+older members without a profile retain the Execution preset. This adds no
+Rollout item kind or second source of tool-policy authority.
