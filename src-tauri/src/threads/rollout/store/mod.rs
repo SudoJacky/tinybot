@@ -60,6 +60,7 @@ pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLL
 #[derive(Clone, Debug)]
 pub struct WorkerThreadLogRpc {
     recorder: ThreadRecorder,
+    _compression_worker: Arc<compression::RolloutCompressionWorker>,
     state: ThreadStateIndex,
     workspace_root: PathBuf,
     thread_root: PathBuf,
@@ -206,9 +207,11 @@ impl WorkerThreadLogRpc {
         policy: CapabilityPolicy,
     ) -> Self {
         let recorder = ThreadRecorder::from_data_root(storage_root.clone());
-        compression::spawn_rollout_compression_worker(storage_root.clone(), recorder.clone());
+        let compression_worker =
+            compression::spawn_rollout_compression_worker(storage_root.clone(), recorder.clone());
         Self {
             recorder,
+            _compression_worker: compression_worker,
             workspace_root,
             thread_root: storage_root.join("threads"),
             memory_store: crate::memory::MemoryStore::new(&data_root),

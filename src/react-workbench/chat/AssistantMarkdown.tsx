@@ -27,6 +27,10 @@ const ASSISTANT_TEXT_FADE = {
   sep: "char", stagger: 0,
 } satisfies AnimateOptions;
 
+// Character animation adds one DOM node per character, including settled text.
+// Bound that cost for long replies while retaining incremental Markdown parsing.
+const MAX_ANIMATED_MESSAGE_LENGTH = 2000;
+
 const ASSISTANT_MARKDOWN_CONTROLS = {
   mermaid: false,
   table: false,
@@ -225,7 +229,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     <ViewportContent pinned={streaming} placeholder={text}
       estimatedHeight={Math.max(48, Math.ceil(text.length / 80) * 24)}>
     <Streamdown
-      animated={streaming ? ASSISTANT_TEXT_FADE : false}
+      animated={streaming && text.length <= MAX_ANIMATED_MESSAGE_LENGTH ? ASSISTANT_TEXT_FADE : false}
       className="react-message-markdown"
       components={components}
       controls={ASSISTANT_MARKDOWN_CONTROLS}

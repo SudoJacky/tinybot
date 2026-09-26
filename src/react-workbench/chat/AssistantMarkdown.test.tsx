@@ -112,6 +112,25 @@ describe("AssistantMarkdown", () => {
     spans.forEach((node) => expect(node.style.getPropertyValue("--sd-duration")).toBe("160ms"));
   });
 
+  it("bounds animation nodes as a long Chinese reply streams without remounting code controls", async () => {
+    const code = "```python\nprint('hello')\n```\n\n";
+    const { container, rerender } = render(<AssistantMarkdown streaming text={code + "开始输出"} />);
+    const wrap = await screen.findByRole("button", { name: "Wrap code lines" });
+    fireEvent.click(wrap);
+    expect(container.querySelector("[data-sd-animate]")).not.toBeNull();
+    for (const length of [2100, 6000, 12000]) {
+      const text = "长".repeat(length);
+      rerender(<AssistantMarkdown streaming text={code + text} />);
+      await waitFor(() => expect(container.querySelector("p")?.textContent).toBe(text));
+      expect(container.querySelectorAll("[data-sd-animate]")).toHaveLength(0);
+      expect(container.querySelector("p")!.childNodes.length).toBe(1);
+      expect(screen.getByRole("button", { name: "Wrap code lines" })).toBe(wrap);
+      expect(wrap.getAttribute("aria-pressed")).toBe("true");
+    }
+    rerender(<AssistantMarkdown streaming={false} text={code + "长".repeat(12000) + "结束"} />);
+    expect(container.querySelector("p")?.textContent).toBe("长".repeat(12000) + "结束");
+  });
+
   it("renders common technical Markdown and CJK-adjacent emphasis", async () => {
     const { container } = render(
       <AssistantMarkdown
