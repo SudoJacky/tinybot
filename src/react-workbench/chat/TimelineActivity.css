@@ -6,11 +6,12 @@
 .react-timeline-activity__header {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 34px;
+  min-height: 32px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   padding: 2px 0;
   color: var(--color-muted);
@@ -58,12 +59,12 @@ button.react-timeline-activity__header:focus-visible {
 }
 
 .react-timeline-activity__title {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .react-timeline-activity__title strong {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .react-timeline-activity__meta {
@@ -72,7 +73,7 @@ button.react-timeline-activity__header:focus-visible {
 }
 
 .react-timeline-activity__meta small {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .react-timeline-activity__preview {

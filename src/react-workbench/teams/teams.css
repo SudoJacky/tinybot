@@ -98,47 +98,47 @@
 .team-file-group > p { margin-top: 6px; }
 .team-activity summary, .team-files summary { cursor: pointer; padding-block: 10px; color: var(--color-muted); }
 .team-activity summary:focus-visible, .team-files summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.team-worker-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.team-worker-heading__text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; flex: 1; }
-.team-worker-heading__text strong { font-size: 14px; font-weight: 650; }
-.team-worker-heading__text > span { color: var(--color-muted); font-size: 13px; }
-.team-worker-heading .team-avatar { width: 36px; height: 36px; }
-.team-assignment summary { cursor: pointer; padding: 12px 14px; list-style: none; background: var(--color-surface-soft); border-radius: 9px; }
+.team-worker-heading { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto 16px; align-items: center; gap: 10px; }
+.team-worker-heading__text { display: grid; gap: 3px; min-width: 0; }
+.team-worker-heading__text strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.team-worker-heading__text > span { color: var(--color-muted); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.team-worker-heading .team-avatar { width: 32px; height: 32px; }
+.team-assignment { border-bottom: 1px solid color-mix(in srgb, var(--color-hairline) 65%, transparent); }
+.team-assignment summary { cursor: pointer; padding: 12px 0; list-style: none; }
 .team-assignment summary::-webkit-details-marker { display: none; }
-.team-assignment__label { display: inline-flex; align-items: center; gap: 6px; color: var(--color-muted); font-size: 12px; margin-left: auto; }
+.team-assignment__label { display: inline-flex; align-items: center; color: var(--color-muted); }
 .team-assignment[open] .team-assignment__label svg { transform: rotate(180deg); }
-.team-assignment__content { padding: 4px 14px 16px; border-bottom: 1px solid var(--color-hairline); }
+.team-assignment[open] .team-worker-heading__text > span { white-space: normal; overflow-wrap: anywhere; }
+.team-assignment__content { padding: 0 0 16px 42px; }
 .team-assignment__content h3 { font-size: 12px; margin-top: 14px; margin-bottom: 5px; }
 .team-assignment summary:focus-visible {
   outline: 2px solid var(--color-primary); outline-offset: 2px;
 }
-.team-work-event { margin-block: 8px; min-width: 0; }
+.team-work-event { margin-block: 4px; min-width: 0; }
 .team-work-event.is-message { padding-block: 12px; }
-.team-work-event:is(.is-plan, .is-delegate) { padding-block: 12px; border-top: 1px solid var(--color-hairline); }
+.team-work-event:is(.is-plan, .is-delegate) { padding-block: 6px; }
 .team-work-event .react-message-markdown { font-size: 14px; line-height: 1.8; }
 .team-work-event .react-message-markdown p { color: var(--color-ink); }
-.team-work-event .react-timeline-activity__header { gap: 12px; min-height: 40px; }
-.team-work-event .react-timeline-activity__heading { flex: 1; flex-wrap: wrap; }
-.team-work-event .react-timeline-activity__title { white-space: normal; overflow-wrap: anywhere; font-size: 13px; }
-.team-work-event .react-timeline-activity__meta { font-size: 11px; }
+.team-work-event .react-timeline-activity__heading { flex: 1; }
+.team-work-event .react-timeline-activity__meta { flex-shrink: 0; font-size: 11px; }
 .team-work-event .react-tool-activity__status { font-size: 11px; }
 .team-work-event .react-tool-activity__status[data-status="active"] { color: var(--color-primary-active); }
-.team-work-event .react-tool-activity__details { padding-left: 28px; }
+.team-work-event .react-tool-activity__details { padding-left: 24px; }
 .team-work-event .react-tool-activity__preview { border: 0; border-left: 2px solid var(--color-hairline); border-radius: 0; background: transparent; }
 .team-member-dock {
   display: flex; justify-content: safe center; gap: 8px; overflow-x: auto;
-  flex-shrink: 0; padding: 12px 4px 2px; scrollbar-width: thin;
+  flex-shrink: 0; padding: 10px 4px 2px;
 }
 .team-layout .team-dock-member {
-  display: flex; flex-direction: column; align-items: center; flex: 0 0 104px; gap: 4px;
-  padding: 8px 10px; min-width: 0; border: 1px solid transparent; border-radius: 9px;
-  background: var(--color-surface-soft); transition: background 160ms ease, border-color 160ms ease;
+  display: flex; flex-direction: column; align-items: center; flex: 0 0 96px; gap: 4px;
+  padding: 7px 8px; min-width: 0; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; transition: background 160ms ease, border-color 160ms ease;
 }
 .team-dock-member strong, .team-dock-member > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team-dock-member strong { font-size: 12px; font-weight: 500; }
 .team-dock-member > span:last-child { font-size: 11px; }
-.team-layout .team-dock-member[aria-pressed="true"] { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-canvas)); }
-.team-dock-member .team-avatar { width: 30px; height: 30px; }
+.team-layout .team-dock-member[aria-pressed="true"] { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-hairline)); background: var(--color-surface-soft); }
+.team-dock-member .team-avatar { width: 28px; height: 28px; }
 .team-layout .team-dock-member:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 @media (hover: hover) and (pointer: fine) {
   .team-layout .team-dock-member:hover {
@@ -154,7 +154,10 @@
   .team-layout .team-dock-member { padding-block: 7px; gap: 3px; }
   .team-member-dock { padding-top: 8px; }
 }
-@container (max-width: 540px) {
-  .team-worker-heading__text { flex-basis: calc(100% - 46px); }
-  .team-worker-heading > .team-status { margin-left: 46px; }
+@container (max-width: 400px) {
+  .team-worker-heading { grid-template-columns: 28px minmax(0, 1fr) 16px; gap: 6px 8px; }
+  .team-worker-heading .team-avatar { width: 28px; height: 28px; }
+  .team-worker-heading > .team-status { grid-column: 2; grid-row: 2; }
+  .team-assignment__label { grid-column: 3; grid-row: 1; }
+  .team-assignment__content { padding-left: 0; }
 }

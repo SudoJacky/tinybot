@@ -53,7 +53,7 @@ describe("ChatPage", () => {
     expect(screen.getByRole("heading", { name: "Planning notes" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Attach files" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Select model" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Tools" })).toBeNull();
     expect(screen.queryByRole("button", { name: /delete session/i })).toBeNull();
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
   });

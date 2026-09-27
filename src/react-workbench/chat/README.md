@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e1844aceea5517ef3d5232e36eb4e86ae8b9f6fb35f86f90b2d74f23838a2d31 -->
+<!-- tinybot-module-fingerprint: sha256:d1b981468c2a27e0eefb3fd059f06bacadb6661c81cc58642beb831ddc0b101f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -74,9 +74,6 @@ The workspace action menu stays mounted so pointer dismissal can reverse its
 expansion. Closed actions are immediately inert and hidden from accessibility
 APIs. Keyboard opening focuses an enabled item; arrows and Home/End navigate,
 Escape restores trigger focus, and moving focus outside dismisses the menu.
-The composer Tools menu uses the workspace action menu's 28px icon target,
-rounded surface, and pill-shaped hover rows. Checked tools show a checkmark
-without a persistent row fill; descriptions and bounded scrolling remain.
 Session rows retain native drag transport and their existing container-scoped
 persisted order. `sessionReorderMotion` owns the floating row, velocity-based
 skin deformation, sibling slot previews, edge scrolling, and release settling.
@@ -180,7 +177,8 @@ A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
 choice. Its summary derives compact counts from semantic Step and Tool kinds,
-and exposes running and abnormal status without logos. A folded Reasoning row
+and exposes running and abnormal status without logos. Expanded execution content
+aligns with the summary without an outer guide line or left indent. A folded Reasoning row
 keeps elapsed time and content on one line. While streaming, its clipped preview
 follows the latest text horizontally; completion returns to the beginning and
 uses an ellipsis when the line does not fit. The user can expand the row for the
@@ -193,6 +191,11 @@ triggers crossfade the icon to a down arrow on hover and keep an up arrow while
 expanded, using the shared trigger's `aria-expanded` as the state source.
 Keyboard focus and reduced-motion mode switch immediately; non-hover devices
 keep the arrow visible.
+Routine activity uses regular-weight labels and compact rows shared with the
+Team workbench. Expanded execution traces group adjacent actions closely, with
+larger breaks around commentary and modest spacing around plans. Recorded
+content, disclosure behavior and explicit failure states remain unchanged.
+
 `TimelineActivity.tsx` owns the shared Tool, Diff, Reasoning, Plan, compaction,
 execution-summary, and legacy tool-group shell:
 header layout, disclosure controls, stable accessible IDs, collapsed previews,
@@ -230,7 +233,7 @@ the latter stays mounted with no DOM while hidden, preserving manual expansion
 and restarting its automatic reading interval when visible again. Revisions
 received while hidden retain the existing update behavior. `PlanSteps` shares
 recorded explanation and statuses between both locations. A closed Sidecar,
-another resource, or unrelated/independent Team history restores the floating
+another resource, or an unrelated/independent Team run restores the floating
 note. An absent or empty plan presents no counter. The timeline's session ID
 must match before any main progress is passed into Sidecar.
 At narrow widths, the collapsed session sidebar keeps its actual compact width;
@@ -337,15 +340,14 @@ Skill creates an atomic removable token inline with the user's editable text and
 through `selectedSkills`; Rust resolves and injects the full Skill document
 while assembling the native Turn request, so the visible user message remains
 unchanged.
-Chat header, session, composer, model, tool, and Sidecar resource menus share
+Chat header, session, composer, model, and Sidecar resource menus share
 the workbench popover shell and interaction states; scenario-owned CSS defines
 only placement and rich-row layout.
-Chat maps only the active workspace catalog's `mcp.call_tool` entry into the
-composer Tools menu. One default-on switch submits `mcpEnabled`, including an
-explicit false, through the desktop command boundary. Built-in tools have no
-composer switches or frontend allowlist; backend registry policy determines
-their exposure. Individual MCP and saved Graph tools do not appear in this menu.
-The MCP switch remains disabled when its catalog entry is unavailable or denied.
+Chat passes the active workspace catalog's `mcp.call_tool` availability to the
+composer for submission as `mcpEnabled`, including false when unavailable or
+denied, through the desktop command boundary. The composer has no Tools button
+or per-tool switches. Built-in and extension tool exposure follows backend
+registry policy, without a frontend allowlist.
 The composer context indicator derives its cache hit rate from the latest
 projected Provider-call usage rather than cumulative Thread totals.
 Before a Turn reports its effective per-model window, Chat uses the legacy
@@ -567,7 +569,7 @@ keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
 
 Workspace Chat offers `@team` in its
-composer. Successful recruitment tool results render a lazy `ChatTeamCard` outside grouped
+composer. Successful recruitment tool results render an expanded `ChatTeamCard` outside grouped
 tool rows. Each card takes stable task/member IDs from the full canonical call
 arguments (objects or JSON strings from saved function calls), cross-checked
 against its successful result. Cumulative result tasks
@@ -576,14 +578,15 @@ later recruitment, same-name employees and timeline reloads retain each card's
 scope. Older calls without arguments explain the missing batch and offer View
 team, while invalid records show an error alongside their original tool details.
 Failed and unfinished calls keep their normal tool status.
-The card loads the board on expansion; employee selection opens the
+The card loads the board on first render and refreshes after being folded and reopened;
+employee selection opens the
 Team tab in Sidecar. The panel loads only the selected attempt and keeps the
 member dock available. It shares Sidecar resizing, expansion, hiding and tab
 navigation; Browser and Artifact tabs coexist with it. Team tabs follow the
 parent conversation scope, and closing a tab does not cancel its run. Worker conversation content
 does not enter the parent session. Native Teams owns
 scheduling and durable run state.
-The header's Team history lists saved runs even in a new Chat. Independent legacy
-runs remain independent when opened there. The Sidecar Team view provides native
+The Chat header omits the recent-team history shortcut in both existing and empty
+conversations; saved native run records remain unchanged. The Sidecar Team view provides native
 pause, cancel, resume and explicit failed-task retry, plus attempt history,
 files and run-scoped usage. Hiding the panel changes only the view.

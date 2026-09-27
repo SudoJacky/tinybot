@@ -34,17 +34,28 @@ const run: TeamRun = {
 
 const batch = { memberIds: ["a", "b"], tasks: [{ taskId: "a", memberId: "a" }, { taskId: "b", memberId: "b" }] };
 
-it("loads the board only on expansion and only the selected employee conversation", async () => {
+it("starts expanded, refreshes after reopening and loads only the selected employee conversation", async () => {
   const loadRun=vi.fn().mockResolvedValue(run);
   const loadAttempt=vi.fn().mockResolvedValue([{id:"report",kind:"message",text:"Verified research",status:"completed"}]);
   const {container}=render(<Workspace sessionId="parent" loadRun={loadRun} loadAttempt={loadAttempt}><main><ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} /></main></Workspace>);
-  expect(loadRun).not.toHaveBeenCalled();
   expect(loadAttempt).not.toHaveBeenCalled();
   const details=container.querySelector("details")!;
-  details.open=true;
-  fireEvent(details,new Event("toggle"));
+  expect(details.open).toBe(true);
   await screen.findByRole("button",{name:/Alice/});
   expect(loadRun).toHaveBeenCalledOnce();
+  expect(loadAttempt).not.toHaveBeenCalled();
+  expect(screen.queryByRole("complementary")).toBeNull();
+  details.open=false;
+  fireEvent(details,new Event("toggle"));
+  expect(screen.queryByRole("button",{name:/Alice/})).toBeNull();
+  const latest=structuredClone(run);
+  latest.revision+=1;
+  latest.tasks[0].task.title="Updated research brief";
+  loadRun.mockResolvedValue(latest);
+  details.open=true;
+  fireEvent(details,new Event("toggle"));
+  await screen.findByRole("button",{name:/Alice.*Updated research brief/});
+  expect(loadRun).toHaveBeenCalledTimes(2);
   expect(loadAttempt).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:/Alice/}));
   await screen.findByText("Verified research");
@@ -56,6 +67,16 @@ it("loads the board only on expansion and only the selected employee conversatio
   fireEvent.keyDown(screen.getByRole("region", { name: "Team workspace" }),{key:"Escape"});
   await waitFor(()=>expect(screen.queryByRole("complementary")).toBeNull());
   await waitFor(()=>expect(document.activeElement).toBe(screen.getByRole("button",{name:/Alice/})));
+});
+
+it("shows a board read error in the initially open card and recovers on refresh", async () => {
+  const loadRun=vi.fn().mockRejectedValueOnce(new Error("Board unavailable")).mockResolvedValue(run);
+  const {container}=render(<ChatTeamCard batch={batch} runId={run.id} loadRun={loadRun} />);
+  expect(container.querySelector("details")!.open).toBe(true);
+  expect((await screen.findByRole("alert")).textContent).toContain("Board unavailable");
+  fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
+  await screen.findByRole("button",{name:/Alice/});
+  expect(screen.queryByRole("alert")).toBeNull();
 });
 
 it("confirms batch identities against native envelopes without treating cumulative tasks as new hires",()=>{

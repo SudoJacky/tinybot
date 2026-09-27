@@ -27,7 +27,6 @@ import {
   FileText,
   MessageCircle,
   Plus,
-  SlidersHorizontal,
   Square,
   TerminalSquare,
   X,
@@ -235,7 +234,6 @@ export function ClaudeStyleAiInput({
   const handledFocusRequestRef = useRef(focusRequestId);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
   const [uncontrolledFiles, setUncontrolledFiles] = useState<ComposerFileReference[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(defaultModel ?? models[0]?.id ?? "");
@@ -244,8 +242,6 @@ export function ClaudeStyleAiInput({
   );
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuView, setModelMenuView] = useState<ModelMenuView>("advanced");
-  const [toolMenuOpen, setToolMenuOpen] = useState(false);
-  const [mcpEnabled, setMcpEnabled] = useState(true);
   const mcpTool = tools.find((tool) => tool.id === "mcp.call_tool");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -480,11 +476,10 @@ export function ClaudeStyleAiInput({
     if (!slashMenuOpen && !sessionMentionMenuOpen) return;
     setModelMenuOpen(false);
     setModelMenuView("advanced");
-    setToolMenuOpen(false);
   }, [sessionMentionMenuOpen, slashMenuOpen]);
 
   useEffect(() => {
-    if (!modelMenuOpen && !toolMenuOpen && !slashMenuOpen && !sessionMentionMenuOpen) {
+    if (!modelMenuOpen && !slashMenuOpen && !sessionMentionMenuOpen) {
       return;
     }
     function closeMenus(event: PointerEvent) {
@@ -492,9 +487,6 @@ export function ClaudeStyleAiInput({
       if (!modelMenuRef.current?.contains(target)) {
         setModelMenuOpen(false);
         setModelMenuView("advanced");
-      }
-      if (!toolMenuRef.current?.contains(target)) {
-        setToolMenuOpen(false);
       }
       if (slashMenuOpen && !panelRef.current?.contains(target)) {
         setSlashMenuDismissed(true);
@@ -506,7 +498,7 @@ export function ClaudeStyleAiInput({
     }
     document.addEventListener("pointerdown", closeMenus, true);
     return () => document.removeEventListener("pointerdown", closeMenus, true);
-  }, [modelMenuOpen, sessionMentionMenuOpen, slashMenuOpen, toolMenuOpen]);
+  }, [modelMenuOpen, sessionMentionMenuOpen, slashMenuOpen]);
 
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -532,9 +524,7 @@ export function ClaudeStyleAiInput({
         ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
         ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
         reasoningEffort: selectedReasoningEffort,
-        ...(mcpTool || !mcpEnabled ? {
-          mcpEnabled: mcpEnabled && !mcpTool?.disabled,
-        } : {}),
+        ...(mcpTool ? { mcpEnabled: !mcpTool.disabled } : {}),
       });
       updateMessage("");
       setActiveSlashStart(null);
@@ -1217,46 +1207,6 @@ export function ClaudeStyleAiInput({
             >
               <Plus aria-hidden="true" size={18} />
             </button>
-            <div ref={toolMenuRef} className="claude-ai-input__tool">
-              <button
-                aria-expanded={toolMenuOpen}
-                aria-haspopup="menu"
-                aria-label={t("composer.tools")}
-                className="claude-ai-input__icon-button claude-ai-input__tool-trigger"
-                disabled={disabled || !mcpTool}
-                title={t("composer.tools")}
-                type="button"
-                onClick={() => {
-                  setSlashMenuDismissed(true);
-                  setActiveSlashStart(null);
-                  setToolMenuOpen((open) => !open);
-                  setModelMenuOpen(false);
-                }}
-              >
-                <SlidersHorizontal aria-hidden="true" size={15} />
-              </button>
-              {toolMenuOpen && mcpTool ? (
-                <div className="react-popover-surface claude-ai-input__tool-menu" role="menu" aria-label={t("composer.tools")}>
-                  <div className="claude-ai-input__tool-menu-list">
-                    <button
-                      aria-checked={mcpEnabled && !mcpTool.disabled}
-                      className="react-popover-item claude-ai-input__tool-option"
-                      disabled={mcpTool.disabled}
-                      role="menuitemcheckbox"
-                      title={mcpTool.description}
-                      type="button"
-                      onClick={() => setMcpEnabled((enabled) => !enabled)}
-                    >
-                      <span>
-                        <strong>{mcpTool.name}</strong>
-                        {mcpTool.description ? <small>{mcpTool.description}</small> : null}
-                      </span>
-                      <Check aria-hidden="true" className="claude-ai-input__tool-check" size={15} />
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
             <div ref={modelMenuRef} className="claude-ai-input__model">
               <button
                 ref={modelTriggerRef}
@@ -1273,7 +1223,6 @@ export function ClaudeStyleAiInput({
                     if (!open) setModelMenuView("advanced");
                     return !open;
                   });
-                  setToolMenuOpen(false);
                 }}
               >
                 <span className="claude-ai-input__model-trigger-name">{selectedModel?.name ?? t("composer.model")}</span>

@@ -101,11 +101,11 @@ The dispatcher prepares application tool contributions asynchronously through
 with checkpoint details. `bridge::tool_catalog` owns Graph and MCP discovery;
 the provider loop consumes the result without holding those application resources.
 
-The composer exposes one MCP switch and passes `mcpEnabled` in Turn metadata.
-It does not build an allowlist of system tools. An off preference skips MCP
+The composer derives `mcpEnabled` from catalog availability and permission and
+passes it in Turn metadata, without a Tools button or system-tool allowlist. False skips MCP
 discovery and removes generic/concrete MCP invocation entries from the final
 router; ordinary built-ins and MCP configuration tools retain backend policy.
-An on preference never widens an explicit backend selection or capability policy.
+True never widens an explicit backend selection or capability policy.
 
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. For ordinary workspace-backed Chat Turns, they

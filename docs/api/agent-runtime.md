@@ -89,12 +89,12 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
 - `selectedTools` is an optional exact backend allowlist of tool IDs or methods. Deferred selections
   activate for that turn; unknown, unavailable, or duplicate selections fail. Omission keeps normal
   exposure; an explicit empty list leaves only mandatory planning support.
-- `mcpEnabled` is the composer's independent MCP switch, also accepted in Turn metadata. False skips
+- `mcpEnabled` is a per-Turn MCP flag, also accepted in Turn metadata. False skips
   MCP discovery and excludes generic and concrete MCP calls without removing built-in tools. True
   keeps allowed concrete MCP tools, or activates the permitted generic entry when none are present.
   It cannot expand an explicit backend allowlist or bypass capability/configuration restrictions.
-  Omission retains the existing backend policy. The composer defaults this switch to on and does
-  not offer built-in tool toggles or send `selectedTools`.
+  Omission retains the existing backend policy. The composer derives this flag from catalog
+  availability and permission, with no manual tool toggles or `selectedTools` allowlist.
 
 ### Cancellation response
 

@@ -103,6 +103,11 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
         <img src={teamWorkspaceIcon} alt="" className="chat-team-inspector__icon" />
         <div><h2>{t("teams.teamWorkspace")}</h2><p role="status">{t(`teams.status.${run.status}`)}</p></div>
       </div>
+      <div className="chat-team-inspector__tabs" role="tablist" aria-label={t("teams.details")}>
+        <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}><ListTodo size={16} aria-hidden="true" />{t("teams.tasks")}</button>
+        <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><FileText size={16} aria-hidden="true" />{t("teams.files")}</button>
+        <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}><ChartNoAxesColumn size={16} aria-hidden="true" />{usageText("usage.tab")}</button>
+      </div>
       <div className="chat-team-inspector__controls">
         {run.status === "running" ? <>
           <button disabled={busy || !!pending} onClick={() => void onControl("pause")}><Pause size={15} aria-hidden="true" />{t("teams.pause")}</button>
@@ -110,16 +115,12 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
         </> : canExecute(run) ? <button disabled={busy || pending === "start"} onClick={onExecute}>
           <Play size={15} aria-hidden="true" />{run.status === "planned" ? t("teams.start") : t("teams.resume")}
         </button> : null}
-        <div className="chat-team-inspector__tabs" role="tablist" aria-label={t("teams.details")}>
-          <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}><ListTodo size={16} aria-hidden="true" />{t("teams.tasks")}</button>
-          <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><FileText size={16} aria-hidden="true" />{t("teams.files")}</button>
-          <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}><ChartNoAxesColumn size={16} aria-hidden="true" />{usageText("usage.tab")}</button>
-        </div>
       </div>
       {mainPlan && <TeamMainPlan key={mainPlan.identityKey} plan={mainPlan.plan} />}
     </header>
     {pending && <p className="chat-team-inspector__notice" role="status">{t(`teams.${pending === "start" ? "loading" : pending === "pause" ? "pausing" : "cancelling"}`)}</p>}
     {controlError && <p className="chat-team-inspector__notice team-error" role="alert">{controlError}</p>}
+    <div className="chat-team-inspector__workspace">
     <div className="chat-team-inspector__scroll" ref={scroll} onScroll={event => {
       if (restoredPosition.current === activityKey) positions.current.set(activityKey, event.currentTarget.scrollTop);
     }}>
@@ -133,9 +134,9 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
       <details className="team-assignment" key={taskId}>
         <summary className="team-worker-heading">
           <TeamMemberAvatar memberId={member.id} />
-          <span className="team-worker-heading__text"><strong>{member.displayName}</strong><span>{record.task.title}</span></span>
+          <span className="team-worker-heading__text"><strong>{member.displayName}</strong><span title={record.task.title}>{record.task.title}</span></span>
           <TeamTaskStatus run={run} record={record} animate={false} />
-          <span className="team-assignment__label">{t("teams.assignment")}<ChevronDown size={15} aria-hidden="true" /></span>
+          <span className="team-assignment__label" title={t("teams.assignment")}><span className="react-sr-only">{t("teams.assignment")}</span><ChevronDown size={15} aria-hidden="true" /></span>
         </summary>
         <div className="team-assignment__content">
           <h3>{t("teams.role")}</h3><p>{member.instructions}</p><h3>{t("teams.instructions")}</h3><p>{record.task.instructions}</p>
@@ -161,5 +162,6 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
       </>}
     </div>
     <TeamMemberDock run={run} selectedMemberId={member.id} onSelect={select} />
+    </div>
   </section>;
 }
