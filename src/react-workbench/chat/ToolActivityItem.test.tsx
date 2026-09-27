@@ -16,9 +16,43 @@ vi.mock("./TimelineActivity", async (importOriginal) => {
   } };
 });
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("ToolActivityItem", () => {
+  it("animates live completion only and cancels feedback when motion is reduced or a call changes", () => {
+    const preference = new EventTarget() as MediaQueryList;
+    let reduced = false;
+    Object.defineProperty(preference, "matches", { get: () => reduced });
+    vi.spyOn(window, "matchMedia").mockReturnValue(preference);
+    const animate = vi.spyOn(HTMLElement.prototype, "animate");
+    const call = { id: "feedback", name: "exec_command", argsJson: { command: "npm test" } };
+    const view = (status: "running" | "completed" | "failed", id = call.id) =>
+      <ToolActivityItem status={status} toolCall={{ ...call, id }} />;
+    const { rerender, unmount } = render(view("completed"));
+    expect(animate).not.toHaveBeenCalled();
+    rerender(view("running"));
+    expect(animate).not.toHaveBeenCalled();
+    expect(document.querySelector(".react-tool-call-chip__duration")).toBeNull();
+    rerender(view("completed"));
+    expect(animate).toHaveBeenCalledTimes(2);
+    const completion = animate.mock.results.map((result) => result.value as Animation);
+    reduced = true;
+    preference.dispatchEvent(new Event("change"));
+    expect(completion.every((animation) => animation.playState === "idle")).toBe(true);
+    rerender(view("running"));
+    rerender(view("failed"));
+    expect(animate).toHaveBeenCalledTimes(2);
+    reduced = false;
+    rerender(view("running"));
+    rerender(view("failed"));
+    expect(animate).toHaveBeenCalledTimes(4);
+    const failure = animate.mock.results.slice(2).map((result) => result.value as Animation);
+    rerender(view("completed", "history"));
+    expect(failure.every((animation) => animation.playState === "idle")).toBe(true);
+    expect(animate).toHaveBeenCalledTimes(4);
+    unmount();
+  });
+
   it("skips unchanged canonical tools during streaming but renders revised results and status", async () => {
     const user = userEvent.setup();
     const sessionId = "performance";
@@ -56,7 +90,7 @@ describe("ToolActivityItem", () => {
     })));
     expect(activityRender).toHaveBeenCalled();
     expect(screen.getByText("Failed")).toBeVisible();
-    expect(screen.getByText("Terminal · 200ms")).toBeVisible();
+    expect(screen.getByText("200ms")).toBeVisible();
     expect(screen.getByText("Updated failure")).toBeVisible();
     expect(screen.queryByText("Tests passed")).toBeNull();
   });
@@ -74,11 +108,11 @@ describe("ToolActivityItem", () => {
       }}
     />);
 
-    expect(screen.getByText("Ran npm test")).toBeTruthy();
-    expect(screen.getByText("Terminal · 2.4s")).toBeTruthy();
+    expect(screen.getByText("Terminal")).toBeTruthy();
+    expect(screen.getByText("2.4s")).toBeTruthy();
     expect(screen.queryByText("Completed")).toBeNull();
     const toggle = screen.getByRole("button", { name: "Toggle details for Ran npm test" });
-    expect(screen.getByText("Ran npm test").closest("button")).toBe(toggle);
+    expect(toggle).toHaveTextContent("npm test");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByTestId("tool-activity-details")).not.toBeVisible();
     await user.click(toggle);
@@ -124,13 +158,13 @@ describe("ToolActivityItem", () => {
       }}
     />);
 
-    expect(screen.getByText("Inspected ChatPage.tsx")).toBeTruthy();
+    expect(screen.getByText("File read")).toBeTruthy();
     const toggle = screen.getByRole("button", { name: "Toggle details for Inspected ChatPage.tsx" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByTestId("tool-activity-details")).not.toBeVisible();
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("src/react-workbench/chat/ChatPage.tsx")).toBeTruthy();
+    expect(screen.getAllByText("src/react-workbench/chat/ChatPage.tsx")).toHaveLength(2);
     expect(screen.getByText("Lines 40–42")).toBeTruthy();
     expect(screen.getByText("40")).toBeTruthy();
     expect(screen.getByText("41")).toBeTruthy();
@@ -150,7 +184,7 @@ describe("ToolActivityItem", () => {
       }}
     />);
 
-    expect(screen.getByText("Opened WebView2 APIs")).toBeTruthy();
+    expect(screen.getByText("WebView2 APIs")).toBeTruthy();
     const toggle = screen.getByRole("button", { name: "Toggle details for Opened WebView2 APIs" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByTestId("tool-activity-details")).not.toBeVisible();
@@ -171,9 +205,9 @@ describe("ToolActivityItem", () => {
       }}
     />);
 
-    expect(screen.getByText("Command failed")).toBeTruthy();
     expect(screen.getByText("Failed")).toBeTruthy();
     const toggle = screen.getByRole("button", { name: "Toggle details for Command failed" });
+    expect(toggle).toHaveTextContent("cargo check");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     await user.click(toggle);
     expect(screen.getByText("error[E0308]: mismatched types")).toBeTruthy();

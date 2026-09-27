@@ -203,6 +203,7 @@ describe("desktop native chat session controller", () => {
         content: "hello",
         clientEventId: "client-1",
         references: [{ kind: "reference", title: "README", detail: "selected file" }],
+        selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
       },
       spec: {
         turnId: "turn-1",

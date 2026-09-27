@@ -180,6 +180,9 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
       ...(stringValue(payload.clientEventId) ? { clientEventId: stringValue(payload.clientEventId) } : {}),
       id: messageId,
       references: normalizeReferences(payload.references ?? payload.contextReferences ?? payload.context_references),
+      ...(Array.isArray(payload.selectedSkills) ? {
+        selectedSkills: payload.selectedSkills.filter((skill): skill is string => typeof skill === "string" && Boolean(skill.trim())),
+      } : {}),
       role: "user",
       text: text || turn.userMessage.text,
       timestamp: item.createdAt || turn.userMessage.timestamp,

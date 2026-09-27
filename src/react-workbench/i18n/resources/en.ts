@@ -1296,7 +1296,6 @@ export const en = {
       description: "First token includes reasoning and tool calls. Speed uses recorded model generation time and excludes tool execution and waits between calls.",
     },
     turn: {
-      flapWords: { building: "BRAIN AT WORK", stirring: "IDEA SOUP", polishing: "WORD POLISH", baking: "FRESHLY BAKED" },
       label: "Chat turn", workPerformed: "Work performed",
       agentResponding: "Agent is responding", copyMessage: "Copy message", branchHere: "Branch from here", formErrors: "Form errors", agentForms: "Agent forms",
       openDetails: "Open details for {{name}}", contextCompacted: "Context compacted", compactionDetails: "Compaction details",
@@ -1314,7 +1313,7 @@ export const en = {
         subagent: "subagent ×{{count}}", browser: "browser action ×{{count}}", plan: "plan update ×{{count}}",
         interaction: "interaction ×{{count}}", other: "other action ×{{count}}",
       },
-      status: { failed: "Failed", interrupted: "Interrupted", awaiting: "Awaiting input", running: "Running" },
+      status: { failed: "Failed", interrupted: "Interrupted", awaiting: "Awaiting input", running: "Running", thinking: "Thinking…", responding: "Responding…", completed: "Completed" },
     },
     form: { submitted: "Submitted", cancelled: "Cancelled", resolved: "Resolved", waiting: "Waiting for input" },
     compaction: { before: "Before: {{value}} tokens", after: "After: {{value}} tokens", dropped: "Dropped items: {{value}}" },
@@ -1423,7 +1422,7 @@ export const en = {
         unavailable: "The referenced conversation is no longer available in this workspace.",
       },
       skill: {
-        attachedPrompt: "Use the selected Skills.",
+        attachedPrompt: "Use these Skills: {{skills}}.",
         heading: "Skills",
         workspace: "Workspace",
       },

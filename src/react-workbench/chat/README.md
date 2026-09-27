@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:d1b981468c2a27e0eefb3fd059f06bacadb6661c81cc58642beb831ddc0b101f -->
+<!-- tinybot-module-fingerprint: sha256:c927a53108f68b87980e985c05e9c3dcb4e2aef54e9bee0e6cbec0d15605c249 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -59,6 +59,9 @@ Session drafts persist text, attachments, session mentions, skills, artifact
 references and spreadsheet annotations by session identity. Attachment-only
 drafts survive navigation and materialization; successful submission clears
 only the submitted session. Discarding an unsent local draft asks for confirmation.
+Sent user bubbles retain selected Skills as compact labels above their text.
+Optimistic messages and canonical history use the same labels, with the full
+activation ID in each tooltip; plain messages do not acquire Skill labels.
 
 Search merges immediate metadata matches with debounced native content matches.
 Results show message excerpts and open, highlight and focus the matching Turn.
@@ -191,8 +194,16 @@ triggers crossfade the icon to a down arrow on hover and keep an up arrow while
 expanded, using the shared trigger's `aria-expanded` as the state source.
 Keyboard focus and reduced-motion mode switch immediately; non-hover devices
 keep the arrow visible.
-Routine activity uses regular-weight labels and compact rows shared with the
-Team workbench. Expanded execution traces group adjacent actions closely, with
+Tool and Diff disclosures use compact bordered chips shared with the Team
+workbench. Terminal, file-read, and web chips separate the tool category from its
+command, path, or page label; long arguments truncate within the available width.
+Recorded duration appears only when supplied by the runtime. Running chips use
+an indeterminate sweep, and only live running-to-completed/failed transitions
+animate their status icon and give a brief success wash or failure nudge. Opening
+history does not replay feedback. Reduced-motion preference changes cancel live
+feedback and keep running status static. Failure and cancellation remain distinct,
+and clicking a chip opens its retained details rather than rerunning a tool.
+Expanded execution traces group adjacent actions closely, with
 larger breaks around commentary and modest spacing around plans. Recorded
 content, disclosure behavior and explicit failure states remain unchanged.
 
@@ -339,7 +350,9 @@ Skills catalog for the active conversation working directory. Selecting a
 Skill creates an atomic removable token inline with the user's editable text and submits its activation name
 through `selectedSkills`; Rust resolves and injects the full Skill document
 while assembling the native Turn request, so the visible user message remains
-unchanged.
+unchanged when the user supplies text. With no draft text, the fallback message
+names all selected Skills, including queued submissions. The native instruction
+wrapper identifies those Skills as the user's explicit selection for this Turn.
 Chat header, session, composer, model, and Sidecar resource menus share
 the workbench popover shell and interaction states; scenario-owned CSS defines
 only placement and rich-row layout.
@@ -554,13 +567,16 @@ through the shared Message-style top-of-window notification with a success icon
 for an accepted download request. It reports initiation failures and does not claim completion,
 since the WebView anchor download does not expose a completion callback.
 
-AgentResponseIndicator sits at the end of each pending or running turn, after its
-execution items, hook results, and answer. A single split-flap board stays mounted
-through reasoning, tool execution, and message streaming until the turn completes,
-fails, or is interrupted. Awaiting input shows a static localized label; optimistic
-dispatch shows one board until the canonical turn arrives. Localized playful
-phrases cycle with a stable accessible label. Offscreen/background indicators pause,
-and reduced motion stays static.
+`ThoughtLine` keeps one status header above the execution trace and answer,
+including while waiting for the first canonical step. Optimistic dispatch uses
+the same line until the canonical turn arrives. Thinking, tool execution, and
+answer streaming use localized labels with a subtle shimmer and breathing glyph;
+completion crossfades to a static label while preserving counts and recorded time.
+Awaiting input, failure, and interruption remain explicit static states. Only the
+elapsed-time leaf ticks once per second from the runtime start timestamp; it stops
+at the recorded end and never clocks completed history or invents missing timing.
+The timer does not rerender the retained trace. Reduced motion removes shimmer,
+breathing, blur, and movement. The former bottom split-flap status is no longer shown.
 
 Local raster previews read revision-bound bytes and release object URLs on replacement or close. Code previews select their syntax language from the filename or MIME type and copy the original source text.
 

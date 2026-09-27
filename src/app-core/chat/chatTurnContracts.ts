@@ -156,6 +156,7 @@ export type ChatMessage = {
   clientEventId?: string;
   id: string;
   references?: AgentInputReference[];
+  selectedSkills?: string[];
   role: "user" | "assistant";
   text: string;
   timestamp: string;
@@ -246,7 +247,7 @@ export type CanonicalTurnItemKind =
   | "system_notice";
 
 export type CanonicalTurnItemData = Record<string, unknown> & (
-  | { type: "user_message"; messageId?: string | null; clientEventId?: string | null; content: string; references?: unknown }
+  | { type: "user_message"; messageId?: string | null; clientEventId?: string | null; content: string; references?: unknown; selectedSkills?: string[] }
   | { type: "assistant_message"; messageId?: string | null; modelCallId: string; phase: AssistantMessagePhase; content: string }
   | { type: "reasoning"; modelCallId: string; summary: string }
   | { type: "tool_call"; toolCallId: string; name: string; status: string; args: unknown; result: unknown; detailId?: string | null; timing: unknown }

@@ -93,7 +93,7 @@ export async function prepareChatSubmission(
     : mentionedSessions.length
       ? input.t("composer.sessionMention.attachedPrompt")
       : input.selectedSkillIds.length
-        ? input.t("composer.skill.attachedPrompt")
+        ? input.t("composer.skill.attachedPrompt", { skills: input.selectedSkillIds.join(", ") })
         : input.spreadsheetAnnotations.length
           ? input.t("composer.spreadsheetAnnotation.attachedPrompt")
           : "";

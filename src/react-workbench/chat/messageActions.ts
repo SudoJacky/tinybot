@@ -39,6 +39,7 @@ export type ReactChatMessage = {
   text: string;
   status: "streaming" | "complete" | "failed";
   contextReferences?: ContextReferenceSummary[];
+  selectedSkills?: string[];
   reasoningText?: string;
   toolCalls?: ToolCallSummary[];
   turnId?: string;

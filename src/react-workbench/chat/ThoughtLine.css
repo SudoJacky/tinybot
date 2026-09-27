@@ -1,0 +1,48 @@
+.react-thought-line { min-width: 0; margin: 4px 0; color: var(--color-muted); }
+.react-thought-line .react-timeline-activity__title { display: flex; align-items: center; gap: 8px; }
+.react-thought-line__labels { position: relative; display: inline-grid; flex: none; }
+.react-thought-line__text {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(3px);
+  filter: blur(2px);
+  transition: opacity 280ms ease-out, transform 280ms ease-out, filter 280ms ease-out;
+}
+.react-thought-line__text[data-active] { opacity: 1; transform: none; filter: none; }
+.react-thought-line__text:not([data-active]) { position: absolute; pointer-events: none; }
+.react-thought-line__text--settled { color: var(--color-body); }
+.react-thought-line__timer { flex: none; color: var(--color-muted-soft); font-variant-numeric: tabular-nums; font-size: 12px; }
+.react-thought-line__summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+.react-thought-line__summary::before { content: "·"; margin-right: 8px; }
+.react-thought-line__glyph { display: inline-grid; place-items: center; width: 16px; height: 16px; }
+.react-thought-line[data-working] .react-thought-line__glyph { animation: react-thought-breathe 1600ms ease-in-out infinite; }
+.react-thought-line[data-working] .react-thought-line__shimmer {
+  display: inline-block;
+  background: linear-gradient(100deg, var(--color-muted) 30%, var(--color-ink) 50%, var(--color-muted) 70%);
+  background-size: 250% 100%;
+  background-position: 125% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: react-thought-shimmer 1800ms linear infinite;
+}
+.react-thought-line[data-phase="failed"] .react-thought-line__text--settled,
+.react-thought-line[data-phase="failed"] .react-thought-line__glyph { color: var(--color-error); }
+.react-thought-line[data-phase="awaiting"] .react-thought-line__text--settled,
+.react-thought-line[data-phase="awaiting"] .react-thought-line__glyph { color: var(--color-warning); }
+.react-thought-line__spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@keyframes react-thought-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes react-thought-shimmer { to { background-position: -125% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .react-thought-line .react-timeline-activity__header { transition: none; }
+  .react-thought-line__text { transition: none; transform: none; filter: none; }
+  .react-thought-line[data-working] .react-thought-line__glyph { animation: none; }
+  .react-thought-line[data-working] .react-thought-line__shimmer { animation: none; background: none; color: inherit; }
+}

@@ -17,6 +17,33 @@ afterEach(() => {
 });
 
 describe("ChatTimeline", () => {
+  test("keeps selected Skill chips from optimistic send through canonical history reload", () => {
+    const selectedSkills = ["typesafe-ai:typesafe-ai", "apple-design"];
+    const draft: ReactChatMessage = { id: "client-skill", role: "user", createdAtMs: Date.now(),
+      text: "这是什么", status: "complete", selectedSkills };
+    const turn = completedTurn();
+    turn.userMessage = { ...turn.userMessage, clientEventId: draft.id, text: draft.text, selectedSkills };
+    const view = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
+      <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId=""
+        optimisticMessages={optimisticMessages} sessionRunning={false} turns={turns} />
+    );
+    const assertSkills = () => {
+      const skills = screen.getByRole("list", { name: "Skills" });
+      expect(within(skills).getByText("Typesafe Ai").closest("li")?.title).toBe("typesafe-ai:typesafe-ai");
+      expect(within(skills).getByText("Apple Design")).toBeTruthy();
+      expect(skills.closest('[data-role="user"]')?.textContent).toContain("这是什么");
+    };
+    const { rerender, unmount } = render(view([], [draft]));
+    assertSkills();
+    rerender(view([turn]));
+    assertSkills();
+    unmount();
+    const restored = render(view(JSON.parse(JSON.stringify([turn]))));
+    assertSkills();
+    restored.rerender(view([{ ...turn, userMessage: { ...turn.userMessage, selectedSkills: undefined } }]));
+    expect(screen.queryByRole("list", { name: "Skills" })).toBeNull();
+  });
+
   test.each(["object", "json-string"])("keeps each successful recruitment batch through later waves, status updates, reopening and canonical reload (%s arguments)", (argumentFormat) => {
     const first = recruitmentRun();
     first.revision = 1;
@@ -181,21 +208,22 @@ describe("ChatTimeline", () => {
     expect(onOpenFileLink).toHaveBeenCalledWith({ href: "reports/sales.xlsx" });
   });
 
-  test("keeps one indicator at the turn tail through dispatch, tools, and answer streaming", () => {
+  test("keeps one status line above work and answers through dispatch, execution, and completion", () => {
     const base = completedTurn();
     const timeline = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
       <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId=""
         optimisticMessages={optimisticMessages} sessionRunning turns={turns} />
     );
-    const { rerender } = render(timeline([], [optimisticMessage()]));
-    expect(screen.getAllByRole("img", { name: "Agent is responding" })).toHaveLength(1);
+    const { container, rerender } = render(timeline([], [optimisticMessage()]));
+    expect(container.querySelectorAll('.react-thought-line')).toHaveLength(1);
+    expect(container.querySelector('.react-thought-line')?.getAttribute('data-phase')).toBe('thinking');
 
     const pending: ChatTurn = { ...base, status: "pending", finalMessage: undefined, executionItems: [], steps: [] };
     rerender(timeline([pending], [optimisticMessage()]));
-    const indicator = screen.getByRole("img", { name: "Agent is responding" });
+    const indicator = container.querySelector('.react-thought-line')!;
     const turnElement = indicator.closest(".react-canonical-turn")!;
-    expect(turnElement.lastElementChild).toBe(indicator);
-    expect(screen.getAllByRole("img", { name: "Agent is responding" })).toHaveLength(1);
+    expect(container.querySelectorAll('.react-thought-line')).toHaveLength(1);
+    expect(within(indicator as HTMLElement).queryByRole('button')).toBeNull();
 
     const tool: ChatStep = {
       id: "tool-running", kind: "tool_call", sequence: 1, title: "Read file", status: "running",
@@ -204,27 +232,32 @@ describe("ChatTimeline", () => {
     };
     const running: ChatTurn = { ...pending, status: "running", executionItems: [tool], steps: [tool] };
     rerender(timeline([running]));
-    expect(screen.getByRole("img", { name: "Agent is responding" })).toBe(indicator);
-    expect(turnElement.lastElementChild).toBe(indicator);
+    expect(container.querySelector('.react-thought-line')).toBe(indicator);
+    expect(indicator.getAttribute('data-phase')).toBe('running');
+    const toggle = within(indicator as HTMLElement).getByRole('button', {name:/Work performed: Running/});
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
     rerender(timeline([{ ...running, finalMessage: base.finalMessage }]));
     expect(screen.getByTestId("message-assistant-1").textContent).toContain("Canonical answer");
-    expect(screen.getAllByRole("img", { name: "Agent is responding" })).toEqual([indicator]);
-    expect(turnElement.lastElementChild).toBe(indicator);
+    expect(indicator.getAttribute('data-phase')).toBe('responding');
+    expect(turnElement.lastElementChild).toBe(screen.getByTestId('message-assistant-1'));
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    rerender(timeline([{ ...running, finalMessage: { ...base.finalMessage!, text: 'More answer' } }]));
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
     rerender(timeline([{ ...running, status: "awaiting_user" }]));
-    expect(screen.queryByRole("img", { name: "Agent is responding" })).toBeNull();
-    const waiting = screen.getByRole("img", { name: "Awaiting input" });
-    expect(waiting.textContent).toBe("Awaiting input");
-    expect(waiting.querySelector(".react-agent-response__board")).toBeNull();
-    expect(turnElement.lastElementChild).toBe(waiting);
+    expect(indicator.getAttribute('data-phase')).toBe('awaiting');
+    expect(indicator.hasAttribute('data-working')).toBe(false);
 
     rerender(timeline([running]));
-    expect(screen.getByRole("img", { name: "Agent is responding" })).toBe(indicator);
+    expect(container.querySelector('.react-thought-line')).toBe(indicator);
     for (const status of ["completed", "failed", "interrupted"] as const) {
       rerender(timeline([{ ...running, status, finalMessage: base.finalMessage }]));
-      expect(screen.queryByRole("img", { name: "Agent is responding" })).toBeNull();
-      expect(screen.queryByRole("img", { name: "Awaiting input" })).toBeNull();
+      expect(indicator.getAttribute('data-phase')).toBe(status);
+      expect(indicator.hasAttribute('data-working')).toBe(false);
+      expect(container.querySelectorAll('.react-thought-line')).toHaveLength(1);
+      expect(container.querySelector('.react-agent-response')).toBeNull();
     }
   });
 

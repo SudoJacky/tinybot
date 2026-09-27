@@ -3,22 +3,26 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  Ban,
   Bot,
+  Check,
   Circle,
   FileText,
   Globe2,
   ListChecks,
-  Loader2,
   SquareTerminal,
   Wrench,
   XCircle,
 } from "lucide-react";
 import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnContracts";
 import { TimelineActivity } from "./TimelineActivity";
+import { useToolActivityFeedback } from "./useToolActivityFeedback";
+import "./ToolActivityItem.css";
 
 type ToolActivityKind = "file" | "generic" | "plan" | "subagent" | "terminal" | "web";
 
 type ToolActivityDescriptor = {
+  argument?: string;
   category: string;
   input?: ToolActivityPreview;
   kind: ToolActivityKind;
@@ -50,9 +54,11 @@ export const ToolActivityItem = memo(function ToolActivityItem({
   const previews = [descriptor.input, descriptor.output].filter(Boolean) as ToolActivityPreview[];
   return (
     <ToolActivityFrame
+      argument={descriptor.argument}
       category={descriptor.category}
       durationMs={toolCall.durationMs}
       icon={<ToolActivityIcon kind={descriptor.kind} />}
+      key={toolCall.id}
       status={status}
       title={descriptor.title}
     >
@@ -71,6 +77,7 @@ export const ToolActivityItem = memo(function ToolActivityItem({
 });
 
 export function ToolActivityFrame({
+  argument,
   category,
   children,
   defaultOpen = false,
@@ -79,6 +86,7 @@ export function ToolActivityFrame({
   status,
   title,
 }: {
+  argument?: string;
   category: string;
   children?: ReactNode;
   defaultOpen?: boolean;
@@ -89,16 +97,20 @@ export function ToolActivityFrame({
 }) {
   const { t } = useTranslation("chat");
   const hasContent = Children.toArray(children).length > 0;
-  const meta = [category, durationMs === undefined ? "" : formatToolDuration(durationMs)].filter(Boolean).join(" · ");
+  const feedbackRef = useToolActivityFeedback(status);
   return (
-    <section className="react-tool-activity" data-status={status}>
+    <section className="react-tool-activity" data-status={status} ref={feedbackRef}>
       <TimelineActivity
+        className="react-tool-call-chip"
         defaultOpen={defaultOpen}
-        icon={icon}
+        icon={<ToolCallStatusIcon icon={icon} status={status} />}
         keepMounted
-        meta={meta ? <small>{meta}</small> : undefined}
+        meta={durationMs === undefined ? undefined : <small className="react-tool-call-chip__duration">{formatToolDuration(durationMs)}</small>}
         status={<ToolActivityStatus status={status} />}
-        title={title}
+        title={<>
+          <span className="react-tool-call-chip__name" title={title}>{argument ? category : title}</span>
+          {argument ? <span className="react-tool-call-chip__argument" title={argument}>{argument.replace(/\s+/g, " ")}</span> : null}
+        </>}
         triggerLabel={t("toolActivity.toggleDetails", { title })}
       >
         {hasContent ? <div className="react-tool-activity__details" data-testid="tool-activity-details">{children}</div> : null}
@@ -157,10 +169,18 @@ function ToolActivityStatus({ status }: { status: ChatStepStatus }) {
   }
   return (
     <span className="react-tool-activity__status" data-status={normalized.kind}>
-      {normalized.icon}
       <span>{normalized.label}</span>
     </span>
   );
+}
+
+function ToolCallStatusIcon({ icon, status }: { icon: ReactNode; status: ChatStepStatus }) {
+  const symbol = status === "completed" ? <Check size={16} />
+    : status === "failed" ? <XCircle size={16} />
+      : status === "cancelled" ? <Ban size={16} />
+        : status === "blocked" ? <AlertTriangle size={16} />
+          : status === "pending" ? <Circle size={14} /> : icon;
+  return <span className="react-tool-call-chip__glyph">{symbol}</span>;
 }
 
 function ToolActivityIcon({ kind }: { kind: ToolActivityKind }) {
@@ -181,6 +201,7 @@ function toolActivityDescriptor(toolCall: ToolCallState, status: ChatStepStatus,
     const command = firstString(args.command, args.cmd, args.script, toolCall.argsPreview) || t("toolActivity.command");
     const output = terminalOutput(toolCall, status) || fallbackSummary;
     return {
+      argument: command,
       category: t("toolActivity.category.terminal"),
       input: command === t("toolActivity.command") ? undefined : { content: command, kind: "command" },
       kind: "terminal",
@@ -193,6 +214,7 @@ function toolActivityDescriptor(toolCall: ToolCallState, status: ChatStepStatus,
     const range = fileRange(args, t);
     const result = fileOutput(toolCall) || fallbackSummary;
     return {
+      argument: path,
       category: t("toolActivity.category.fileRead"),
       input: path === t("toolActivity.workspaceFile") ? undefined : { content: path, kind: "code", meta: range },
       kind: "file",
@@ -204,6 +226,7 @@ function toolActivityDescriptor(toolCall: ToolCallState, status: ChatStepStatus,
     const page = webPageInfo(toolCall, args, t);
     const result = webOutput(toolCall) || fallbackSummary;
     return {
+      argument: page.label,
       category: t("toolActivity.category.web"),
       input: page.url ? { content: page.url, kind: "code" } : undefined,
       kind: "web",
@@ -401,14 +424,14 @@ function clippedPreview(value: string): { lines: string[]; text: string; truncat
   return { lines: text.split("\n"), text, truncated };
 }
 
-function toolActivityStatus(status: ChatStepStatus, t: TFunction<"chat">): { icon: ReactNode; kind: string; label: string } | undefined {
+function toolActivityStatus(status: ChatStepStatus, t: TFunction<"chat">): { kind: string; label: string } | undefined {
   switch (status) {
     case "completed": return undefined;
-    case "running": return { icon: <Loader2 aria-hidden="true" size={16} />, kind: "active", label: t("toolActivity.status.running") };
-    case "blocked": return { icon: <AlertTriangle aria-hidden="true" size={16} />, kind: "waiting", label: t("toolActivity.status.waiting") };
-    case "failed": return { icon: <XCircle aria-hidden="true" size={16} />, kind: "error", label: t("toolActivity.status.failed") };
-    case "cancelled": return { icon: <XCircle aria-hidden="true" size={16} />, kind: "error", label: t("toolActivity.status.cancelled") };
-    default: return { icon: <Circle aria-hidden="true" size={14} />, kind: "pending", label: t("toolActivity.status.pending") };
+    case "running": return { kind: "active", label: t("toolActivity.status.running") };
+    case "blocked": return { kind: "waiting", label: t("toolActivity.status.waiting") };
+    case "failed": return { kind: "error", label: t("toolActivity.status.failed") };
+    case "cancelled": return { kind: "cancelled", label: t("toolActivity.status.cancelled") };
+    default: return { kind: "pending", label: t("toolActivity.status.pending") };
   }
 }
 

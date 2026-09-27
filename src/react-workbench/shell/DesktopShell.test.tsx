@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dismissAppToast } from "../lib/AppToast";
 import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
@@ -31,6 +31,12 @@ vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(async () => undefined),
 }));
+
+// Route navigation should time the interaction, not Vitest's cold transformation
+// of the real settings module and its motion dependencies under parallel load.
+beforeAll(async () => {
+  await import("../settings/SettingsRoute");
+});
 
 beforeEach(() => {
   window.localStorage.clear();

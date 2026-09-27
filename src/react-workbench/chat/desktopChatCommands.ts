@@ -92,7 +92,7 @@ export function createDesktopChatCommands({ initialize, controller, nativeThread
     const optimisticText = result.status === "sent" ? result.content : "";
     const optimisticMessage = result.status === "empty"
       ? undefined
-      : createOptimisticUserMessage(result.clientEventId, optimisticText, input.references);
+      : createOptimisticUserMessage(result.clientEventId, optimisticText, input.references, input.selectedSkills);
     notifySession(sessionId, {
       type: "message-sent",
       ...(optimisticMessage ? { message: optimisticMessage } : {}),
@@ -257,13 +257,14 @@ export function createDesktopChatCommands({ initialize, controller, nativeThread
   return { dispatch: dispatchDesktopCommand, branchFromMessage };
 }
 
-function createOptimisticUserMessage(clientEventId: string, text: string, references: AgentInputReference[] = []): ReactChatMessage {
+function createOptimisticUserMessage(clientEventId: string, text: string, references: AgentInputReference[] = [], selectedSkills: string[] = []): ReactChatMessage {
   return {
     id: clientEventId,
     role: "user",
     createdAtMs: Date.now(),
     text,
     status: "complete",
+    ...(selectedSkills.length ? { selectedSkills } : {}),
     ...(references.length ? {
       contextReferences: references.map((reference, index) => {
         const attachmentKind = agentInputAttachmentKind(reference);

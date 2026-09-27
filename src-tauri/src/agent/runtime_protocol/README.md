@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:f62a734b20f98e1762a72ac065c4e3a7c9fab02397bbb1c9986194e0fc3bae5f -->
+<!-- tinybot-module-fingerprint: sha256:06571bf3b2c92266120c3d61682bdcb57df1e2f2b5eaac459c766a54633bf360 -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.
@@ -7,6 +7,9 @@ and the projections built from them.
 It owns wire types, event-name validation, event appending, and timeline
 projection. Provider-specific payloads should be normalized before reaching
 this boundary.
+User-message items optionally carry `selectedSkills` activation IDs. Live
+Turn-start events and persisted user input preserve the same selection without
+rewriting the user's text. Historical items without this field remain valid.
 
 Replay retains persisted event IDs, sequence numbers, and timestamps. Timeline
 projection validates assistant message phase transitions per item so malformed

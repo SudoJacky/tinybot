@@ -185,6 +185,8 @@ pub enum AgentTurnItemData {
         content: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         references: Vec<Value>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        selected_skills: Vec<String>,
     },
     AssistantMessage {
         message_id: Option<String>,

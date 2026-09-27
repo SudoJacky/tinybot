@@ -450,6 +450,13 @@ impl AgentTurnState {
                 .expect("turn-started user message must be an object")
                 .remove("references");
         }
+        if let Some(skills) = context
+            .metadata
+            .get("selectedSkills")
+            .filter(|value| value.as_array().is_some_and(|skills| !skills.is_empty()))
+        {
+            payload["userMessage"]["selectedSkills"] = skills.clone();
+        }
         self.emit(PendingAgentEvent::new(AgentEventKind::TurnStarted, payload))?;
         for payload in reference_payloads {
             self.emit(PendingAgentEvent::new(

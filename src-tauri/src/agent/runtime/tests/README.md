@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:9c804bdba13d32d8606b40dfe19b298d6cebafd478809639df92d8eb5dd502ea -->
+<!-- tinybot-module-fingerprint: sha256:70e28dfac9ce6d1b7355671334cb27867b754e3037328961fc4294efc5e8b43b -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -17,6 +17,8 @@ shared Chat Completions/Responses normalization of nested cache and reasoning
 usage details. It distinguishes missing usage from an explicit zero and also
 verifies known-model context defaults, the legacy unknown-model fallback, and
 Provider Profile per-model overrides.
+Selection coverage verifies that Turn-start user messages retain Skill IDs
+through canonical event projection and serialization without changing the text.
 Responses replay cases verify that compaction events and checkpoints, as well
 as trimming events, report the replacement request estimate rather than the
 discarded native history. Ordinary request preparation retains native replay.
@@ -46,6 +48,9 @@ preparation diagnostics from runtime events.
 Interaction coverage keeps resumable user-input checkpoints and their deferred tool-hook
 context on the same Turn, and verifies that form submission acknowledgement
 precedes the resumed provider request.
+MCP form regressions exercise submit and cancel with tools preactivated by the
+MCP preference or explicit backend selection. Submission resumes once with one
+MCP definition; cancellation clears the checkpoint without another provider call.
 
 Tool coverage verifies provider call/result pairing, multi-call batches, and
 native tool errors that remain model-visible so the next provider iteration can

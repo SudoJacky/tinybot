@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b28c5101c18ac32dbdc5ea6d2ac237df569cbddaa6a6ddee78e8fe28d5987e72 -->
+<!-- tinybot-doc-fingerprint: sha256:0f1a4e743cb25117c4b22f62c8403d9866d33f6b85d146115392114e335a3392 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -242,6 +242,10 @@ tool execution. A valid request ends the active invocation in `awaiting_form`
 without a human-response timeout. Submit resumes the same provider chain with
 the selected values as the original tool call's result; cancel resolves the
 checkpoint with a distinct cancelled outcome.
+Restoring the checkpoint's activated tools revalidates the current registry and
+capability policy, while accepting tools already activated during preparation
+by the MCP preference or backend selection. Restoration adds no tools if any
+checkpoint entry is invalid or the merged provider tool names conflict.
 Continuation emitters recover the sequence cursor from history and retain the
 active Turn's trace identity. Replayed events may omit trace context; subsequent
 live forms must still carry the canonical Thread ID for desktop delivery.

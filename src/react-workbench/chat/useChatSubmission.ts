@@ -49,6 +49,7 @@ export function useChatSubmission(options: Options) {
     }
     if (optimisticText) updateMessages(sessionId, (current) => [...current, {
       createdAtMs: now(), id: command.commandId, role: "user", status: "complete", text: optimisticText,
+      ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
     }]);
     try {
       await chatStore.dispatch(command);

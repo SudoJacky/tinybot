@@ -905,6 +905,27 @@ fn canonical_user_item_preserves_client_event_id() {
 }
 
 #[test]
+fn canonical_user_item_preserves_selected_skills_from_both_input_shapes() {
+    for payload in [
+        json!({ "userMessage": { "content": "这是什么", "selectedSkills": ["typesafe-ai:typesafe-ai"] } }),
+        json!({ "input": { "content": "这是什么", "selectedSkills": ["typesafe-ai:typesafe-ai"] } }),
+    ] {
+        let event = runtime_event(
+            "turn-skills",
+            "agent.turn.started",
+            AgentRuntimePhase::HydratingHistory,
+            Some("user-1"),
+            0,
+            payload,
+        );
+        let snapshot = project_timeline_snapshot("session-1", "turn-skills", &[event]).unwrap();
+        let data = serde_json::to_value(&snapshot.items[0].data).unwrap();
+        assert_eq!(data["content"], "这是什么");
+        assert_eq!(data["selectedSkills"], json!(["typesafe-ai:typesafe-ai"]));
+    }
+}
+
+#[test]
 fn canonical_user_item_preserves_input_references() {
     let event = runtime_event(
         "turn-input-reference",

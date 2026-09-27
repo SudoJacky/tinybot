@@ -746,7 +746,6 @@ export const zh = {
       description: "首 token 包含思考和工具调用输出。速度按已记录的模型生成时间计算，不含工具执行和调用之间的等待。",
     },
     turn: {
-      flapWords: { building: "脑洞施工中", stirring: "灵感搅拌中", polishing: "给答案抛光", baking: "文字出炉中" },
       label: "会话轮次", workPerformed: "已执行的工作",
       agentResponding: "Agent 正在回复", copyMessage: "复制消息", branchHere: "从此处分支", formErrors: "表单错误", agentForms: "Agent 表单",
       openDetails: "打开 {{name}} 的详情", contextCompacted: "上下文已压缩", compactionDetails: "压缩详情",
@@ -764,7 +763,7 @@ export const zh = {
         subagent: "调用子 Agent {{count}} 次", browser: "浏览器操作 {{count}} 次", plan: "更新计划 {{count}} 次",
         interaction: "交互 {{count}} 次", other: "其他操作 {{count}} 次",
       },
-      status: { failed: "失败", interrupted: "已中断", awaiting: "等待输入", running: "执行中" },
+      status: { failed: "失败", interrupted: "已中断", awaiting: "等待输入", running: "执行中", thinking: "正在思考…", responding: "正在回复…", completed: "已完成" },
     },
     form: { submitted: "已提交", cancelled: "已取消", resolved: "已解决", waiting: "等待输入" },
     compaction: { before: "压缩前：{{value}} Token", after: "压缩后：{{value}} Token", dropped: "已丢弃项目：{{value}}" },
@@ -873,7 +872,7 @@ export const zh = {
         unavailable: "引用的会话已不在当前工作区中。",
       },
       skill: {
-        attachedPrompt: "请使用所选 Skills。",
+        attachedPrompt: "请使用这些 Skills：{{skills}}。",
         heading: "Skills",
         workspace: "工作区",
       },

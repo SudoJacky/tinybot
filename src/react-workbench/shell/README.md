@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:b5a7b9cb5bcf6de667dbeedd38a8f4409ccf6a9115d58a4c704191adabcc6767 -->
+<!-- tinybot-module-fingerprint: sha256:764e34223836258ee4a7ca7d58068004f2e771f217e1963098d20e8ce9d74963 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -117,3 +117,7 @@ The pet quick-chat window keeps its message host without polling for misses.
 
 Resources and the Chat sidebar have no separate Teams page; Team recruitment
 and history live in Chat and its shared Sidecar.
+
+Shell navigation tests preload the real Settings route during suite setup so
+the interaction timeout does not include cold module transformation. Navigation
+still exercises the production route and preserves normal interaction deadlines.

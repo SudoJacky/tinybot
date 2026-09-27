@@ -128,7 +128,7 @@ describe("ChatPage", () => {
     });
   });
 
-  it("loads workspace Skills and Agent Graph tools for the active workspace", async () => {
+  it.each(["Polish this interaction", ""])("sends a selected workspace Skill with draft %j", async (message) => {
     const user = userEvent.setup();
     const workingDirectory = "D:\\Code\\tinybot";
     const stores = createStores({
@@ -140,6 +140,18 @@ describe("ChatPage", () => {
         status: "idle",
         workingDirectory,
       }],
+    });
+    let receive: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      receive = listener;
+      return () => undefined;
+    });
+    stores.chatStore.dispatch = vi.fn(async (command) => {
+      if (command.kind !== "turn.submit") return;
+      receive?.({ type: "message-sent", message: {
+        id: command.commandId, createdAtMs: Date.now(), role: "user", status: "complete",
+        text: command.input.text, selectedSkills: command.input.selectedSkills,
+      } });
     });
     const loadCatalog = vi.fn(async () => ({
       mcpServers: [],
@@ -202,16 +214,19 @@ describe("ChatPage", () => {
     expect(within(input).getByText("Apple Design")).toBeTruthy();
     expect(screen.queryByLabelText("Composer attachments")).toBeNull();
 
-    await user.keyboard("Polish this interaction");
+    if (message) await user.keyboard(message);
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
       reasoningEffort: "high",
       selectedSkills: ["apple-design"],
       mcpEnabled: true,
-      text: "Polish this interaction",
+      text: message || "Use these Skills: apple-design.",
     });
-    expect(screen.queryByText("Apple Design")).toBeNull();
+    expect(within(input).queryByText("Apple Design")).toBeNull();
+    const selectedSkills = screen.getByRole("list", { name: "Skills" });
+    expect(within(selectedSkills).getByText("Apple Design")).toBeTruthy();
+    expect(selectedSkills.closest('[data-role="user"]')?.textContent).toContain(message || "Use these Skills: apple-design.");
   });
 
   it("does not expose Agent Graph tools to a workspace-less conversation", async () => {
