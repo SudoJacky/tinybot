@@ -1,0 +1,13 @@
+.react-settings-choice__control {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-settings-choice__control > small {
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}

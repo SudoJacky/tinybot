@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import { Monitor, Moon, RotateCcw, Sun, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,7 +18,7 @@ import {
 } from "../../app-core/settings/appAppearance";
 import { TinybotMascot } from "../chat/TinybotMascot";
 import { useAppAppearance } from "./AppAppearanceContext";
-import { SettingsChoiceList } from "./SettingsChoiceList";
+import { SettingsSegmentedChoice } from "./SettingsSegmentedChoice";
 
 const THEME_MODE_OPTIONS: Array<{ mode: ThemeMode; icon: LucideIcon }> = [
   { mode: "system", icon: Monitor },
@@ -84,17 +85,16 @@ export function AppearanceSettingsPage({
               <strong>{t("appearance.petVisible")}</strong>
               <small>{t("appearance.petVisibleDescription")}</small>
             </span>
-            <input
+            <LiquidToggle
               aria-label={t("appearance.petVisible")}
               checked={desktopPetPreferences.visible}
               onChange={(event) => onDesktopPetPreferencesChange({
                 ...desktopPetPreferences,
                 visible: event.target.checked,
               })}
-              type="checkbox"
             />
           </label>
-          <SettingsChoiceList
+          <SettingsSegmentedChoice
             ariaLabel={t("appearance.petSize")}
             description={t("appearance.petSizeDescription")}
             label={t("appearance.petSize")}
@@ -106,7 +106,6 @@ export function AppearanceSettingsPage({
               label: t(`appearance.petSizes.${size}`),
               value: size,
             }))}
-            optionsAriaLabel={t("appearance.petSizeOptionsLabel")}
             value={desktopPetPreferences.size}
           />
           <div className="react-pet-settings__action-row">
@@ -231,14 +230,14 @@ function ThemeEditor({
           value={value.foreground}
           onChange={(foreground) => onChange({ foreground })}
         />
-        <SelectRow
+        <SegmentedRow
           ariaLabel={t("appearance.selectAria", { theme: themeName, setting: t("appearance.uiFont") })}
           label={t("appearance.uiFont")}
           value={value.uiFont}
           options={(Object.keys(UI_FONT_STACKS) as UiFontId[]).map((id) => ({ id, label: t(`appearance.uiFonts.${id}`) }))}
           onChange={(uiFont) => onChange({ uiFont: uiFont as UiFontId })}
         />
-        <SelectRow
+        <SegmentedRow
           ariaLabel={t("appearance.selectAria", { theme: themeName, setting: t("appearance.codeFont") })}
           label={t("appearance.codeFont")}
           value={value.codeFont}
@@ -250,11 +249,10 @@ function ThemeEditor({
             <strong>{t("appearance.translucentSidebar")}</strong>
             <small>{t("appearance.translucentSidebarDescription")}</small>
           </span>
-          <input
+          <LiquidToggle
             aria-label={t("appearance.toggleAria", { theme: themeName })}
             checked={value.translucentSidebar}
             onChange={(event) => onChange({ translucentSidebar: event.target.checked })}
-            type="checkbox"
           />
         </label>
         <label className="react-appearance-row react-appearance-row--range">
@@ -301,7 +299,7 @@ function ColorRow({
   );
 }
 
-function SelectRow({
+function SegmentedRow({
   ariaLabel,
   label,
   onChange,
@@ -315,7 +313,7 @@ function SelectRow({
   value: string;
 }) {
   return (
-    <SettingsChoiceList
+    <SettingsSegmentedChoice
       ariaLabel={ariaLabel}
       label={label}
       onChange={onChange}

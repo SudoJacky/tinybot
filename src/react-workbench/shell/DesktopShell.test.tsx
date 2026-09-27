@@ -348,6 +348,8 @@ describe("DesktopShell", () => {
     expect(screen.queryByText("What would you like to try first?")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Help" }));
     await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    // Wait for the real Settings module, including its shared UI dependencies.
+    await act(async () => { await vi.dynamicImportSettled(); });
     await screen.findByRole("heading", { name: "Keyboard shortcuts" });
     await user.click(screen.getByRole("button", { name: "Help" }));
     await user.click(screen.getByRole("menuitem", { name: "Quick start" }));
@@ -1043,9 +1045,9 @@ describe("DesktopShell", () => {
     const modelsDialog = screen.getByRole("dialog", { name: "DeepSeek models" });
     expect(modelsDialog).toBeTruthy();
     expect(within(modelsDialog).getAllByText("deepseek-v4-pro").length).toBeGreaterThan(0);
-    expect(within(modelsDialog).getByRole("button", {
-      name: "Context window mode for deepseek-v4-pro: Auto · 1M",
-    })).toBeTruthy();
+    expect(within(within(modelsDialog).getByRole("radiogroup", {
+      name: "Context window mode for deepseek-v4-pro",
+    })).getByRole<HTMLInputElement>("radio", { name: "Auto · 1M" }).checked).toBe(true);
     const imageInputToggle = within(modelsDialog).getByRole("button", {
       name: "Image input for deepseek-v4-pro",
     });
@@ -1069,10 +1071,9 @@ describe("DesktopShell", () => {
     expect((within(modelsDialog).getByRole("checkbox", {
       name: "Enable deepseek-live in model selectors",
     }) as HTMLInputElement).checked).toBe(false);
-    await user.click(within(modelsDialog).getByRole("button", {
-      name: "Context window mode for deepseek-live: Default · 128K",
-    }));
-    await user.click(within(modelsDialog).getByRole("menuitemradio", { name: "Custom" }));
+    await user.click(within(within(modelsDialog).getByRole("radiogroup", {
+      name: "Context window mode for deepseek-live",
+    })).getByRole("radio", { name: "Custom" }));
     const customContextWindow = within(modelsDialog).getByLabelText("Custom context window for deepseek-live");
     await user.clear(customContextWindow);
     await user.type(customContextWindow, "32000");
@@ -1266,11 +1267,9 @@ describe("DesktopShell", () => {
     await user.click(within(screen.getByRole("menu", { name: "Timezone options" }))
       .getByRole("menuitemradio", { name: "Europe/Paris" }));
     await user.clear(await screen.findByLabelText("Max output tokens"));
-    await user.click(screen.getByRole("button", { name: "Context window strategy: Discard old messages" }));
-    const strategyMenu = screen.getByRole("menu", { name: "Context window strategy options" });
-    expect(strategyMenu.classList.contains("react-settings-choice-popover")).toBe(true);
+    const strategy = screen.getByRole("radiogroup", { name: "Context window strategy" });
     expect(screen.queryByText("Reasoning effort")).toBeNull();
-    await user.click(within(strategyMenu).getByRole("menuitemradio", { name: /Compact old messages/ }));
+    await user.click(within(strategy).getByRole("radio", { name: /Compact old messages/ }));
     await user.click(screen.getByRole("button", { name: "Save agent defaults" }));
 
     await waitFor(() => expect(saveAgentDefaultsSettings).toHaveBeenCalledTimes(1));
@@ -1347,9 +1346,8 @@ describe("DesktopShell", () => {
       .getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     const settingsNavigation = await screen.findByRole("navigation", { name: "Settings categories" });
     await user.click(within(settingsNavigation).getByRole("button", { name: "App" }));
-    await user.click(screen.getByRole("button", { name: "Language: English" }));
-    await user.click(within(screen.getByRole("menu", { name: "Language options" }))
-      .getByRole("menuitemradio", { name: /简体中文/ }));
+    await user.click(within(screen.getByRole("radiogroup", { name: "Language" }))
+      .getByRole("radio", { name: "简体中文" }));
 
     expect(await screen.findByRole("heading", { name: "应用偏好设置" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "设置" })).toBeTruthy();

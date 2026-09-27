@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import { Check, ChevronRight, ExternalLink, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { showAppToast } from "../lib/AppToast";
 import type { TFunction } from "i18next";
@@ -22,7 +23,8 @@ import {
   readDefaultChatModelPreference,
 } from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
-import { SettingsChoiceList } from "./SettingsChoiceList";
+import { SettingsSegmentedChoice } from "./SettingsSegmentedChoice";
+import { LiquidSegmentedControl } from "../../components/ui/LiquidSegmentedControl";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 import { SettingsSheet } from "./SettingsSheet";
 
@@ -724,43 +726,26 @@ function ProviderConfigureDialog({
                 <strong>{provider.active ? t("provider.configureDialog.activeProfile") : t("provider.configureDialog.setActiveProfile")}</strong>
                 <small>{provider.active ? t("provider.configureDialog.activeDescription") : t("provider.configureDialog.setActiveDescription")}</small>
               </span>
-              <input
+              <LiquidToggle
                 aria-label={t("provider.configureDialog.setActiveProfile")}
                 checked={activate}
                 disabled={provider.active}
-                type="checkbox"
                 onChange={(event) => setActivate(event.currentTarget.checked)}
               />
-              <i aria-hidden="true" />
             </label>
           </section>
 
           <fieldset className="react-provider-config__section react-provider-config__mode">
             <legend>{t("provider.configureDialog.apiMode")}</legend>
-            <div>
-              {provider.supportsResponsesApi ? (
-                <label data-selected={useResponsesApi || undefined}>
-                  <input
-                    checked={useResponsesApi}
-                    name="provider-api-mode"
-                    type="radio"
-                    value="responses"
-                    onChange={() => setUseResponsesApi(true)}
-                  />
-                  <span>{t("provider.responsesApi")}</span>
-                </label>
-              ) : null}
-              <label data-selected={!useResponsesApi || undefined}>
-                <input
-                  checked={!useResponsesApi}
-                  name="provider-api-mode"
-                  type="radio"
-                  value="chat_completions"
-                  onChange={() => setUseResponsesApi(false)}
-                />
-                <span>{t("provider.chatCompletions")}</span>
-              </label>
-            </div>
+            <LiquidSegmentedControl
+              aria-label={t("provider.configureDialog.apiMode")}
+              value={useResponsesApi ? "responses" : "chat_completions"}
+              onChange={(value) => setUseResponsesApi(value === "responses")}
+              options={[
+                ...(provider.supportsResponsesApi ? [{ value: "responses", label: t("provider.responsesApi") }] : []),
+                { value: "chat_completions", label: t("provider.chatCompletions") },
+              ]}
+            />
             <small>{provider.supportsResponsesApi
               ? t("provider.configureDialog.responsesHelp")
               : t("provider.configureDialog.chatOnlyHelp")}</small>
@@ -773,13 +758,11 @@ function ProviderConfigureDialog({
                   <strong>{t("provider.reasoningEffort.title")}</strong>
                   <small>{t("provider.reasoningEffort.description")}</small>
                 </span>
-                <input
+                <LiquidToggle
                   aria-label={t("provider.reasoningEffort.title")}
                   checked={supportsReasoningEffort}
-                  type="checkbox"
                   onChange={(event) => setSupportsReasoningEffort(event.currentTarget.checked)}
                 />
-                <i aria-hidden="true" />
               </label>
             </section>
           ) : null}
@@ -1243,7 +1226,7 @@ function ModelContextWindowControl({
   const custom = overrideValue !== undefined;
   return (
     <div className="react-provider-model-context">
-      <SettingsChoiceList
+      <SettingsSegmentedChoice
         ariaLabel={t("provider.modelsDialog.contextMode", { name: model })}
         label={t("provider.modelsDialog.contextWindow")}
         onChange={(value) => onModeChange(value === "custom" ? "custom" : "auto")}
@@ -1256,7 +1239,6 @@ function ModelContextWindowControl({
           },
           { value: "custom", label: t("provider.modelsDialog.contextCustom") },
         ]}
-        optionsAriaLabel={t("provider.modelsDialog.contextOptions", { name: model })}
         value={custom ? "custom" : "auto"}
       />
       {custom ? (

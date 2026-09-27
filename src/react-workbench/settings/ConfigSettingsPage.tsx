@@ -1,4 +1,5 @@
 import { Check, Loader2, RotateCcw } from "lucide-react";
+import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -237,14 +238,12 @@ function ConfigField({
           {copy.description ? <small>{copy.description}</small> : null}
           {field.notice ? <small className="react-config-settings__notice">{field.notice}</small> : null}
         </span>
-        <input
+        <LiquidToggle
           aria-label={copy.label}
           checked={field.checked === true}
           disabled={field.disabled}
-          type="checkbox"
           onChange={(event) => onChange(event.currentTarget.checked)}
         />
-        <i aria-hidden="true" />
       </label>
     );
   }

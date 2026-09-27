@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import { useTranslation } from "react-i18next";
 import { actionFusionSettingsPatch, readExperimentalSettings, type ExperimentalSettings } from "../../app-core/settings/experimentalSettings";
 import type { SettingsStore } from "../services";
@@ -75,15 +76,13 @@ export function LabsSettingsPage({ settingsStore }: { settingsStore: SettingsSto
                 <strong>{t("labs.actionFusion.title")}</strong>
                 <small id="action-fusion-help">{t("labs.actionFusion.description")}</small>
               </span>
-              <input
-                type="checkbox"
+              <LiquidToggle
                 aria-label={t("labs.actionFusion.title")}
                 aria-describedby="action-fusion-help action-fusion-limits"
                 checked={loaded.settings.actionFusion}
                 disabled={save.state === "saving"}
                 onChange={(event) => void toggleActionFusion(event.currentTarget.checked)}
               />
-              <i aria-hidden="true" />
             </label>
           </div>
           <small id="action-fusion-limits" className="react-config-settings__persistence">{t("labs.actionFusion.limits")}</small>

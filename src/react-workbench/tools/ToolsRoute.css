@@ -424,6 +424,7 @@
 }
 
 .react-plugin-switch {
+  cursor: pointer;
   gap: 7px;
   padding: 0 7px;
   color: var(--color-muted);
@@ -431,39 +432,8 @@
   font-weight: 650;
 }
 
-.react-plugin-switch > span {
-  position: relative;
-  display: block;
-  width: 32px;
-  height: 19px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted-soft) 42%, var(--color-panel));
-  box-shadow: inset 0 0 0 1px rgb(20 20 19 / 8%);
-  transition: background var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-plugin-switch i {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--color-panel);
-  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
-  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-plugin-switch[aria-checked="true"] {
+.react-plugin-switch:has(input:checked) {
   color: var(--color-primary-active);
-}
-
-.react-plugin-switch[aria-checked="true"] > span {
-  background: var(--color-primary);
-}
-
-.react-plugin-switch[aria-checked="true"] i {
-  transform: translateX(13px);
 }
 
 .react-plugin-remove {
@@ -583,51 +553,18 @@
   color: var(--color-primary-active);
 }
 
-.react-mcp-settings:focus-visible,
-.react-mcp-switch:focus-visible {
+.react-mcp-settings:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
   outline-offset: 2px;
 }
 
-.react-mcp-settings:disabled,
-.react-mcp-switch:disabled {
+.react-mcp-settings:disabled {
   opacity: 0.5;
   cursor: wait;
 }
 
 .react-mcp-settings .react-spin {
   animation: react-mcp-form-spin 850ms linear infinite;
-}
-
-.react-mcp-switch > span {
-  position: relative;
-  display: block;
-  width: 38px;
-  height: 22px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted-soft) 45%, var(--color-panel));
-  box-shadow: inset 0 0 0 1px rgb(20 20 19 / 9%);
-  transition: background var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-mcp-switch i {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--color-panel);
-  box-shadow: 0 1px 3px rgb(20 20 19 / 24%);
-  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-mcp-switch[aria-checked="true"] > span {
-  background: var(--color-primary);
-}
-
-.react-mcp-switch[aria-checked="true"] i {
-  transform: translateX(16px);
 }
 
 .react-mcp-card strong {
@@ -1302,9 +1239,7 @@
   .react-plugin-import,
   .react-plugin-migrate,
   .react-plugin-remove,
-  .react-plugin-switch,
-  .react-plugin-switch > span,
-  .react-plugin-switch i {
+  .react-plugin-switch {
     transition-duration: 0ms;
   }
 
@@ -1317,8 +1252,6 @@
   .react-mcp-form__save,
   .react-mcp-settings,
   .react-mcp-switch,
-  .react-mcp-switch > span,
-  .react-mcp-switch i,
   .react-mcp-form input {
     transition-duration: 0ms;
   }

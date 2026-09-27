@@ -17,6 +17,7 @@ import type {
 } from "../../app-core/native/desktopNativeHooks";
 import type { HooksStore, WorkspaceRegistryEntry, WorkspaceRegistryStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
+import { SettingsSegmentedChoice } from "./SettingsSegmentedChoice";
 import {
   indentScriptLines,
   outdentScriptLines,
@@ -580,7 +581,7 @@ export function HooksSettingsPage({
                 value={managedEditor.customMatcher ? CUSTOM_MATCHER : managedEditor.matcher}
               />
             ) : null}
-            <SettingsChoiceList
+            <SettingsSegmentedChoice
               label={t("hooks.managed.language")}
               onChange={(value) => setManagedEditor({
                   ...managedEditor,

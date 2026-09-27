@@ -1,9 +1,10 @@
 import { useTranslation } from "react-i18next";
 import type { AppLanguage } from "../../app-core/settings/appLanguage";
 import { useAppLanguage } from "./AppLanguageContext";
-import { SettingsChoiceList } from "./SettingsChoiceList";
+import { SettingsSegmentedChoice } from "./SettingsSegmentedChoice";
 import { saveComposerRichText } from "../../app-core/settings/composerPreferences";
 import { useComposerRichText } from "../../components/ui/useComposerRichText";
+import { LiquidToggle } from "../../components/ui/LiquidToggle";
 
 export function AppSettingsPage() {
   const { language, setLanguage } = useAppLanguage();
@@ -20,22 +21,19 @@ export function AppSettingsPage() {
       </header>
 
       <div className="react-app-settings__list">
-        <SettingsChoiceList
+        <SettingsSegmentedChoice
           description={t("app.language.description")}
           label={t("app.language.label")}
           options={[
             {
               value: "en",
               label: t("app.language.english"),
-              description: t("app.language.englishDescription"),
             },
             {
               value: "zh",
               label: t("app.language.chinese"),
-              description: t("app.language.chineseDescription"),
             },
           ]}
-          optionsAriaLabel={t("app.language.optionsLabel")}
           value={language}
           onChange={(value) => setLanguage(value as AppLanguage)}
         />
@@ -44,10 +42,9 @@ export function AppSettingsPage() {
             <strong>{t("app.composerRichText.label")}</strong>
             <small>{t("app.composerRichText.description")}</small>
           </span>
-          <input
+          <LiquidToggle
             aria-label={t("app.composerRichText.label")}
             checked={composerRichText}
-            type="checkbox"
             onChange={(event) => saveComposerRichText(event.currentTarget.checked)}
           />
         </label>

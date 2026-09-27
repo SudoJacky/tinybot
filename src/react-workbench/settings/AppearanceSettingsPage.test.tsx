@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
@@ -54,18 +54,16 @@ describe("AppearanceSettingsPage", () => {
     expect(document.documentElement.style.getPropertyValue("--color-primary")).toBe("#3366ff");
   });
 
-  test("uses the shared settings choice menu for theme fonts", async () => {
+  test("selects theme fonts with the keyboard and persists them", async () => {
     const user = userEvent.setup();
     renderAppearancePage();
 
     expect(screen.queryByRole("combobox")).toBeNull();
-    const trigger = screen.getByRole("button", { name: "Light theme UI font: Inter" });
-    await user.click(trigger);
-    const menu = screen.getByRole("menu", { name: "UI font options" });
-    await waitFor(() => expect(document.activeElement).toBe(within(menu).getByRole("menuitemradio", { name: "Inter" })));
-    await user.keyboard("{ArrowDown}{Enter}");
+    const fonts = within(screen.getByRole("radiogroup", { name: "Light theme UI font" }));
+    fonts.getByRole("radio", { name: "Inter" }).focus();
+    await user.keyboard("{ArrowRight}");
 
-    expect(screen.getByRole("button", { name: "Light theme UI font: System" })).toBe(document.activeElement);
+    expect(fonts.getByRole("radio", { name: "System" })).toBe(document.activeElement);
     expect(JSON.parse(window.localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? "{}").light.uiFont).toBe("system");
   });
 
@@ -97,9 +95,8 @@ describe("AppearanceSettingsPage", () => {
       visible: false,
     });
 
-    await user.click(screen.getByRole("button", { name: "Pet size: Medium" }));
-    await user.click(within(screen.getByRole("menu", { name: "Desktop pet size options" }))
-      .getByRole("menuitemradio", { name: "Large" }));
+    await user.click(within(screen.getByRole("radiogroup", { name: "Pet size" }))
+      .getByRole("radio", { name: "Large" }));
     expect(onDesktopPetPreferencesChange).toHaveBeenCalledWith({
       ...DEFAULT_DESKTOP_PET_PREFERENCES,
       size: "large",
