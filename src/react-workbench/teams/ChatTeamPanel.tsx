@@ -103,6 +103,11 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
         <img src={teamWorkspaceIcon} alt="" className="chat-team-inspector__icon" />
         <div><h2>{t("teams.teamWorkspace")}</h2><p role="status">{t(`teams.status.${run.status}`)}</p></div>
       </div>
+      <div className="chat-team-inspector__tabs" role="tablist" aria-label={t("teams.details")}>
+        <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}><ListTodo size={16} aria-hidden="true" />{t("teams.tasks")}</button>
+        <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><FileText size={16} aria-hidden="true" />{t("teams.files")}</button>
+        <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}><ChartNoAxesColumn size={16} aria-hidden="true" />{usageText("usage.tab")}</button>
+      </div>
       <div className="chat-team-inspector__controls">
         {run.status === "running" ? <>
           <button disabled={busy || !!pending} onClick={() => void onControl("pause")}><Pause size={15} aria-hidden="true" />{t("teams.pause")}</button>
@@ -110,11 +115,6 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
         </> : canExecute(run) ? <button disabled={busy || pending === "start"} onClick={onExecute}>
           <Play size={15} aria-hidden="true" />{run.status === "planned" ? t("teams.start") : t("teams.resume")}
         </button> : null}
-        <div className="chat-team-inspector__tabs" role="tablist" aria-label={t("teams.details")}>
-          <button role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}><ListTodo size={16} aria-hidden="true" />{t("teams.tasks")}</button>
-          <button role="tab" aria-selected={tab === "files"} onClick={() => setTab("files")}><FileText size={16} aria-hidden="true" />{t("teams.files")}</button>
-          <button role="tab" aria-selected={tab === "usage"} onClick={() => setTab("usage")}><ChartNoAxesColumn size={16} aria-hidden="true" />{usageText("usage.tab")}</button>
-        </div>
       </div>
       {mainPlan && <TeamMainPlan key={mainPlan.identityKey} plan={mainPlan.plan} />}
     </header>

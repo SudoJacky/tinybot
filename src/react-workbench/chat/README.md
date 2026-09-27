@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e1844aceea5517ef3d5232e36eb4e86ae8b9f6fb35f86f90b2d74f23838a2d31 -->
+<!-- tinybot-module-fingerprint: sha256:b9865da4d3dff49d7cfe894266c244aaa2a9412c3708d09abc4c84175d6a2cc3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -180,7 +180,8 @@ A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
 choice. Its summary derives compact counts from semantic Step and Tool kinds,
-and exposes running and abnormal status without logos. A folded Reasoning row
+and exposes running and abnormal status without logos. Expanded execution content
+aligns with the summary without an outer guide line or left indent. A folded Reasoning row
 keeps elapsed time and content on one line. While streaming, its clipped preview
 follows the latest text horizontally; completion returns to the beginning and
 uses an ellipsis when the line does not fit. The user can expand the row for the
@@ -230,7 +231,7 @@ the latter stays mounted with no DOM while hidden, preserving manual expansion
 and restarting its automatic reading interval when visible again. Revisions
 received while hidden retain the existing update behavior. `PlanSteps` shares
 recorded explanation and statuses between both locations. A closed Sidecar,
-another resource, or unrelated/independent Team history restores the floating
+another resource, or an unrelated/independent Team run restores the floating
 note. An absent or empty plan presents no counter. The timeline's session ID
 must match before any main progress is passed into Sidecar.
 At narrow widths, the collapsed session sidebar keeps its actual compact width;
@@ -567,7 +568,7 @@ keeps an icon-only shortcut in the collapsed rail. The route supplies its
 navigation callback; Chat does not own automation execution or scheduling.
 
 Workspace Chat offers `@team` in its
-composer. Successful recruitment tool results render a lazy `ChatTeamCard` outside grouped
+composer. Successful recruitment tool results render an expanded `ChatTeamCard` outside grouped
 tool rows. Each card takes stable task/member IDs from the full canonical call
 arguments (objects or JSON strings from saved function calls), cross-checked
 against its successful result. Cumulative result tasks
@@ -576,14 +577,15 @@ later recruitment, same-name employees and timeline reloads retain each card's
 scope. Older calls without arguments explain the missing batch and offer View
 team, while invalid records show an error alongside their original tool details.
 Failed and unfinished calls keep their normal tool status.
-The card loads the board on expansion; employee selection opens the
+The card loads the board on first render and refreshes after being folded and reopened;
+employee selection opens the
 Team tab in Sidecar. The panel loads only the selected attempt and keeps the
 member dock available. It shares Sidecar resizing, expansion, hiding and tab
 navigation; Browser and Artifact tabs coexist with it. Team tabs follow the
 parent conversation scope, and closing a tab does not cancel its run. Worker conversation content
 does not enter the parent session. Native Teams owns
 scheduling and durable run state.
-The header's Team history lists saved runs even in a new Chat. Independent legacy
-runs remain independent when opened there. The Sidecar Team view provides native
+The Chat header omits the recent-team history shortcut in both existing and empty
+conversations; saved native run records remain unchanged. The Sidecar Team view provides native
 pause, cancel, resume and explicit failed-task retry, plus attempt history,
 files and run-scoped usage. Hiding the panel changes only the view.

@@ -2177,20 +2177,9 @@
 }
 
 .react-execution-timeline__content {
-  position: relative;
   display: grid;
   gap: 12px;
-  padding: 4px 0 4px 28px;
-}
-
-.react-execution-timeline__content::before {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 8px;
-  width: 1px;
-  background: color-mix(in srgb, var(--color-hairline) 76%, transparent);
-  content: "";
+  padding: 4px 0;
 }
 
 .react-execution-timeline__item {

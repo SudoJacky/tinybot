@@ -7,12 +7,12 @@ import { ChatTeamContext } from "./chatTeamContext";
 import { useChatTeamRun, chatTeamsApi } from "./useChatTeamRun";
 import "./chatTeamCard.css";
 
-/** Historical cards load the board on expansion; employee logs belong to the inspector. */
+/** Cards start expanded; employee logs load only after selecting an employee. */
 export function ChatTeamCard({ runId, batch, loadRun = chatTeamsApi.get }: {
   runId: string; batch?: RecruitmentBatch; loadRun?: typeof chatTeamsApi.get;
 }) {
   const { t } = useTranslation("common");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const inspector = useContext(ChatTeamContext);
   const inspecting = inspector?.run?.id === runId;
   const board = useChatTeamRun(runId, open && !inspecting, loadRun);
@@ -22,7 +22,7 @@ export function ChatTeamCard({ runId, batch, loadRun = chatTeamsApi.get }: {
   const run = observed && (!board.run || observed.revision >= board.run.revision) ? observed : board.run;
   const records = batch?.tasks.map(task => run?.tasks.find(value => value.task.id === task.taskId && value.task.memberId === task.memberId));
   const missing = run && batch && (records?.some(record => !record) || batch.memberIds.some(id => !run.spec.members.some(member => member.id === id)));
-  return <details className="chat-team-card" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="chat-team-card" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>{t("teams.recruitment")}{batch ? " · " + t("teams.recruitmentBatchCount", { count: batch.memberIds.length, tasks: batch.tasks.length }) : ""}</summary>
     {open && <div className="chat-team-card__body">
       {!batch && <p>{t("teams.recruitmentBatchUnknown")}</p>}
