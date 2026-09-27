@@ -1474,11 +1474,12 @@ it("opens scheduled tasks from a missed reminder while viewing Chat", async () =
   expect(services.automationStore.run).not.toHaveBeenCalled();
 });
 
-it("offers Team history in Chat without a standalone Teams navigation entry", async () => {
+it("omits the recent-team shortcut and standalone Teams navigation", async () => {
   const services = createServices();
   localStorage.setItem("tinybot.quick-start.v1", "dismissed");
   render(<DesktopShell services={services} />);
-  expect(await screen.findByText("Recent team runs")).toBeTruthy();
+  expect(await screen.findByRole("textbox", { name: "Message" })).toBeTruthy();
+  expect(screen.queryByText("Recent team runs")).toBeNull();
   expect(screen.queryByRole("button", { name: "Teams" })).toBeNull();
   await userEvent.setup().click(screen.getByRole("button", { name: "Resources" }));
   expect(within(screen.getByRole("menu", { name: "Resources menu" })).queryByRole("menuitem", { name: "Teams" })).toBeNull();

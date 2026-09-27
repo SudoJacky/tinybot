@@ -40,7 +40,7 @@ describe("ChatPage", () => {
     const css = readWorkbenchCss();
 
     expect(css).toMatch(/\.react-message__body\s*{\s*min-width:\s*0;\s*padding:\s*2px 0;\s*}/s);
-    expect(css).toMatch(/\.react-message-reasoning\s*{[^}]*margin-bottom:\s*10px;[^}]*color:\s*var\(--color-muted\);/s);
+    expect(css).toMatch(/\.react-message-reasoning\s*{[^}]*margin-bottom:\s*0;[^}]*color:\s*var\(--color-muted\);/s);
     expect(css).not.toMatch(/\.react-message-reasoning\s*{[^}]*padding-left:/s);
     expect(css).not.toMatch(/\.react-message-reasoning\s*{[^}]*border-left:/s);
     expect(css).toMatch(
