@@ -98,7 +98,7 @@ export function ToolActivityFrame({
         keepMounted
         meta={meta ? <small>{meta}</small> : undefined}
         status={<ToolActivityStatus status={status} />}
-        title={<strong>{title}</strong>}
+        title={title}
         triggerLabel={t("toolActivity.toggleDetails", { title })}
       >
         {hasContent ? <div className="react-tool-activity__details" data-testid="tool-activity-details">{children}</div> : null}

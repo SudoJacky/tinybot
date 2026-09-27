@@ -615,7 +615,7 @@ export const zh = {
       projectPrompt: "请阅读当前项目的文件，介绍它的结构、用途和启动方式。不要修改文件或执行命令。",
       filePrompt: "请总结我附上的文件，整理主要内容，并指出需要进一步确认的地方。",
       questionPrompt: "你能帮我做些什么？请给我三个具体、有用的任务示例。",
-      composerTip: "整理文件时，请通过输入框添加或拖入文件。输入框下方可以调整工具开关，回复过程中可以随时停止。",
+      composerTip: "整理文件时，请通过输入框添加或拖入文件。回复过程中可以随时停止。",
       close: "关闭模型配置", setupDescription: "选择已有服务商或预设。高级选项和自定义服务商可在「设置 → 模型」中配置。",
       provider: "服务商", apiBase: "API 地址", apiKey: "API 密钥", model: "模型 ID", keySaved: "将使用已保存的密钥",
       discover: "保存并获取模型", saveContinue: "保存并继续",
@@ -885,7 +885,7 @@ export const zh = {
       },
       placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", dropFiles: "松开以添加附件", importingFiles: "正在准备附件…", filesFailed: "无法选择文件。", imageUnsupported: "{{model}} 不支持图像输入。请选择支持图像的模型，或移除图片。",
       label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型", imageInput: "视觉",
-      slash: "斜杠命令", message: "消息", attachFiles: "附加文件", tools: "工具", on: "开", off: "关", selectModel: "选择模型", model: "模型", advanced: "高级",
+      slash: "斜杠命令", message: "消息", attachFiles: "附加文件", on: "开", off: "关", selectModel: "选择模型", model: "模型", advanced: "高级",
       effort: "推理强度", chooseModel: "选择模型", modelEffort: "模型和推理强度", backAdvanced: "返回高级选项", models: "模型", reasoningEffort: "推理强度",
       effortOptions: {
         low: { label: "轻量", description: "优先保证速度并降低 Token 消耗。" }, medium: { label: "中等", description: "使用均衡的推理深度。" },

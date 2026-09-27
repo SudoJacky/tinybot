@@ -120,6 +120,7 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
     </header>
     {pending && <p className="chat-team-inspector__notice" role="status">{t(`teams.${pending === "start" ? "loading" : pending === "pause" ? "pausing" : "cancelling"}`)}</p>}
     {controlError && <p className="chat-team-inspector__notice team-error" role="alert">{controlError}</p>}
+    <div className="chat-team-inspector__workspace">
     <div className="chat-team-inspector__scroll" ref={scroll} onScroll={event => {
       if (restoredPosition.current === activityKey) positions.current.set(activityKey, event.currentTarget.scrollTop);
     }}>
@@ -133,9 +134,9 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
       <details className="team-assignment" key={taskId}>
         <summary className="team-worker-heading">
           <TeamMemberAvatar memberId={member.id} />
-          <span className="team-worker-heading__text"><strong>{member.displayName}</strong><span>{record.task.title}</span></span>
+          <span className="team-worker-heading__text"><strong>{member.displayName}</strong><span title={record.task.title}>{record.task.title}</span></span>
           <TeamTaskStatus run={run} record={record} animate={false} />
-          <span className="team-assignment__label">{t("teams.assignment")}<ChevronDown size={15} aria-hidden="true" /></span>
+          <span className="team-assignment__label" title={t("teams.assignment")}><span className="react-sr-only">{t("teams.assignment")}</span><ChevronDown size={15} aria-hidden="true" /></span>
         </summary>
         <div className="team-assignment__content">
           <h3>{t("teams.role")}</h3><p>{member.instructions}</p><h3>{t("teams.instructions")}</h3><p>{record.task.instructions}</p>
@@ -161,5 +162,6 @@ export function ChatTeamPanel({ run, taskId, mainPlan, workspaceStore, loadAttem
       </>}
     </div>
     <TeamMemberDock run={run} selectedMemberId={member.id} onSelect={select} />
+    </div>
   </section>;
 }

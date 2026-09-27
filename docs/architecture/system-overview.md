@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c6d1feba2a547bce26ae44ecd21b62e116cf6bb4a24ea8b33d310789d5574db9 -->
+<!-- tinybot-doc-fingerprint: sha256:56e579e659cc70ddffca4d865f1b859df160f31e81cddc612ece25d734a84534 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -373,11 +373,11 @@ and visibility decision supplies that header and suppresses the floating plan
 note. Hiding Team or selecting another resource restores the note; unrelated
 or independent historical runs never borrow current Chat progress. Plan counts
 and steps remain canonical, separate from employee task completion.
-Chat's history entry can open any durable run, including an older independent
-run with no `parentThreadId` and a new Chat without a Thread. The Sidecar scope
-is only a view choice; it does not rewrite the run's parent or import employee
-messages into the main conversation. The Sidecar inspector selects recorded
-attempts, reuses Team Files and run-scoped Usage, and sends pause, cancel,
+Chat no longer exposes the recent-team history shortcut. Durable run records,
+including older independent runs with no `parentThreadId`, retain their ownership.
+The Sidecar scope is only a view choice; it does not rewrite the run's parent or
+import employee messages into the main conversation. The Sidecar inspector selects
+recorded attempts, reuses Team Files and run-scoped Usage, and sends pause, cancel,
 resume and explicit task retry to the native Team store. Long execution requests
 remain separate from these controls; revision checks reject stale snapshots.
 See [Team API](../api/teams.md#chat-coordinator-tools).

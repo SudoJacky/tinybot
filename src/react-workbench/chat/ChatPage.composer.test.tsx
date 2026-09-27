@@ -185,14 +185,9 @@ describe("ChatPage", () => {
 
     await screen.findByRole("textbox", { name: /message/i });
     await waitFor(() => expect(loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-    expect(screen.getAllByRole("menuitemcheckbox")).toHaveLength(1);
-    const mcp = screen.getByRole("menuitemcheckbox", { name: "Call MCP" });
-    expect(mcp.getAttribute("aria-checked")).toBe("true");
-    await user.click(mcp);
+    expect(screen.queryByRole("button", { name: "Tools" })).toBeNull();
     expect(screen.queryByText("Incident analysis")).toBeNull();
     expect(screen.queryByText("Search files")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Tools" }));
     const input = screen.getByRole("textbox", { name: /message/i });
     await user.type(input, "/");
 
@@ -213,14 +208,13 @@ describe("ChatPage", () => {
     expectTurnSubmit(stores.chatStore, "s1", {
       reasoningEffort: "high",
       selectedSkills: ["apple-design"],
-      mcpEnabled: false,
+      mcpEnabled: true,
       text: "Polish this interaction",
     });
     expect(screen.queryByText("Apple Design")).toBeNull();
   });
 
   it("does not expose Agent Graph tools to a workspace-less conversation", async () => {
-    const user = userEvent.setup();
     const stores = createStores();
     const loadCatalog = vi.fn(async () => ({
       mcpServers: [],
@@ -246,7 +240,7 @@ describe("ChatPage", () => {
 
     await screen.findByRole("textbox", { name: /message/i });
     await waitFor(() => expect(loadCatalog).toHaveBeenCalledWith({ workingDirectory: undefined }));
-    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.queryByRole("button", { name: "Tools" })).toBeNull();
     expect(screen.queryByRole("menuitemcheckbox", { name: /Incident analysis/ })).toBeNull();
   });
 

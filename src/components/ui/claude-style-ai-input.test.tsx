@@ -390,7 +390,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onRemoveSessionMention).toHaveBeenCalledWith("thread-2");
   });
 
-  it("only offers MCP and submits its switch without a built-in tool allowlist", async () => {
+  it("uses catalog MCP availability without a composer tools menu", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();
     const view = render(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
@@ -410,38 +410,25 @@ describe("ClaudeStyleAiInput slash commands", () => {
       { id: "mcp.docs.search", name: "Search documentation", selected: true }]}
     />);
 
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-    const mcpTool = screen.getByRole("menuitemcheckbox", { name: /Call MCP/ });
-    expect(screen.getAllByRole("menuitemcheckbox")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Tools" })).toBeNull();
     expect(screen.queryByText("Search files")).toBeNull();
-    expect(mcpTool.getAttribute("aria-checked")).toBe("true");
-    await user.click(mcpTool);
-    expect(mcpTool.getAttribute("aria-checked")).toBe("false");
-    view.rerender(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Review this incident");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(onSendMessage).toHaveBeenCalledWith("Review this incident", [], {
       reasoningEffort: "high",
-      mcpEnabled: false,
+      mcpEnabled: true,
     });
-    view.rerender(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[{ id: "mcp.call_tool", name: "Call MCP" }]} />);
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-    expect(screen.getByRole("menuitemcheckbox").getAttribute("aria-checked")).toBe("false");
-    await user.click(screen.getByRole("menuitemcheckbox"));
-    await user.type(screen.getByRole("textbox", { name: "Message" }), "Use MCP");
+    view.rerender(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Continue review");
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(onSendMessage).toHaveBeenLastCalledWith("Use MCP", [], { reasoningEffort: "high", mcpEnabled: true });
+    expect(onSendMessage).toHaveBeenLastCalledWith("Continue review", [], { reasoningEffort: "high" });
   });
 
-  it("keeps a permission-denied MCP switch disabled and submits it as off", async () => {
+  it("submits permission-denied MCP availability as off", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();
     render(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[{ id: "mcp.call_tool", name: "Call MCP", disabled: true }]} />);
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-    const mcp = screen.getByRole("menuitemcheckbox");
-    expect((mcp as HTMLButtonElement).disabled).toBe(true);
-    expect(mcp.getAttribute("aria-checked")).toBe("false");
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Search local files");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(onSendMessage).toHaveBeenCalledWith("Search local files", [], { reasoningEffort: "high", mcpEnabled: false });

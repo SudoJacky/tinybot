@@ -36,7 +36,7 @@ function setup(withPlan = true) {
   stores.chatStore.load = vi.fn(async id => id === "recruitment-chat" ? timeline : timelineFromReactMessages(id, []));
   const props = { ...stores, workspaceStore: { readThreadFile: vi.fn().mockResolvedValue({ content: "Report", path: "report.md" }) } };
   const view = render(<ChatPage {...props} />);
-  return { ...view, props, browserRuntime, setRun: (next: typeof run) => { run = next; }, run,
+  return { ...view, props, browserRuntime, setRun: (next: typeof run) => { run = next; }, run, historicalRuns: [legacy, other],
     listenerFor: (id: string) => listeners.get(id),
     update(next: typeof timeline, sessionId = "recruitment-chat") { timeline = next; act(() => listeners.get(sessionId)?.({ type: "timeline.patch", timeline: next })); } };
 }
@@ -94,10 +94,11 @@ it("moves one plan entry with real Team visibility across subpages, resources an
 
 it("keeps unrelated history and other conversations from borrowing the main plan, including reload", async () => {
   const user = userEvent.setup(); const view = setup(); await openEmployee();
-  for (const name of ["Independent archive", "Other conversation archive"]) {
-    toggle(document.querySelector(".chat-team-history") as HTMLDetailsElement);
-    await user.click(await screen.findByRole("button", { name: new RegExp(name) })); expectFloating();
+  for (const run of view.historicalRuns) {
+    view.update(teamPlanTimeline(run));
+    await openEmployee(); expectFloating();
   }
+  view.update(teamPlanTimeline(view.run));
   await openEmployee(); expect(heading()).not.toBeNull();
   const latePreviousSessionEvent = view.listenerFor("recruitment-chat");
   await user.click(within(screen.getByLabelText("Sessions")).getByRole("button", { name: "Other chat" }));

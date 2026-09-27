@@ -1161,7 +1161,7 @@ export const en = {
       projectPrompt: "Read this project's files and explain its structure, purpose, and how to run it. Do not change files or run commands.",
       filePrompt: "Summarize the file I attach, list its main points, and identify anything that needs clarification.",
       questionPrompt: "What can you help me with? Give me three specific examples of useful tasks.",
-      composerTip: "For files, attach or drop a file into the input. Tool controls are below the input; you can stop a running response at any time.",
+      composerTip: "For files, attach or drop a file into the input. You can stop a running response at any time.",
       close: "Close model setup", setupDescription: "Use an existing provider or a preset. Advanced options and custom providers are available in Settings → Models.",
       provider: "Provider", apiBase: "API base URL", apiKey: "API key", model: "Model ID", keySaved: "Saved key will be used",
       discover: "Save & fetch models", saveContinue: "Save & continue",
@@ -1435,7 +1435,7 @@ export const en = {
       },
       placeholder: "Message Tinybot", sendFailed: "Message could not be sent.", stopFailed: "Generation could not be stopped.", fileLimit: "Only {{count}} files can be attached.", dropFiles: "Drop to attach files", importingFiles: "Preparing attachments…", filesFailed: "Files could not be selected.", imageUnsupported: "{{model}} does not support image input. Choose an image-capable model or remove the image.",
       label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", attachedFilesPrompt: "Review the attached files.", configuredModel: "Configured model", imageInput: "Vision",
-      slash: "Slash commands", message: "Message", attachFiles: "Attach files", tools: "Tools", on: "On", off: "Off", selectModel: "Select model", model: "Model", advanced: "Advanced",
+      slash: "Slash commands", message: "Message", attachFiles: "Attach files", on: "On", off: "Off", selectModel: "Select model", model: "Model", advanced: "Advanced",
       effort: "Effort", chooseModel: "Choose model", modelEffort: "Model and reasoning effort", backAdvanced: "Back to advanced options", models: "Models", reasoningEffort: "Reasoning effort",
       effortOptions: {
         low: { label: "Light", description: "Prioritize speed and lower token use." }, medium: { label: "Medium", description: "Use balanced reasoning depth." },
