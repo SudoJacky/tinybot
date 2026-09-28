@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:6b79ca75190872451badd2cb29a3d1e7207d4093ba1436c33efa5d90c54b4d67 -->
+<!-- tinybot-module-fingerprint: sha256:66ec7b09dc1bbbd14ba4836dd24a5feb542e6e9d5c01c6616bc8af1380462aed -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -48,17 +48,21 @@ text joins the surrounding sentence. Clipboard HTML is not used. Image reference
 retain their Markdown without loading remote images. Drafts and submissions remain
 Markdown strings, with serializer normalization after editing. Switching the setting
 preserves the draft and structured attachments in both Chat and desktop quick chat.
-Shared Skill option types live in `composerContracts.ts`; the editor and input
-import that leaf contract directly, so neither depends on the other for types.
-The editor owns selection, IME, undo, and atomic Skill nodes. Menu queries use the
+`composerContracts.ts` defines shared Skill options, cursor reports, and semantic
+editor operations (`focusEnd` and `replaceTrigger`). `PlainComposerEditor` owns
+textarea and inline DOM selection, IME, paste, and atomic Skill positions;
+`MarkdownComposerEditor` owns the equivalent Tiptap behavior and undo history.
+The input owns menus, attachments, and submission without inspecting editor DOM.
+Rich-text menu queries use the
 current text block instead of Markdown source offsets and stay inactive in code
 blocks. Shift+Enter uses structural Enter to continue lists or split paragraphs;
 Enter selects a suggestion or sends. Skills still travel as structured turn options.
 The composer separates full control disabling from temporary send disabling,
 so a route can preserve editable drafts while an asynchronous prerequisite is
 still loading. The composer has no Tools button or per-tool toggles. Submission
-derives `mcpEnabled` from the supplied `mcp.call_tool` catalog entry: enabled
-unless disabled by the catalog, and omitted when no entry is supplied. It never
+forwards the optional `mcpEnabled` boolean supplied by its route, preserving
+explicit false and omitting it when unspecified. The route resolves catalog
+availability and permissions before passing this value. The composer never
 sends a `selectedTools` allowlist. Its context-window indicator also presents the latest Provider
 call's prompt-cache hit rate when cached and input Token counts are available,
 and distinguishes a reported zero-percent hit from unavailable usage data.

@@ -790,7 +790,7 @@ export const zh = {
     },
     reasoning: { label: "思考过程", thinking: "正在思考", thinkingSeconds: "思考 {{count}} 秒", underSecond: "思考了不到 1 秒", seconds: "思考了 {{count}} 秒" },
     context: { attachments: "附件", context: "上下文" },
-    steps: { count: "{{count}} 个步骤", title: "执行详情", label: "Agent 步骤", openDetails: "打开 {{name}} 的详情", status: { active: "执行中", success: "已完成", waiting: "等待确认", cancelled: "已取消", error: "失败", pending: "待执行" } },
+    steps: { count: "{{count}} 个步骤", title: "执行详情", label: "Agent 步骤", status: { active: "执行中", success: "已完成", waiting: "等待确认", cancelled: "已取消", error: "失败", pending: "待执行" } },
     artifactReview: {
       title: "检查修改",
       compare: "对比修改",
@@ -819,7 +819,7 @@ export const zh = {
       fileDetails: "文件详情", delimitedViews: "文件视图", delimitedTable: "表格", delimitedSource: "原文", delimitedRow: "行号",
       delimitedFailed: "表格预览失败：{{message}}。可以切换到原文检查文件内容。",
       status: "状态", interruptedAt: "中断位置",
-      unavailable: "详情不可用。", id: "ID", trace: "Trace", childTurn: "子任务轮次", loadingTrace: "正在加载 Trace…", finalOutput: "最终输出",
+      id: "ID", trace: "Trace", childTurn: "子任务轮次", loadingTrace: "正在加载 Trace…", finalOutput: "最终输出",
       type: "类型", loadingArtifact: "正在加载产物…", noPreview: "没有可预览的内容。", subagentTrace: "子 Agent Trace",
       fileOutsideWorkspace: "该文件位于当前工作区之外。", filePreviewUnavailable: "当前运行环境无法预览工作区文件。",
       binaryFilePreviewUnsupported: "暂不支持在此处预览二进制文件。", filePreviewTruncated: "预览已截断，请直接打开文件查看剩余内容。",
@@ -838,8 +838,7 @@ export const zh = {
       officeAskForChange: "要求修改", officeAskForChangeShortcut: "Ctrl I",
       officeCellEmpty: "空白", officeCellLabel: "单元格 {{cell}}，{{value}}", officeCellSelected: "已选中 {{sheet}}!{{cell}}",
       officeChangeEditorLabel: "单元格 {{cell}} 的修改要求", officeChangeEditorPlaceholder: "描述需要修改的内容", officeChangeEditorConfirm: "确认修改要求",
-      task: "任务", errorCode: "错误代码", errorMessage: "错误信息", summary: "摘要", arguments: "参数", response: "响应",
-      delegate: "委派任务", title: "标题", parentTurn: "父任务轮次", session: "会话",
+      task: "任务", errorCode: "错误代码", errorMessage: "错误信息",
     },
     tool: { updatePlan: "更新执行计划" },
     patch: {

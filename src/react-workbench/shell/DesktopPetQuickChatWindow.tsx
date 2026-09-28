@@ -51,7 +51,6 @@ type DesktopPetQuickChatServices = {
   settingsStore: SettingsStore;
 };
 
-const EMPTY_INTERACTIVE_FORM_IDS = new Set<string>();
 
 export function DesktopPetQuickChatWindow({
   client,
@@ -366,7 +365,6 @@ export function DesktopPetQuickChatWindow({
               error={sessionRuntime.state.error}
               hookResults={sessionRuntime.state.hookResults}
               providerRetry={sessionRuntime.state.providerRetry}
-              interactiveFormIds={EMPTY_INTERACTIVE_FORM_IDS}
               latestFailedTurnId={latestFailedTurnId}
               optimisticMessages={optimisticMessages}
               sessionRunning={sessionRunning}

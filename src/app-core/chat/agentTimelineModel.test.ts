@@ -221,13 +221,13 @@ describe("canonical agent timeline model", () => {
       "message-call-1",
       "message-call-2",
     ]);
-    expect(turn.executionItems?.map((entry) => [entry.id, entry.messagePhase])).toEqual([
+    expect(turn.steps.map((entry) => [entry.id, entry.messagePhase])).toEqual([
       ["reasoning-call-0", undefined],
       ["message-call-0", "commentary"],
       ["tool-1", undefined],
       ["message-call-1", "commentary"],
     ]);
-    expect(turn.executionItems?.find((entry) => entry.id === "tool-1")?.toolCall?.resultJson)
+    expect(turn.steps.find((entry) => entry.id === "tool-1")?.toolCall?.resultJson)
       .toEqual({ ok: true });
     expect(turn.finalAnswer).toMatchObject({ id: "message-call-2", text: "Verification passed." });
   });
@@ -485,6 +485,30 @@ describe("canonical agent timeline model", () => {
     const model = createAgentTimelineModel();
     expect(() => model.load(sessionId, [{ timeline: { schemaVersion: "legacy", items: [] } }]))
       .toThrow("Unsupported canonical timeline schema");
+  });
+
+  test.each(["assistant_message", "reasoning"])("validates and normalizes %s model identity before projection", (kind) => {
+    const model = createAgentTimelineModel();
+    const data = { type: kind, modelCallId: 42, phase: "commentary", content: "Progress", summary: "Thinking" };
+    const snapshot = model.load(sessionId, [runtimeState(1, [item({ kind, data })])]);
+    expect(snapshot.turns[0].steps[0].modelCallId).toBe("42");
+    expect(snapshot.turns[0].canonicalItems?.[0].data.modelCallId).toBe("42");
+    expect(() => model.load(sessionId, [runtimeState(1, [item({ kind, data: { ...data, modelCallId: undefined } })])]))
+      .toThrow("Canonical timeline field modelCallId is required");
+    expect(() => model.applyPatch(sessionId, patch(2, { kind, revision: 2, data: { ...data, modelCallId: "" } })))
+      .toThrow("Canonical timeline field modelCallId is required");
+  });
+
+  test("rejects invalid assistant phases and mismatched item kinds at the canonical boundary", () => {
+    const model = createAgentTimelineModel();
+    model.load(sessionId, [runtimeState()]);
+    const data = { type: "assistant_message", modelCallId: "call-1", phase: "invalid", content: "answer" };
+    expect(() => model.load(sessionId, [runtimeState(1, [item({ data })])]))
+      .toThrow("Canonical assistant item assistant-1 has invalid phase invalid");
+    expect(() => model.applyPatch(sessionId, patch(2, { data, revision: 2 })))
+      .toThrow("Canonical assistant item assistant-1 has invalid phase invalid");
+    expect(() => model.load(sessionId, [runtimeState(1, [item({ data: { ...data, type: "reasoning" } })])]))
+      .toThrow("kind/data mismatch");
   });
 
   test("produces the same visible timeline from live patches and a reloaded snapshot", () => {

@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:3d5c4e96f294628d1eaf94da1a5892f3445d196c2998f57c6560dffa31c4f2a4 -->
+<!-- tinybot-module-fingerprint: sha256:480fa65018bf667033835387821417d621d0c9d62cae2b2240f8d91b3c782255 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -33,6 +33,8 @@ native adapters and event notifications from this composition root.
 `ChatStore.readTimeline` reads canonical Thread activity without changing the
 selected Chat session. Teams uses it with the shared subscription to observe
 workers; `load` retains its existing Chat navigation behavior.
+Markdown export reads each canonical Turn's `finalAnswer`, preserving completed
+answers from both single-turn and multi-turn histories.
 
 The standalone [`agent-graph/`](agent-graph/README.md) route owns the locally recoverable
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route

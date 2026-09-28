@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:094af49029313aa207fa025a1e272b40460be642f72c36dbb140c8351153568f -->
+<!-- tinybot-doc-fingerprint: sha256:1cb3ba3d61f0480b95985db25f6a2322eac56341bb6b5c95b6c90855a3a02d25 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -38,6 +38,11 @@ Turn and preserve historical references. Streaming content is published through
 a session-scoped source consumed by the Timeline view; the Chat route subscribes
 to stable lifecycle, plan and usage summaries. Content commits retain scroll
 following and restoration without rerendering the composer on each text update.
+The conversation viewport owns session scroll memory and cancels obsolete
+restoration work. Composer editors own DOM selection, IME and Skill positions
+behind shared focus and trigger-replacement operations; the input owns menus,
+attachments and submission. Timeline views and transcript export consume the
+same ordered steps and final-answer projection.
 
 Chat can release offscreen Markdown and chart renderers while retaining message
 interaction owners and semantic scroll anchors. The native browser owns idle

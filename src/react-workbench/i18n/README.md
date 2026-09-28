@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:32be7f6dfb79fb6d12512c1e03de50686cf46a4f1f7ee884d5cc14658d7f9aa5 -->
+<!-- tinybot-module-fingerprint: sha256:e5c7c3f8b675a8a30fbb972e46800baa633e907053ff066efbb77f6adaea32d5 -->
 
 Settings usage resources cover purposes, request outcomes, source identities,
 missing-usage explanations and the shared Team Usage tab in English and Chinese.
@@ -41,6 +41,8 @@ values, protocol fields, and diagnostic codes must remain language-neutral.
 Chat code-block wrapping controls use localized labels and tooltips; code
 content remains unchanged.
 Tool previews localize their full-content and collapse controls in both languages.
+Tool arguments and results expand inline; the retired tool drawer's private
+labels are removed while subagent and Artifact detail labels remain shared.
 The execution status line localizes thinking, running, responding, completion,
 and waiting/failure states; playful split-flap phrases have been retired.
 Memory management localizes creation, editing, scope filters, selection,

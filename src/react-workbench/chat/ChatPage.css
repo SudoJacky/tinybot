@@ -1927,38 +1927,6 @@
   padding-top: 14px;
 }
 
-.react-tool-detail {
-  display: grid;
-  gap: 12px;
-  margin-top: 0;
-}
-
-.react-tool-detail section {
-  display: grid;
-  gap: 6px;
-}
-
-.react-tool-detail h3 {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.react-tool-detail pre {
-  overflow: auto;
-  max-height: 180px;
-  margin: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-surface-soft);
-  padding: 8px;
-  color: var(--color-ink);
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .react-canonical-turn {
   display: contents;
 }
@@ -2231,33 +2199,6 @@
   font-size: 12px;
   font-weight: 400;
   line-height: 1.6;
-}
-
-.react-execution-timeline__item > .react-agent-steps > .react-agent-steps__list {
-  padding: 0;
-}
-
-.react-execution-timeline__item .react-agent-step-item {
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.react-execution-timeline__item .react-agent-step-item__marker {
-  margin-top: 5px;
-  border: 0;
-}
-
-.react-execution-timeline__item .react-agent-step {
-  margin: 0;
-  border: 0;
-  border-radius: 4px;
-  padding: 5px 0;
-}
-
-.react-execution-timeline__item .react-agent-step:hover,
-.react-execution-timeline__item .react-agent-step:focus-visible {
-  border: 0;
-  background: var(--color-surface-soft);
 }
 
 .react-tool-activity,
@@ -2596,13 +2537,6 @@
   padding: 14px 12px;
   color: var(--color-muted);
   font-size: 12px;
-}
-
-.react-canonical-tool-group {
-  display: grid;
-  gap: 6px;
-  width: min(720px, 100%);
-  margin: 0 auto;
 }
 
 .react-canonical-step,

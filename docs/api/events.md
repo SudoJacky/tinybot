@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d42119adcac9c8f40649c7840f9a7f6f96a77b1cfb241fb4b10a568f612994e6 -->
+<!-- tinybot-doc-fingerprint: sha256:1428507df94b2931c3e5d1b7486026b408776ee45580a918dbb153dc653bcf75 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -94,6 +94,10 @@ post-final work, and terminal-state regressions are rejected;
 lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
 not a second source of conversation content. Transient retry status is presented
 separately and does not modify canonical Items.
+
+The renderer projects canonical Items into one ordered `ChatTurn.steps` list
+and a separate `finalAnswer`. These are in-memory UI fields; native event,
+snapshot, and persisted timeline schemas are unchanged.
 
 Textual `agent.reasoning_delta` events update one user-visible running Reasoning item without
 advancing `snapshotRevision`. `agent.reasoning.completed` completes the same item and advances the

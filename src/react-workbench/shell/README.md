@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:764e34223836258ee4a7ca7d58068004f2e771f217e1963098d20e8ce9d74963 -->
+<!-- tinybot-module-fingerprint: sha256:362a7334a7b5b4d8cf170dc57ec5e58312bde4dca3e8385611ed6e41e3635682 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 

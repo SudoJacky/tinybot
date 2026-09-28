@@ -400,7 +400,7 @@ export function createDesktopAppServices(
         const timeline = await controller.loadTimeline(sessionId);
         return timeline.turns.flatMap((turn) => [
           `user: ${turn.userMessage.text}`,
-          ...(turn.finalMessage ? [`assistant: ${turn.finalMessage.text}`] : []),
+          ...(turn.finalAnswer ? [`assistant: ${turn.finalAnswer.text}`] : []),
         ]).join("\n\n");
       },
       subscribe(sessionId, listener) {

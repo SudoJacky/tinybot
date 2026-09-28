@@ -14,7 +14,6 @@ import { ChatTimeline } from "../chat/ChatTimeline";
 import "../chat/ChatPage.css";
 import { NodeIcon } from "./AgentGraphCanvas";
 
-const EMPTY_INTERACTIVE_FORM_IDS = new Set<string>();
 const TIMELINE_POLL_INTERVAL_MS = 1_000;
 
 export function AgentGraphNodeDrawer({
@@ -111,7 +110,6 @@ export function AgentGraphNodeDrawer({
         actions={{}}
         error={timelineError ?? undefined}
         hookResults={timeline.hookResults ?? []}
-        interactiveFormIds={EMPTY_INTERACTIVE_FORM_IDS}
         latestFailedTurnId=""
         optimisticMessages={[]}
         sessionRunning={nodeRun?.status === "running"}

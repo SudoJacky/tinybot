@@ -28,7 +28,6 @@ import {
   type ComposerSendOptions,
   type ComposerSessionMentionOption,
   type ComposerSlashCommand,
-  type ComposerToolOption,
   type ModelOption,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
@@ -43,7 +42,6 @@ import {
 } from "../../app-core/chat/reasoningEffort";
 import { importDesktopChatFiles, pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
-import type { ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import {
@@ -87,7 +85,7 @@ import {
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { LiveChatTimeline } from "./LiveChatTimeline";
-import { captureConversationView, restoreConversationView, type ConversationViewState } from "./conversationViewport";
+import { useConversationViewport } from "./useConversationViewport";
 import { EmptyChatStart } from "./EmptyChatStart";
 import { QuickStart } from "./QuickStart";
 import { useQuickStart } from "./useQuickStart";
@@ -138,10 +136,7 @@ const unavailableWorkspaceRegistryStore: WorkspaceRegistryStore = {
   },
 };
 
-type DrawerState =
-  | { kind: "tool"; title: string; toolCall: ToolCallSummary }
-  | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
-  | null;
+type DrawerState = { title: string; delegate: DelegatedAgentState; loading: boolean; error?: string } | null;
 
 function resolveComposerModel(
   models: readonly ModelOption[],
@@ -212,23 +207,6 @@ function buildComposerSkillOptions(
   }));
 }
 
-function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOption[] {
-  return tools.filter((tool) => tool.id === "mcp.call_tool").map((tool) => {
-    const allowed = tool.allowed ?? tool.enabled ?? true;
-    const defaultSelected = tool.defaultSelected ?? allowed;
-    return {
-      available: tool.available,
-      allowed,
-      defaultSelected,
-      description: tool.description,
-      disabled: !tool.available || !allowed,
-      id: tool.id,
-      name: tool.displayName || tool.name,
-      selected: tool.selected ?? defaultSelected,
-    };
-  });
-}
-
 const SESSION_DELETE_DISSOLVE_MS = 180;
 
 export function ChatPage({
@@ -290,23 +268,15 @@ export function ChatPage({
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
-  const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
   const deleteDissolveTimers = useRef<number[]>([]);
   const [searchTarget, setSearchTarget] = useState<{ sessionId: string; turnId: string; signal: number }>();
-  const lastSearchScroll = useRef<number | undefined>(undefined);
   const searchSignal = useRef(0);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
   const sessionTabsRef = useRef(sessionTabs);
   const sessionsLoadedRef = useRef(sessionsLoaded);
-  const conversationRef = useRef<HTMLDivElement | null>(null);
-  const conversationEndRef = useRef<HTMLDivElement | null>(null);
-  const conversationViewBySessionRef = useRef<Map<string, ConversationViewState>>(new Map());
-  const pendingConversationRestoreRef = useRef("");
-  const hasActivatedSessionRef = useRef(false);
-  const stickToLatestRef = useRef(true);
   sessionTabsRef.current = sessionTabs;
   sessionsLoadedRef.current = sessionsLoaded;
   const activeSessionId = sessionTabs.activeSessionId;
@@ -362,6 +332,7 @@ export function ChatPage({
   const { reportError: reportTimelineError } = chatActions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
   const { completedTask } = timelineSummary;
+  const viewport = useConversationViewport({ sessionId: activeSessionId, timelineSessionId: timelineSummary.sessionId, searchTarget });
   const { completeTask } = quickStart;
   useEffect(() => { if (completedTask) completeTask(); }, [completedTask, completeTask]);
 
@@ -370,10 +341,8 @@ export function ChatPage({
     () => buildComposerSkillOptions(composerSkills, t),
     [composerSkills, t],
   );
-  const composerToolOptions = useMemo(
-    () => buildComposerToolOptions(composerTools),
-    [composerTools],
-  );
+  const mcpTool = composerTools.find((tool) => tool.id === "mcp.call_tool");
+  const mcpEnabled = mcpTool ? Boolean(mcpTool.available && (mcpTool.allowed ?? mcpTool.enabled ?? true)) : undefined;
   const composerArtifactContextReferences = useMemo<ComposerContextReference[]>(() => (
     [...composerArtifactReferences.map((reference): ComposerContextReference => ({
       mimeType: reference.mimeType,
@@ -603,50 +572,6 @@ export function ChatPage({
     onStopGenerationTargetChange?.(stopGenerationSessionId);
   }, [onStopGenerationTargetChange, stopGenerationSessionId]);
 
-  useLayoutEffect(() => {
-    const view = conversationViewBySessionRef.current.get(activeSessionId);
-    if (activeSessionId && !hasActivatedSessionRef.current) {
-      hasActivatedSessionRef.current = true;
-      pendingConversationRestoreRef.current = "";
-    } else {
-      pendingConversationRestoreRef.current = activeSessionId;
-    }
-    stickToLatestRef.current = view?.stickToLatest ?? true;
-    setShowBackToLatest(view ? !view.stickToLatest : false);
-  }, [activeSessionId]);
-
-  const handleTimelineContentChanged = useCallback(() => {
-    const element = conversationRef.current;
-    const view = conversationViewBySessionRef.current.get(activeSessionId);
-    if (element && searchTarget?.sessionId === activeSessionId && timelineSummary.sessionId === activeSessionId && lastSearchScroll.current !== searchTarget.signal) {
-      const turn = [...element.querySelectorAll<HTMLElement>("[data-scroll-anchor]")].find((node) => node.dataset.scrollAnchor === "turn:" + searchTarget.turnId);
-      if (turn) {
-        stickToLatestRef.current = false; pendingConversationRestoreRef.current = "";
-        turn.scrollIntoView({ block: "center" });
-        turn.tabIndex = -1; turn.focus({ preventScroll: true });
-        lastSearchScroll.current = searchTarget.signal;
-        setShowBackToLatest(true);
-        return;
-      }
-    }
-    const shouldRestore = Boolean(
-      activeSessionId
-      && pendingConversationRestoreRef.current === activeSessionId
-      && timelineSummary.sessionId === activeSessionId,
-    );
-    if (element && view && !view.stickToLatest && shouldRestore) {
-      return restoreConversationView(element, view, () => {
-        pendingConversationRestoreRef.current = "";
-      });
-    }
-    if (shouldRestore) {
-      pendingConversationRestoreRef.current = "";
-    }
-    if (stickToLatestRef.current) {
-      conversationEndRef.current?.scrollIntoView({ block: "end" });
-    }
-  }, [activeSessionId, timelineSummary.sessionId, searchTarget]);
-
   async function handleCreateSession(
     workingDirectory?: string,
     projectContext?: ProjectSessionContext,
@@ -790,11 +715,7 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     await sidecarResources.current?.finishBrowserAnnotation();
-    // A send starts following the new input when the timeline commits it.
-    pendingConversationRestoreRef.current = "";
-    stickToLatestRef.current = true;
-    conversationViewBySessionRef.current.delete(activeSessionId);
-    setShowBackToLatest(false);
+    viewport.followLatest();
     if (quickStart.visible) quickStart.beginTask();
     const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
     await chatActions.send({
@@ -815,30 +736,6 @@ export function ChatPage({
     });
   }
 
-  function handleConversationScroll(): void {
-    const element = conversationRef.current;
-    if (!element) {
-      return;
-    }
-    const view = captureConversationView(element);
-    const nearBottom = view.stickToLatest;
-    pendingConversationRestoreRef.current = "";
-    stickToLatestRef.current = nearBottom;
-    conversationViewBySessionRef.current.set(activeSessionId, view);
-    setShowBackToLatest(!nearBottom);
-  }
-
-  function handleBackToLatest(): void {
-    stickToLatestRef.current = true;
-    const element = conversationRef.current;
-    conversationViewBySessionRef.current.set(activeSessionId, {
-      scrollTop: element ? Math.max(0, element.scrollHeight - element.clientHeight) : 0,
-      stickToLatest: true,
-    });
-    setShowBackToLatest(false);
-    conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }
-
   function handleSessionChange(event: ChatSessionChange) {
     if (event.type === "loaded") {
       dispatchSessionTabs({ type: "hydrate", availableSessionIds: event.sessions.map((session) => session.id),
@@ -848,17 +745,18 @@ export function ChatPage({
     } else if (event.type === "reconciled") {
       dispatchSessionTabs({ type: "reconcile", availableSessionIds: event.sessions.map((session) => session.id) });
     } else if (event.type === "created") {
+      if (event.previousSessionId !== undefined) viewport.replaceSession(event.previousSessionId, event.session.id);
       dispatchSessionTabs(event.previousSessionId !== undefined && event.previousSessionId !== event.session.id
         ? { type: "replace", previousSessionId: event.previousSessionId, sessionId: event.session.id }
         : { type: "open", sessionId: event.session.id });
     } else if (event.type === "replaced") {
       dispatchSessionTabs({ type: "replace", previousSessionId: event.previousSessionId, sessionId: event.sessionId });
-      moveMapValue(conversationViewBySessionRef.current, event.previousSessionId, event.sessionId);
+      viewport.replaceSession(event.previousSessionId, event.sessionId);
     } else if (event.type === "removed") {
       const sessionId = event.session.id;
       const finish = () => {
         dispatchSessionTabs({ type: "remove", sessionId });
-        conversationViewBySessionRef.current.delete(sessionId);
+        viewport.removeSession(sessionId);
         setRetainedDeletingSessions((current) => current.filter((session) => session.id !== sessionId));
         setDissolvingSessionIds((current) => { const next = new Set(current); next.delete(sessionId); return next; });
       };
@@ -877,7 +775,7 @@ export function ChatPage({
     if (!activeSession) {
       return;
     }
-    openDrawer({ kind: "subagent", title: delegate.title, delegate, loading: Boolean(chatStore.loadDelegateTrace) });
+    openDrawer({ title: delegate.title, delegate, loading: Boolean(chatStore.loadDelegateTrace) });
     if (!chatStore.loadDelegateTrace) {
       return;
     }
@@ -888,12 +786,12 @@ export function ChatPage({
         ...(delegate.traceRef ? { traceRef: delegate.traceRef } : {}),
       });
       const loaded = applyLoadedDelegatedAgentTrace(delegate, payload);
-      setDrawer((current) => current?.kind === "subagent" && current.delegate.id === delegate.id
+      setDrawer((current) => current?.delegate.id === delegate.id
         ? { ...current, delegate: loaded, loading: false }
         : current);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setDrawer((current) => current?.kind === "subagent" && current.delegate.id === delegate.id
+      setDrawer((current) => current?.delegate.id === delegate.id
         ? { ...current, error: message, loading: false }
         : current);
     }
@@ -1109,30 +1007,29 @@ export function ChatPage({
         ) : null}
 
         <div
-          ref={conversationRef}
+          ref={viewport.conversationRef}
           aria-label={t("shell.conversation")}
           aria-live="polite"
           className="react-conversation-view"
           id="tinybot-chat-conversation"
           role="tabpanel"
-          onScroll={handleConversationScroll}
+          onScroll={viewport.onScroll}
         >
           <LiveChatTimeline
+            interactiveFormIds={interactiveFormIds}
             highlightedTurnId={searchTarget?.sessionId === activeSessionId ? searchTarget.turnId : undefined}
             source={timelineSource}
             formCount={agentUiForms.length}
-            onContentChanged={handleTimelineContentChanged}
+            onContentChanged={viewport.onContentChanged}
             actions={{
               onBranch: (messageId) => activeSession && void handleBranchFromMessage(activeSession, messageId),
               onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
               onOpenFileLink: (link) => void handleOpenAssistantFileLink(link),
               onOpenSubagent: (delegate) => void handleOpenSubagent(delegate),
-              onOpenTool: (toolCall) => openDrawer({ kind: "tool", title: toolCall.name, toolCall }),
             }}
             error={timelineError}
             hookResults={hookResults}
             providerRetry={providerRetry}
-            interactiveFormIds={interactiveFormIds}
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}
             sessionRunning={sessionRunning}
@@ -1218,11 +1115,11 @@ export function ChatPage({
               ))}
             </div>
           ) : null}
-          <div ref={conversationEndRef} aria-hidden="true" />
+          <div ref={viewport.endRef} aria-hidden="true" />
         </div>
 
-        {showBackToLatest ? (
-          <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>{t("shell.backToLatest")}</button>
+        {viewport.showBackToLatest ? (
+          <button className="react-back-to-latest" type="button" onClick={() => viewport.followLatest("smooth")}>{t("shell.backToLatest")}</button>
         ) : null}
 
         <ChatQueueNotice application={chatApplication} sessionId={activePersistedSessionId} />
@@ -1302,7 +1199,7 @@ export function ChatPage({
           teamAvailable={Boolean(activeDisplaySession?.workingDirectory) && !activeDisplaySession?.pluginMigration}
           skillOptions={composerSkillOptions}
           slashCommands={slashCommands}
-          tools={composerToolOptions}
+          mcpEnabled={mcpEnabled}
           canStopResponding={canCancelTurn}
           stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? t("shell.taskPlaceholder") : t("shell.messagePlaceholder")}
@@ -1339,11 +1236,7 @@ export function ChatPage({
             </button>
           </div>
           <div className="react-right-drawer__content">
-            {presentDrawer.kind === "tool" ? (
-              <ToolCallDetails toolCall={presentDrawer.toolCall} />
-            ) : (
-              <SubagentDetails delegate={presentDrawer.delegate} error={presentDrawer.error} loading={presentDrawer.loading} />
-            )}
+            <SubagentDetails delegate={presentDrawer.delegate} error={presentDrawer.error} loading={presentDrawer.loading} />
           </div>
         </aside>
       ) : null}
@@ -1393,19 +1286,6 @@ async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
 }
 
-function moveMapValue<T>(
-  map: Map<string, T>,
-  previousSessionId: string,
-  sessionId: string,
-): void {
-  if (!map.has(previousSessionId) || previousSessionId === sessionId) {
-    return;
-  }
-  const value = map.get(previousSessionId) as T;
-  map.delete(previousSessionId);
-  map.set(sessionId, value);
-}
-
 function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): ModelOption {
   return {
     id: model.providerId
@@ -1418,24 +1298,6 @@ function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): Mo
     supportsImageInput: model.supportsImageInput,
     ...(model.supportsImageInput ? { badge: t("composer.imageInput") } : {}),
   };
-}
-
-function ToolCallDetails({ toolCall }: { toolCall: ToolCallSummary }) {
-  const { t } = useTranslation("chat");
-  const sections = toolCallDetailSections(toolCall, t);
-  if (!sections.length) {
-    return <p>{t("details.unavailable")}</p>;
-  }
-  return (
-    <div className="react-tool-detail">
-      {sections.map((section) => (
-        <section key={section.label}>
-          <h3>{section.label}</h3>
-          <pre>{section.value}</pre>
-        </section>
-      ))}
-    </div>
-  );
 }
 
 function SubagentDetails({
@@ -1473,35 +1335,6 @@ function SubagentDetails({
       {delegate.finalOutput ? <section><h3>{t("details.finalOutput")}</h3><p>{delegate.finalOutput}</p></section> : null}
     </div>
   );
-}
-
-function toolCallDetailSections(toolCall: ToolCallSummary, t: TFunction<"chat">): Array<{ label: string; value: string }> {
-  return [
-    { label: t("details.status"), value: toolCall.status },
-    { label: t("details.summary"), value: toolCall.summary ?? "" },
-    { label: t("details.arguments"), value: toolCall.argsText ?? "" },
-    { label: t("details.response"), value: toolCall.responseText ?? "" },
-    { label: t("details.delegate"), value: formatDetailLines([
-      [t("details.title"), toolCall.delegateTitle],
-      [t("details.type"), toolCall.delegateType],
-      [t("details.task"), toolCall.delegateTask],
-      [t("details.id"), toolCall.delegateId],
-    ]) },
-    { label: t("details.trace"), value: formatDetailLines([
-      [t("details.trace"), toolCall.traceRef],
-      [t("details.childTurn"), toolCall.childTurnId],
-      [t("details.parentTurn"), toolCall.parentTurnId],
-      [t("details.session"), toolCall.sessionKey],
-    ]) },
-    { label: t("details.finalOutput"), value: toolCall.finalOutput ?? "" },
-  ].filter((section) => section.value.trim());
-}
-
-function formatDetailLines(rows: Array<[string, string | undefined]>): string {
-  return rows
-    .filter(([, value]) => Boolean(value?.trim()))
-    .map(([label, value]) => `${label}: ${value}`)
-    .join("\n");
 }
 
 function projectDraftSessionSummary(draft: DraftSession): SessionSummary {

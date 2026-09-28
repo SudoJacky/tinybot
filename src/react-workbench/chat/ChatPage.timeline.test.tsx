@@ -5,10 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatStep } from "../../app-core/chat/chatTurnContracts";
+import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
 import { createDesktopNativeEventBridge } from "../adapters/desktopNativeEventBridge";
 import type { ChatEvent } from "../services";
 import type { ReactChatMessage } from "./messageActions";
-import { timelineFromReactMessages } from "./test/timelineFixtures";
+import { subagentTimeline, timelineFromReactMessages } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
   createStores,
@@ -44,6 +45,7 @@ function executionToolStep(id: string, sequence: number, name: string): ChatStep
   };
 }
 
+
 describe("ChatPage", () => {
   it("keeps message actions on final answers, not commentary messages", async () => {
     const user = userEvent.setup();
@@ -61,8 +63,8 @@ describe("ChatPage", () => {
     const finalMessage = screen.getByTestId("message-a2");
     expect(within(finalMessage).getByRole("button", { name: "Copy message" })).toBeTruthy();
     expect(within(finalMessage).getByRole("button", { name: /branch from here/i })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /Agent steps, 1 step/i }));
-    expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Work performed:/ }));
+    expect(screen.getByRole("button", { name: /Toggle details for shell/i })).toBeTruthy();
   });
 
   it("hides copy and branch actions for reasoning-only assistant messages", async () => {
@@ -82,27 +84,26 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const message = await screen.findByTestId("message-a-thinking");
-    const reasoning = within(message).getByRole("region", { name: "Reasoning" });
-    const reasoningToggle = within(reasoning).getByRole("button", { name: "Reasoning" });
+    const reasoning = await screen.findByRole("region", { name: "Reasoning" });
+    const reasoningToggle = within(reasoning).getByRole("button");
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(within(reasoning).queryByText("Checking the current workspace before answering.")).toBeNull();
+    expect(within(reasoning).queryByTestId("execution-reasoning-content")).toBeNull();
 
     await user.click(reasoningToggle);
 
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("true");
-    expect(within(reasoning).getByText("Checking the current workspace before answering.")).toBeTruthy();
+    expect(within(reasoning).getByTestId("execution-reasoning-content").textContent).toBe("Checking the current workspace before answering.");
 
     await user.click(reasoningToggle);
 
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(within(reasoning).queryByText("Checking the current workspace before answering.")).toBeNull();
-    expect(within(message).queryByRole("button", { name: "Copy message" })).toBeNull();
-    expect(within(message).queryByRole("button", { name: "Branch from here" })).toBeNull();
-    expect(message.querySelector(".react-message__actions")).toBeNull();
+    expect(within(reasoning).queryByTestId("execution-reasoning-content")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Branch from here" })).toBeNull();
   });
 
   it("expands live thinking and collapses it when the message completes", async () => {
+    const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const stores = createStores();
     const liveMessage: ReactChatMessage = {
@@ -121,11 +122,13 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const message = await screen.findByTestId("message-a-live-thinking");
-    const reasoning = within(message).getByRole("region", { name: "Reasoning" });
-    const reasoningToggle = within(reasoning).getByRole("button", { name: "Thinking" });
+    const reasoning = await screen.findByRole("region", { name: "Reasoning" });
+    const reasoningToggle = within(reasoning).getByRole("button");
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(reasoning).getByTestId("execution-reasoning-preview").textContent).toBe("Inspecting the workspace.");
+    await user.click(reasoningToggle);
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("true");
-    expect(within(reasoning).getByText("Inspecting the workspace.")).toBeTruthy();
+    expect(within(reasoning).getByTestId("execution-reasoning-content").textContent).toBe("Inspecting the workspace.");
 
     act(() => {
       subscribed?.({
@@ -135,7 +138,7 @@ describe("ChatPage", () => {
     });
 
     await waitFor(() => expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false"));
-    expect(within(reasoning).queryByText("Inspecting the workspace.")).toBeNull();
+    expect(within(reasoning).queryByTestId("execution-reasoning-content")).toBeNull();
   });
 
   it("hides assistant copy and branch actions until the turn completes", async () => {
@@ -212,25 +215,24 @@ describe("ChatPage", () => {
     expect(runningMessage.querySelector(".react-message__actions")).toBeNull();
   });
 
-  it("renders tool activity as collapsible agent steps", async () => {
+  it("renders tool activity inside the collapsible execution timeline", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByTestId("message-a2");
-    const stepsToggle = screen.getByRole("button", { name: /Agent steps, 1 step/i });
+    const stepsToggle = screen.getByRole("button", { name: /Work performed:/ });
     expect(stepsToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByRole("list", { name: "Agent steps" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Toggle details for shell/ })).toBeNull();
 
     await user.click(stepsToggle);
 
     expect(stepsToggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("list", { name: "Agent steps" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open details for shell" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Toggle details for Shell" }));
     expect(screen.getByText("Done")).toBeTruthy();
   });
 
-  it("marks the current running agent step in the stepper", async () => {
+  it("preserves each tool status in the execution timeline", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const runningMessages: ReactChatMessage[] = [
@@ -252,78 +254,56 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByTestId("message-a-running");
-    await user.click(screen.getByRole("button", { name: /Agent steps, 3 steps/i }));
-    const stepper = document.querySelector(".react-agent-steps");
-    const currentStep = document.querySelector(".react-agent-step-item[aria-current='step']") as HTMLElement | null;
-
-    expect(stepper?.getAttribute("data-stepper")).toBe("true");
-    expect(currentStep?.getAttribute("data-status")).toBe("active");
-    expect(currentStep?.getAttribute("data-step-index")).toBe("0");
-    expect(currentStep?.getAttribute("data-step-count")).toBe("3");
-    expect(currentStep?.querySelector(".react-agent-step__status")?.textContent).toBe("In progress");
+    await user.click(screen.getByRole("button", { name: /Work performed:/ }));
+    const activities = [...document.querySelectorAll(".react-tool-activity")];
+    expect(activities.map((activity) => activity.getAttribute("data-status"))).toEqual(["running", "pending", "completed"]);
   });
 
-  it("opens tool details in an animated right drawer", async () => {
+  it("opens subagent details in an animated right drawer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
+    stores.chatStore.load = vi.fn(async () => subagentTimeline());
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
-    await user.click(await screen.findByRole("button", { name: "Open details for shell" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Research agent" }));
 
     const drawer = screen.getByLabelText("Details drawer");
     expect(drawer.getAttribute("data-motion")).toBe("fade-content");
     expect(drawer.getAttribute("data-state")).toBe("open");
     expect(drawer.firstElementChild?.classList.contains("react-right-drawer__header")).toBe(true);
-    expect(drawer.textContent).toContain("Done");
+    expect(drawer.textContent).toContain("Read project files");
   });
 
-  it("shows canonical tool arguments and result in the details drawer", async () => {
+  it("shows canonical tool arguments and result inline", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const detailedMessages: ReactChatMessage[] = [{
-      id: "a-tool-details",
-      role: "assistant",
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-      text: "I checked the workspace.",
-      status: "complete",
-      toolCalls: [{
-        argsText: "{\"path\":\"src/main.ts\"}",
-        childTurnId: "child-turn-1",
-        delegateId: "delegate-1",
-        delegateTask: "Review implementation",
-        delegateTitle: "Code reviewer",
-        delegateType: "review",
-        finalOutput: "Reviewed implementation.",
-        id: "tool-1",
-        name: "workspace.read_file",
-        parentTurnId: "parent-turn-1",
-        responseText: "file contents",
-        sessionKey: "websocket:chat-1",
-        status: "completed",
-        summary: "Read src/main.ts",
-        traceRef: "trace-1",
-      } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
-    }];
-    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, detailedMessages));
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+    const timeline = createAgentTimelineModel().load("s1", [{ timeline: {
+      schemaVersion: "tinybot.timeline.v2", sessionId: "s1", turnId: "turn-tool", snapshotRevision: 1,
+      items: [{
+        schemaVersion: "tinybot.turn_item.v2", sessionId: "s1", turnId: "turn-tool",
+        itemId: "tool-1", sequence: 1, revision: 1, kind: "tool_call", status: "completed",
+        createdAt: "2026-07-04T12:01:00Z", data: { type: "tool_call", toolCallId: "tool-1",
+          name: "workspace.read_file", args: { path: "src/main.ts" }, result: { content: "file contents" }, timing: {} },
+      }],
+    } }]);
+    stores.chatStore.load = vi.fn(async () => timeline);
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
-    await user.click(await screen.findByRole("button", { name: "Open details for workspace.read_file" }));
-
-    const drawer = screen.getByLabelText("Details drawer");
-    expect(within(drawer).getByText("Arguments")).toBeTruthy();
-    expect(drawer.textContent).toContain("{\"path\":\"src/main.ts\"}");
-    expect(within(drawer).getByText("Response")).toBeTruthy();
-    expect(drawer.textContent).toContain("file contents");
+    const trigger = await screen.findByRole("button", { name: /Toggle details for.*main.ts/ });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await user.click(trigger);
+    const details = screen.getByTestId("tool-activity-details");
+    expect(details.textContent).toContain("src/main.ts");
+    expect(details.textContent).toContain("file contents");
+    expect(screen.queryByLabelText("Details drawer")).toBeNull();
   });
 
   it("keeps closing details until exit finishes and restores focus without stale removal", async () => {
     const user = userEvent.setup();
     const stores = createStores();
+    stores.chatStore.load = vi.fn(async () => subagentTimeline());
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
-    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
-    const trigger = await screen.findByRole("button", { name: "Open details for shell" });
+    const trigger = await screen.findByRole("button", { name: "Open details for Research agent" });
     await user.click(trigger);
     const drawer = screen.getByLabelText("Details drawer");
     let finish!: () => void;
@@ -336,7 +316,7 @@ describe("ChatPage", () => {
     await user.click(within(drawer).getByRole("button", { name: "Close details drawer" }));
     expect(drawer.dataset.state).toBe("closing");
     expect(drawer.hasAttribute("inert")).toBe(true);
-    expect(drawer.textContent).toContain("Done");
+    expect(drawer.textContent).toContain("Read project files");
     expect(document.activeElement).toBe(trigger);
     await user.click(trigger);
     await act(async () => { animation.playState = "finished"; finish(); });
@@ -850,7 +830,7 @@ describe("ChatPage", () => {
     requestFrame.mockRestore();
   });
 
-  it("renders Plan first and shows failures as a lightweight inline error", async () => {
+  it("preserves execution order and shows failures as a lightweight inline error", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     stores.chatStore.load = vi.fn(async () => failedPlanTimeline());
@@ -859,9 +839,10 @@ describe("ChatPage", () => {
 
     const plan = await screen.findByRole("region", { name: "Execution plan" });
     const planToggle = within(plan).getByRole("button", { name: /Execution plan/ });
-    const details = screen.getByRole("button", { name: /Agent steps, 1 step/i });
+    const details = screen.getByRole("button", { name: /^Toggle details for/ });
     const error = screen.getByRole("alert", { name: "Task execution failed" });
-    expect(plan.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(details.compareDocumentPosition(plan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(plan.compareDocumentPosition(error) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(error));
     expect(planToggle.getAttribute("aria-expanded")).toBe("true");
     await user.click(planToggle);
@@ -933,7 +914,6 @@ describe("ChatPage", () => {
         title: "Progress update",
       },
     ];
-    turn.executionItems = turn.steps;
     turn.finalAnswer = {
       id: "final-1",
       role: "assistant",
@@ -994,7 +974,6 @@ describe("ChatPage", () => {
       executionToolStep("web-summary", 6, "web.read"),
       executionToolStep("browser-summary", 7, "web.act"),
     ];
-    turn.executionItems = turn.steps;
     stores.chatStore.load = vi.fn(async () => timeline);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -1035,7 +1014,6 @@ describe("ChatPage", () => {
       summary: "Earlier reasoning followed by the latest streamed tokens.",
       title: "Thinking",
     }];
-    turn.executionItems = turn.steps;
     stores.chatStore.load = vi.fn(async () => timeline);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 1, 2)} sessionStore={stores.sessionStore} />);
@@ -1091,7 +1069,6 @@ describe("ChatPage", () => {
         },
       },
     }];
-    turn.executionItems = turn.steps;
     stores.chatStore.load = vi.fn(async () => timeline);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -1133,7 +1110,6 @@ describe("ChatPage", () => {
         summary: "Inspecting the workspace.",
         title: "Progress update",
       }];
-      turn.executionItems = turn.steps;
       if (completed) {
         turn.completedAt = new Date(Date.UTC(2026, 6, 4, 12, 1, 2)).toISOString();
         turn.finalAnswer = {
@@ -1190,7 +1166,6 @@ describe("ChatPage", () => {
       summary: "Working.",
       title: "Progress update",
     }];
-    turn.executionItems = turn.steps;
     stores.chatStore.load = vi.fn(async () => timeline);
     stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
       listener = callback;
@@ -1217,7 +1192,6 @@ describe("ChatPage", () => {
   it("keeps abnormal canonical execution expanded with the inline failure visible", async () => {
     const stores = createStores();
     const timeline = failedPlanTimeline();
-    timeline.turns[0].executionItems = timeline.turns[0].steps;
     stores.chatStore.load = vi.fn(async () => timeline);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -1232,7 +1206,6 @@ describe("ChatPage", () => {
     const stores = createStores();
     const timeline = failedPlanTimeline();
     timeline.turns[0].status = "interrupted";
-    timeline.turns[0].executionItems = timeline.turns[0].steps;
     stores.chatStore.load = vi.fn(async () => timeline);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -1300,7 +1273,8 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: "Preview chart.png" }));
+    await user.click(await screen.findByRole("button", { name: /Work performed:/ }));
+    await user.click(screen.getByRole("button", { name: "Preview chart.png" }));
     expect(loadArtifact).toHaveBeenCalledWith({ artifactId: "image-1", sessionKey: "s1" });
     const sidecar = await screen.findByLabelText("Sidecar");
     const image = await within(sidecar).findByRole("img", { name: "chart.png" });

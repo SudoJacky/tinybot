@@ -1340,7 +1340,7 @@ export const en = {
     },
     reasoning: { label: "Reasoning", thinking: "Thinking", thinkingSeconds: "Thinking · {{count}}s", underSecond: "Thought for less than 1 second", seconds: "Thought for {{count}} seconds" },
     context: { attachments: "Attachments", context: "Context" },
-    steps: { count: "{{count}} steps", title: "Execution details", label: "Agent steps", openDetails: "Open details for {{name}}", status: { active: "In progress", success: "Completed", waiting: "Waiting for confirmation", cancelled: "Cancelled", error: "Failed", pending: "Pending" } },
+    steps: { count: "{{count}} steps", title: "Execution details", label: "Agent steps", status: { active: "In progress", success: "Completed", waiting: "Waiting for confirmation", cancelled: "Cancelled", error: "Failed", pending: "Pending" } },
     artifactReview: {
       title: "Review changes",
       compare: "Compare changes",
@@ -1369,7 +1369,7 @@ export const en = {
       fileDetails: "File details", delimitedViews: "File view", delimitedTable: "Table", delimitedSource: "Source", delimitedRow: "Row",
       delimitedFailed: "Table preview failed: {{message}}. Switch to Source to inspect the original text.",
       status: "Status", interruptedAt: "Interrupted at",
-      unavailable: "Details unavailable.", id: "ID", trace: "Trace", childTurn: "Child turn", loadingTrace: "Loading trace…", finalOutput: "Final output",
+      id: "ID", trace: "Trace", childTurn: "Child turn", loadingTrace: "Loading trace…", finalOutput: "Final output",
       type: "Type", loadingArtifact: "Loading artifact…", noPreview: "No preview content is available.", subagentTrace: "Subagent trace",
       fileOutsideWorkspace: "This file is outside the active workspace.", filePreviewUnavailable: "Workspace file preview is unavailable in this runtime.",
       binaryFilePreviewUnsupported: "Binary files cannot be previewed here yet.", filePreviewTruncated: "Preview truncated. Open the file directly to inspect the remaining content.",
@@ -1388,8 +1388,7 @@ export const en = {
       officeAskForChange: "Ask for change", officeAskForChangeShortcut: "Ctrl I",
       officeCellEmpty: "empty", officeCellLabel: "Cell {{cell}}, {{value}}", officeCellSelected: "Selected {{sheet}}!{{cell}}",
       officeChangeEditorLabel: "Change request for cell {{cell}}", officeChangeEditorPlaceholder: "Describe a change or ask a question", officeChangeEditorConfirm: "Add change request",
-      task: "Task", errorCode: "Error code", errorMessage: "Error message", summary: "Summary", arguments: "Arguments", response: "Response",
-      delegate: "Delegate", title: "Title", parentTurn: "Parent turn", session: "Session",
+      task: "Task", errorCode: "Error code", errorMessage: "Error message",
     },
     tool: { updatePlan: "Update execution plan" },
     patch: {

@@ -1,3 +1,4 @@
+import { createAgentTimelineModel } from "../../../app-core/chat/agentTimelineModel";
 import type { ChatTimelineSnapshot } from "../../../app-core/chat/agentTimelineModel";
 import type { ChatStep, ChatTurn } from "../../../app-core/chat/chatTurnContracts";
 import type { ReactChatMessage } from "../messageActions";
@@ -52,6 +53,8 @@ export function timelineFromReactMessages(
             ? "failed"
             : toolCall.status === "blocked"
               ? "blocked"
+              : toolCall.status === "queued"
+                ? "pending"
               : "running",
         toolCall: {
           id: toolCall.id,
@@ -62,16 +65,16 @@ export function timelineFromReactMessages(
       });
     }
     if (message.text) {
-      if (turn.finalMessage) {
+      if (turn.finalAnswer) {
         turn.steps.push(step(
-          { ...message, id: turn.finalMessage.id },
+          { ...message, id: turn.finalAnswer.id },
           turn.steps.length + 1,
           "message",
           "Assistant message",
-          turn.finalMessage.text,
+          turn.finalAnswer.text,
         ));
       }
-      turn.finalMessage = {
+      turn.finalAnswer = {
         id: message.id,
         role: "assistant",
         text: message.text,
@@ -132,4 +135,19 @@ function step(
     title,
     summary,
   };
+}
+
+export function subagentTimeline() {
+  return createAgentTimelineModel().load("s1", [{
+    timeline: {
+      schemaVersion: "tinybot.timeline.v2", sessionId: "s1", turnId: "turn-subagent", snapshotRevision: 1,
+      items: [{
+        schemaVersion: "tinybot.turn_item.v2", sessionId: "s1", turnId: "turn-subagent",
+        itemId: "delegate-1", sequence: 1, revision: 1, kind: "subagent_lifecycle",
+        status: "running", createdAt: "2026-07-04T12:00:00Z", title: "Research agent",
+        data: { type: "subagent_lifecycle", agentId: "delegate-1", action: "spawned",
+          status: "running", name: "Research agent", task: "Read project files", message: "Inspecting source" },
+      }],
+    },
+  }]);
 }
