@@ -29,13 +29,7 @@ import type {
   ChatTurn,
   DelegatedAgentState,
 } from "../../app-core/chat/chatTurnContracts";
-import {
-  canBranchFromMessage,
-  canCopyMessage,
-  type ContextReferenceSummary,
-  type ReactChatMessage,
-  type ToolCallSummary,
-} from "./messageActions";
+import type { ContextReferenceSummary, OptimisticUserMessage } from "./chatMessages";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { MessageSkills } from "./MessageSkills";
 import { ThoughtLine, type ThoughtPhase } from "./ThoughtLine";
@@ -77,7 +71,7 @@ export function ChatTimeline({
   interactiveFormIds?: ReadonlySet<string>;
   latestFailedTurnId: string;
   highlightedTurnId?: string;
-  optimisticMessages: readonly ReactChatMessage[];
+  optimisticMessages: readonly OptimisticUserMessage[];
   providerRetry?: ProviderRetryStatus;
   sessionRunning: boolean;
   turns: readonly ChatTurn[];
@@ -110,13 +104,11 @@ export function ChatTimeline({
         />
       ))}
       {optimisticMessages.map((message) => (
-        <MessageBubble
+        <OptimisticUserMessageBubble
           key={message.id}
           message={message}
-          onBranch={() => undefined}
-          onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
+          onCopy={() => void writeClipboardText(message.text)}
           onOpenFileLink={actions.onOpenFileLink}
-          sessionRunning={sessionRunning}
         />
       ))}
       {sessionRunning && optimisticMessages.length > 0 && !turns.some((turn) => (
@@ -930,66 +922,40 @@ function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
   return "pending";
 }
 
-function MessageBubble({
+function OptimisticUserMessageBubble({
   message,
-  onBranch,
   onCopy,
   onOpenFileLink,
-  sessionRunning,
 }: {
-  message: ReactChatMessage;
-  onBranch: () => void;
+  message: OptimisticUserMessage;
   onCopy: () => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
-  sessionRunning: boolean;
 }) {
   const { t } = useTranslation("chat");
-  const actionAlignment = message.role === "user" ? "right" : "left";
-  const attachmentReferences = message.role === "user"
-    ? (message.contextReferences ?? []).filter(isAttachmentReference)
-    : [];
-  const inlineReferences = message.role === "user"
-    ? (message.contextReferences ?? []).filter((reference) => !isAttachmentReference(reference))
-    : message.contextReferences ?? [];
+  const attachmentReferences = (message.contextReferences ?? []).filter(isAttachmentReference);
+  const inlineReferences = (message.contextReferences ?? []).filter((reference) => !isAttachmentReference(reference));
   const imageReferences = attachmentReferences.filter((reference) => reference.attachmentKind === "image");
   const fileReferences = attachmentReferences.filter((reference) => reference.attachmentKind !== "image");
-  const showCopyAction = canCopyMessage(message, { sessionRunning });
-  const showBranchAction = canBranchFromMessage(message, { sessionRunning });
   return (
     <article
       className="react-message"
       data-actions-placement="bottom"
-      data-role={message.role}
+      data-role="user"
       data-testid={`message-${message.id}`}
       data-scroll-anchor={`message:${message.id}`}
     >
       {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
-        {message.role === "user" ? <MessageSkills skills={message.selectedSkills} /> : null}
-        {message.reasoningText ? (
-          <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
-        ) : null}
-        {message.role === "assistant" ? (
-          <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={message.status === "streaming"} text={message.text} />
-        ) : (
-          <PlainMessageText text={message.text} />
-        )}
+        <MessageSkills skills={message.selectedSkills} />
+        <PlainMessageText text={message.text} />
         {fileReferences.length ? <MessageAttachments references={fileReferences} onOpenFileLink={onOpenFileLink} /> : null}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
-        {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} /> : null}
       </div>
-      {showCopyAction || showBranchAction ? (
-        <div className="react-message__actions" data-align={actionAlignment}>
-          {showCopyAction ? (
-            <button aria-label={t("turn.copyMessage")} type="button" onClick={onCopy}>
-              <Copy aria-hidden="true" size={14} />
-            </button>
-          ) : null}
-          {showBranchAction ? (
-            <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
-              <GitBranch aria-hidden="true" size={14} />
-            </button>
-          ) : null}
+      {message.text.trim() ? (
+        <div className="react-message__actions" data-align="right">
+          <button aria-label={t("turn.copyMessage")} type="button" onClick={onCopy}>
+            <Copy aria-hidden="true" size={14} />
+          </button>
         </div>
       ) : null}
     </article>
@@ -1080,61 +1046,7 @@ function managedImagePreviewSource(path: string | undefined): string | undefined
   return path && tauriWindow?.__TAURI_INTERNALS__ ? convertFileSrc(path) : undefined;
 }
 
-function formatMessageForCopy(message: ReactChatMessage): string {
-  return message.text;
-}
-
 type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
-
-function AgentSteps({ toolCalls }: { toolCalls: ToolCallSummary[] }) {
-  const { t } = useTranslation("chat");
-  const overallStatus = resolveAgentStepsStatus(toolCalls);
-  const countLabel = t("steps.count", { count: toolCalls.length });
-  const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
-  const list = (
-    <ol aria-label={t("steps.label")} className="react-agent-steps__list">
-      {toolCalls.map((toolCall, index) => {
-        const status = normalizeAgentStepStatus(toolCall.status);
-        const isLast = index === toolCalls.length - 1;
-        const isCurrent = index === currentStepIndex;
-        return (
-          <li
-            aria-current={isCurrent ? "step" : undefined}
-            className="react-agent-step-item"
-            data-motion-role="step"
-            data-status={status}
-            data-step-count={toolCalls.length}
-            data-step-index={index}
-            key={toolCall.id}
-          >
-            {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
-            <span className="react-agent-step-item__marker" data-status={status}>
-              <AgentStepIcon status={status} />
-            </span>
-            <div className="react-agent-step">
-              <span className="react-agent-step__content">
-                <span>{toolCall.name}</span>
-                {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-              </span>
-              <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
-  return (
-    <section className="react-agent-steps" data-status={overallStatus} data-stepper="true">
-      <TimelineActivity
-        className="react-agent-steps__activity"
-        icon={<AgentStepIcon status={overallStatus} />}
-        meta={countLabel}
-        title={t("steps.title")}
-        triggerLabel={`${t("steps.label")}, ${countLabel}`}
-      >{list}</TimelineActivity>
-    </section>
-  );
-}
 
 function AgentStepIcon({ status }: { status: AgentStepStatus }) {
   switch (status) {
@@ -1147,66 +1059,6 @@ function AgentStepIcon({ status }: { status: AgentStepStatus }) {
       return <AlertTriangle aria-hidden="true" size={14} />;
     default:
       return <Circle aria-hidden="true" size={12} />;
-  }
-}
-
-function resolveAgentStepsStatus(toolCalls: ToolCallSummary[]): AgentStepStatus {
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "error")) {
-    return "error";
-  }
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting")) {
-    return "waiting";
-  }
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active")) {
-    return "active";
-  }
-  if (toolCalls.length && toolCalls.every((toolCall) => normalizeAgentStepStatus(toolCall.status) === "success")) {
-    return "success";
-  }
-  return "pending";
-}
-
-function resolveCurrentAgentStepIndex(toolCalls: ToolCallSummary[]): number {
-  const activeIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active");
-  if (activeIndex >= 0) {
-    return activeIndex;
-  }
-  const waitingIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting");
-  if (waitingIndex >= 0) {
-    return waitingIndex;
-  }
-  return -1;
-}
-
-function normalizeAgentStepStatus(status: string): AgentStepStatus {
-  switch (status.toLowerCase()) {
-    case "complete":
-    case "completed":
-    case "success":
-    case "succeeded":
-      return "success";
-    case "running":
-    case "active":
-      return "active";
-    case "blocked":
-      return "waiting";
-    case "failed":
-    case "error":
-    case "cancelled":
-    case "canceled":
-      return "error";
-    default:
-      return status ? "pending" : "pending";
-  }
-}
-
-function formatAgentStepStatus(status: string, t: TFunction<"chat">): string {
-  switch (normalizeAgentStepStatus(status)) {
-    case "active": return t("steps.status.active");
-    case "success": return t("steps.status.success");
-    case "waiting": return t("steps.status.waiting");
-    case "error": return status.toLowerCase().includes("cancel") ? t("steps.status.cancelled") : t("steps.status.error");
-    default: return t("steps.status.pending");
   }
 }
 

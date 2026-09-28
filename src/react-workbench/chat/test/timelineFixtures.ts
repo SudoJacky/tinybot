@@ -1,11 +1,44 @@
 import { createAgentTimelineModel } from "../../../app-core/chat/agentTimelineModel";
 import type { ChatTimelineSnapshot } from "../../../app-core/chat/agentTimelineModel";
-import type { ChatStep, ChatTurn } from "../../../app-core/chat/chatTurnContracts";
-import type { ReactChatMessage } from "../messageActions";
+import type { ChatStep, ChatTurn, TokenUsage } from "../../../app-core/chat/chatTurnContracts";
+import type { ContextReferenceSummary } from "../chatMessages";
+
+type ToolCallSummary = {
+  argsText?: string;
+  childTurnId?: string;
+  delegateId?: string;
+  delegateTask?: string;
+  delegateTitle?: string;
+  delegateType?: string;
+  finalOutput?: string;
+  id: string;
+  name: string;
+  parentTurnId?: string;
+  responseText?: string;
+  sessionKey?: string;
+  status: "pending" | "running" | "complete" | "failed" | "blocked" | string;
+  summary?: string;
+  traceRef?: string;
+};
+
+export type TimelineMessageFixture = {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  createdAtMs: number;
+  text: string;
+  status: "streaming" | "complete" | "failed";
+  contextReferences?: ContextReferenceSummary[];
+  selectedSkills?: string[];
+  reasoningText?: string;
+  toolCalls?: ToolCallSummary[];
+  turnId?: string;
+  turnStatus?: string;
+  usage?: TokenUsage;
+};
 
 export function timelineFromReactMessages(
   sessionId: string,
-  messages: ReactChatMessage[],
+  messages: TimelineMessageFixture[],
 ): ChatTimelineSnapshot {
   const turns: ChatTurn[] = [];
   let turn: ChatTurn | undefined;
@@ -119,7 +152,7 @@ export function timelineFromReactMessages(
 }
 
 function step(
-  message: ReactChatMessage,
+  message: TimelineMessageFixture,
   sequence: number,
   kind: ChatStep["kind"],
   title: string,

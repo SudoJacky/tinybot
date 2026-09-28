@@ -1,5 +1,5 @@
 import type { ProviderRetryUpdate } from "../app-core/chat/providerRetryStatus";
-import type { ReactChatMessage } from "./chat/messageActions";
+import type { OptimisticUserMessage } from "./chat/chatMessages";
 import type { AgentGraphStore } from "../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRuntime } from "../app-core/agent-graph/agentGraphRuntime";
 import type { ChatTimelineSnapshot } from "../app-core/chat/agentTimelineModel";
@@ -29,11 +29,8 @@ import type {
   ProviderModelFetchResult,
   ProviderModelsSettingsData,
 } from "../app-core/settings/providerModelsSettings";
-import type { DesktopSettingsFormState } from "../app-core/settings/desktopSettingsContracts";
-import type {
-  DesktopSettingsPaneModel,
-  DesktopSettingsPaneSaveDetails,
-} from "../app-core/settings/desktopSettingsPaneContracts";
+import type { DesktopConfigSettingsValues } from "../app-core/settings/desktopConfigSettings";
+import type { DesktopSettingsSaveResult } from "../app-core/settings/desktopSettingsSave";
 import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBrowser";
 import type { NativeBrowserSession, NativeBrowserSnapshot } from "../app-core/native/nativeBrowserSnapshot";
 import type {
@@ -110,7 +107,7 @@ export type ChatEvent = {
   error?: string;
   hookResults?: HookExecutionResult[];
   providerRetry?: ProviderRetryUpdate;
-  message?: ReactChatMessage;
+  message?: OptimisticUserMessage;
   timeline?: ChatTimelineSnapshot;
 };
 
@@ -243,11 +240,9 @@ export type ToolSummary = {
   source: string;
   serverId?: string;
   available: boolean;
-  allowed?: boolean;
-  defaultSelected?: boolean;
-  selected?: boolean;
-  /** Legacy catalog field accepted while older native builds are upgraded. */
-  enabled?: boolean;
+  allowed: boolean;
+  defaultSelected: boolean;
+  selected: boolean;
   reason?: string;
 };
 
@@ -322,20 +317,19 @@ export type McpServerConfiguration =
     });
 
 export type SettingsStore = {
-  load(): Promise<Array<{ label: string; value: string }>>;
   loadTokenUsage?(): Promise<TokenUsageSnapshot>;
   loadUsageDetails?: UsageDetailsLoader;
   loadPersonalizationInstructions?(): Promise<PersonalizationInstructionsData>;
   savePersonalizationInstructions?(input: PersonalizationInstructionsSaveInput): Promise<PersonalizationInstructionsData>;
   loadChatModels?(): Promise<ChatModelOption[]>;
-  loadDesktopConfigSettings?(): Promise<DesktopConfigSettingsData>;
-  saveDesktopConfigSettings?(currentConfig: unknown, patch: unknown): Promise<DesktopConfigSettingsSaveResult>;
+  loadDesktopConfigSettings(): Promise<DesktopConfigSettingsData>;
+  saveDesktopConfigSettings(currentConfig: unknown, patch: unknown): Promise<DesktopConfigSettingsSaveResult>;
   loadAgentDefaultsSettings?(): Promise<AgentDefaultsSettingsData>;
   saveAgentDefaultsSettings?(currentConfig: unknown, patch: unknown): Promise<AgentDefaultsSettingsData>;
-  loadProviderSettings?(): Promise<ProviderModelsSettingsData>;
+  loadProviderSettings(): Promise<ProviderModelsSettingsData>;
   saveDefaultChatModel?(input: { modelId: string; providerId: string }): Promise<void>;
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
-  saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
+  saveProviderSettings(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
   createStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
   createStdioMcpServer?(input: StdioMcpServerInput): Promise<void>;
   loadMcpServerConfiguration?(name: string): Promise<McpServerConfiguration>;
@@ -357,12 +351,11 @@ export type PersonalizationInstructionsSaveInput = {
 
 export type DesktopConfigSettingsData = {
   currentConfig: unknown;
-  formState: DesktopSettingsFormState;
-  pane: DesktopSettingsPaneModel;
+  values: DesktopConfigSettingsValues;
 };
 
 export type DesktopConfigSettingsSaveResult = DesktopConfigSettingsData & {
-  saveDetails: DesktopSettingsPaneSaveDetails;
+  saveDetails: Omit<DesktopSettingsSaveResult, "config">;
 };
 
 export type ChatModelOption = {

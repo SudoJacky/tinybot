@@ -1430,7 +1430,7 @@ function pluginMigrationPrompt(job: PluginMigrationJob): string {
 
 function toolStatus(tool: ToolCatalogSummary["tools"][number]): "available" | "disabled" | "unavailable" {
   if (!tool.available) return "unavailable";
-  if (!(tool.allowed ?? tool.enabled ?? true)) return "disabled";
+  if (!tool.allowed) return "disabled";
   return "available";
 }
 

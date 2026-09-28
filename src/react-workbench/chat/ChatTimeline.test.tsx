@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ChatStep, ChatTurn } from "../../app-core/chat/chatTurnContracts";
 import { parseDataViewDocument } from "../../app-core/chat/dataView";
-import type { ReactChatMessage } from "./messageActions";
+import type { OptimisticUserMessage } from "./chatMessages";
 import { ChatTimeline, type ChatTimelineActions } from "./ChatTimeline";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
@@ -19,11 +19,11 @@ afterEach(() => {
 describe("ChatTimeline", () => {
   test("keeps selected Skill chips from optimistic send through canonical history reload", () => {
     const selectedSkills = ["typesafe-ai:typesafe-ai", "apple-design"];
-    const draft: ReactChatMessage = { id: "client-skill", role: "user", createdAtMs: Date.now(),
+    const draft: OptimisticUserMessage = { id: "client-skill", role: "user", createdAtMs: Date.now(),
       text: "这是什么", status: "complete", selectedSkills };
     const turn = completedTurn();
     turn.userMessage = { ...turn.userMessage, clientEventId: draft.id, text: draft.text, selectedSkills };
-    const view = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
+    const view = (turns: ChatTurn[], optimisticMessages: OptimisticUserMessage[] = []) => (
       <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId=""
         optimisticMessages={optimisticMessages} sessionRunning={false} turns={turns} />
     );
@@ -209,7 +209,7 @@ describe("ChatTimeline", () => {
 
   test("keeps one status line above work and answers through dispatch, execution, and completion", () => {
     const base = completedTurn();
-    const timeline = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
+    const timeline = (turns: ChatTurn[], optimisticMessages: OptimisticUserMessage[] = []) => (
       <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId=""
         optimisticMessages={optimisticMessages} sessionRunning turns={turns} />
     );
@@ -277,7 +277,7 @@ describe("ChatTimeline", () => {
 
     expect(screen.getByText("Timeline connection failed").getAttribute("aria-live")).toBe("assertive");
     expect(screen.getByText("Canonical answer")).toBeTruthy();
-    expect(screen.getByTestId("message-optimistic-1").textContent).toContain("Pending answer");
+    expect(screen.getByTestId("message-optimistic-1").textContent).toContain("Pending question");
 
     fireEvent.click(screen.getByRole("button", { name: /branch/i }));
     expect(actions.onBranch).toHaveBeenCalledWith("assistant-1");
@@ -566,12 +566,12 @@ function dataViewTurn(): ChatTurn {
   return { ...turn, steps: executionItems };
 }
 
-function optimisticMessage(): ReactChatMessage {
+function optimisticMessage(): OptimisticUserMessage {
   return {
     createdAtMs: 3,
     id: "optimistic-1",
-    role: "assistant",
-    status: "streaming",
-    text: "Pending answer",
+    role: "user",
+    status: "complete",
+    text: "Pending question",
   };
 }

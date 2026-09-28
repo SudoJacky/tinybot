@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -34,7 +35,7 @@ describe("ChatPage", () => {
     };
     const stores = createStores({ sessions: [staleIdleSession] });
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [{
         id: "deepseek-v4-flash",
         label: "deepseek-v4-flash",

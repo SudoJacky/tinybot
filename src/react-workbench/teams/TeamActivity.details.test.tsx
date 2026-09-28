@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { ChatStep } from "../../app-core/chat/chatTurnContracts";
 import { TeamActivity } from "./TeamActivity";
-import { projectTeamActivity } from "./useTeamActivity";
+import { projectTeamActivity } from "./teamActivityProjection";
 
 afterEach(cleanup);
 

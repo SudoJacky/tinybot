@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:706b6bf54663309b1727eaf5327f92efe276e89102ec53734ed28a920df749ae -->
+<!-- tinybot-module-fingerprint: sha256:65fbf6208d78a5c32a9942c4bb82ebdad20b7b7fab739fa6fea181fc5d7c10d2 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
@@ -9,6 +9,13 @@ Visual on/off switches use the shared `LiquidToggle` in App, Appearance, Labs,
 configuration fields, and Provider configuration. Routes retain their existing
 controlled values and persistence; pending or failed saves cannot be mistaken
 for a successful toggle. List-selection checkboxes keep their checkbox UI.
+
+`ConfigSettingsPage` presents the ten Tools & MCP and Channels fields from
+`desktopConfigSettings.ts`. It compares each group against the saved snapshot,
+validates before submission, and saves only changed fields. Failed saves keep
+the draft available for retry/reset; execution and workspace-boundary changes
+retain their confirmation prompts. Provider and config methods are required by
+`SettingsStore`, so the route always presents its current module navigation.
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as

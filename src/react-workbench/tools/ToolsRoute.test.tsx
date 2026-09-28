@@ -21,9 +21,11 @@ describe("ToolsRoute", () => {
         mcpServers: [],
         skills: [],
         tools: [{
+          defaultSelected: true,
+          selected: true,
           available: true,
           displayName: "Read file",
-          enabled: true,
+          allowed: true,
           id: "read-file",
           name: "read_file",
           source: "builtin",

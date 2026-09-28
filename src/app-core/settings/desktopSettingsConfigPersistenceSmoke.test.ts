@@ -1,10 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { applyNativeConfigPatch } from "../native/desktopNativeConfigPatch";
 import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
-import {
-  buildDesktopSettingsFormState,
-} from "./desktopSettingsProviders";
-import { buildDesktopSettingsPaneModel } from "./desktopSettingsPaneModel";
 import { actionFusionSettingsPatch } from "./experimentalSettings";
 
 describe("desktop settings config persistence smoke", () => {
@@ -22,7 +18,7 @@ describe("desktop settings config persistence smoke", () => {
     } });
     expect(result.persistedRevision).toBe("after");
   });
-  test("loads origin metadata, saves canonical operations, and displays pending runtime effects", async () => {
+  test("saves canonical operations and preserves pending runtime effects", async () => {
     const currentConfig = {
       revision: "hash:old",
       agents: {
@@ -43,14 +39,6 @@ describe("desktop settings config persistence smoke", () => {
         },
       },
     };
-    const state = buildDesktopSettingsFormState(currentConfig);
-    const initialPane = buildDesktopSettingsPaneModel(state);
-    const fields = Object.fromEntries(initialPane.groups.flatMap((group) =>
-      group.fields.map((field) => [`${group.id}.${field.id}`, field] as const),
-    ));
-    expect(fields["general.model"]).toMatchObject({ valueOrigin: "default" });
-    expect(fields["general.timezone"]).toMatchObject({ valueOrigin: "environment" });
-
     const patch = {
       agents: { defaults: { workspace: "D:/work/new" } },
       runtime: { logLevel: "debug" },
@@ -94,25 +82,5 @@ describe("desktop settings config persistence smoke", () => {
       reloadRequired: ["workspaceReloadRequired"],
     });
 
-    const savedPane = buildDesktopSettingsPaneModel(state, {
-      lastSavedState: state,
-      saveStatus: "saved",
-      saveDetails: {
-        transport: result.transport,
-        persistedRevision: result.persistedRevision,
-        updatedFields: result.updatedFields,
-        applied: result.applied,
-        restartRequired: result.restartRequired,
-        reloadRequired: result.reloadRequired,
-        warnings: result.warnings,
-      },
-    });
-    expect(savedPane.save.status).toBe("restart-required");
-    expect(savedPane.save.message).toBe("Settings persisted. Application restart required");
-    expect(savedPane.save.diagnostics).toContain("Persisted revision: hash:new");
-    expect(savedPane.save.diagnostics).toContain("Applied: none");
-    expect(savedPane.save.diagnostics).toContain("Restart required: applicationRestartRequired");
-    expect(savedPane.save.diagnostics).toContain("Reload required: workspaceReloadRequired");
   });
-
 });

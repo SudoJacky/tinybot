@@ -5,7 +5,7 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResult";
 import type { ChatEvent, ChatStore } from "../services";
-import type { ReactChatMessage } from "./messageActions";
+import type { OptimisticUserMessage } from "./chatMessages";
 import { projectChatEventEffects } from "./chatEventPolicy";
 import { createChatTimelineSource, type ChatTimelineSource } from "./chatTimelineSource";
 
@@ -22,7 +22,7 @@ export type ChatSessionRuntimeState = {
 
 export type ChatSessionRuntimeEffect =
   | { event: ChatEvent; sessionId: string; type: "command_received" }
-  | { message: ReactChatMessage; sessionId: string; type: "message_received" }
+  | { message: OptimisticUserMessage; sessionId: string; type: "message_received" }
   | { event: ChatEvent; sessionId: string; type: "session_refresh_requested" }
   | { sessionId: string; timeline: ChatTimelineSnapshot; type: "timeline_applied" };
 

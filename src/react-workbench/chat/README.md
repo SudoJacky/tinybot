@@ -1,8 +1,12 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2043e040aa0ce164a7b9e88fb404ecdfc57777c9fd229ed945ec8775c61815e4 -->
+<!-- tinybot-module-fingerprint: sha256:ddffcd717f494db86f5657f072477d52403239532c32d5f746a7181dbd5c94e3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
+`chatMessages.ts` limits transient messages to optimistic user submissions.
+Assistant output, reasoning, tool activity, branching, and answer actions come
+from canonical Turns and Steps; the timeline has no second assistant-message
+renderer. Historical-message builders live only in test fixtures.
 `MessageReasoning` shares recorded reasoning disclosure and duration labels with
 the Team workbench. `ToolActivityItem` keeps long previews compact and lets users
 expand their full recorded content without leaving the timeline.
@@ -215,7 +219,7 @@ larger breaks around commentary and modest spacing around plans. Recorded
 content, disclosure behavior and explicit failure states remain unchanged.
 
 `TimelineActivity.tsx` owns the shared Tool, Diff, Reasoning, Plan, compaction,
-execution-summary, and optimistic tool-group shell:
+and execution-summary shell:
 header layout, disclosure controls, stable accessible IDs, collapsed previews,
 and the details region. Its CSS and the disclosure icon CSS are imported by
 their owning modules. Ordinary tools use local expansion state; Reasoning and

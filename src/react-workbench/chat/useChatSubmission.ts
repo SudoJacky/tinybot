@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { ChatInput, ChatStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
-import type { ReactChatMessage } from "./messageActions";
+import type { OptimisticUserMessage } from "./chatMessages";
 import { prepareArtifactReviews } from "./prepareArtifactReviews";
 import { prepareChatSubmission, type PrepareChatSubmissionInput } from "./chatSubmission";
 import type { ChatTurnApplication } from "./chatTurnApplication";
@@ -22,16 +22,16 @@ type Options = {
   previewSession(session: SessionSummary): void;
   consumeDraft(sessionId: string): void;
 };
-const EMPTY_MESSAGES: ReactChatMessage[] = [];
+const EMPTY_MESSAGES: OptimisticUserMessage[] = [];
 
 export function useChatSubmission(options: Options) {
   const { chatStore, artifactReviews, now, t } = options;
-  const [messages, setMessages] = useState(new Map<string, ReactChatMessage[]>());
+  const [messages, setMessages] = useState(new Map<string, OptimisticUserMessage[]>());
   const [compactingSessionId, setCompactingSessionId] = useState("");
   const [artifactReviewEpoch, setArtifactReviewEpoch] = useState(0);
   const modelSave = useRef<Promise<void>>(Promise.resolve());
 
-  function updateMessages(sessionId: string, update: (current: ReactChatMessage[]) => ReactChatMessage[]) {
+  function updateMessages(sessionId: string, update: (current: OptimisticUserMessage[]) => OptimisticUserMessage[]) {
     setMessages((current) => {
       const nextMessages = update(current.get(sessionId) ?? EMPTY_MESSAGES);
       if (nextMessages === current.get(sessionId) || (!nextMessages.length && !current.has(sessionId))) return current;
@@ -119,7 +119,7 @@ export function useChatSubmission(options: Options) {
         return remaining.length === current.length ? current : remaining;
       });
     },
-    receiveMessage(sessionId: string, message: ReactChatMessage) {
+    receiveMessage(sessionId: string, message: OptimisticUserMessage) {
       updateMessages(sessionId, (current) => current.some((candidate) => candidate.id === message.id)
         ? current.map((candidate) => candidate.id === message.id ? { ...candidate, ...message } : candidate)
         : [...current, message]);

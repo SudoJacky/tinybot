@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
@@ -12,7 +13,7 @@ afterEach(cleanup);
 function store(models = false): SettingsStore {
   let config: Record<string, unknown> = {};
   return {
-    load: async () => [],
+    ...settingsStoreFixture(),
     loadChatModels: vi.fn(async () => models ? [{ id: "model-1", label: "Model 1", providerId: "deepseek" }] : []),
     loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(config)),
     saveProviderSettings: vi.fn(async (_current, patch) => {
@@ -92,7 +93,7 @@ describe("quick start interactions", () => {
     fireEvent.submit(screen.getByRole("button", { name: "Save & continue" }).closest("form")!);
     await waitFor(() => expect(configured).toHaveBeenCalledOnce());
     expect(settings.saveDefaultChatModel).toHaveBeenCalledWith({ modelId: "model-1", providerId: "deepseek" });
-    const saved = await settings.loadProviderSettings!();
+    const saved = await settings.loadProviderSettings();
     expect(saved.providers.find((item) => item.id === "deepseek")?.models.find((item) => item.id === "model-1")?.enabled).toBe(true);
   });
 

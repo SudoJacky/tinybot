@@ -1,5 +1,5 @@
 # Desktop Pet State
-<!-- tinybot-module-fingerprint: sha256:085026479930fe0c663e71d70fcea86a51120b37fa04403b89f2e67248f1d0b9 -->
+<!-- tinybot-module-fingerprint: sha256:2438c159d792c4dbc497a7cd81c103a7ae6df8509a27d53da011551bcfd3336a -->
 
 `desktop-pet` owns the framework-independent pet preferences and Windows
 window geometry and appearance choice. A persisted position is the pet window center in physical

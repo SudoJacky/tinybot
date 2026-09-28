@@ -9,7 +9,7 @@ import type { PreviewWorkspaceStore } from "../sidecar/ResultFilePreview";
 import { UsageHistory } from "../settings/UsageBreakdown";
 import { TeamFiles } from "./TeamFiles";
 import { canExecute } from "./teamPresentation";
-import { projectTeamActivity, type TeamActivity as Activity } from "./useTeamActivity";
+import { projectTeamActivity, type TeamActivity as Activity } from "./teamActivityProjection";
 import { TeamActivity, type TeamActivityView } from "./TeamActivity";
 import { TeamMemberDock } from "./TeamMemberDock";
 import { TeamMemberAvatar } from "./TeamMemberAvatar";

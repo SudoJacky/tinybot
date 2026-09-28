@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:362a7334a7b5b4d8cf170dc57ec5e58312bde4dca3e8385611ed6e41e3635682 -->
+<!-- tinybot-module-fingerprint: sha256:d5d77a4e358132c464920d88a346b5e71306b529d19f5487afba8706229326e3 -->
 
 The Help documentation command and its F1 shortcut open https://sudojacky.github.io/tinybot/ in the system browser.
 
@@ -15,9 +15,9 @@ the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
 `appRoutes.ts` defines route names independently of their renderer, allowing
 route modules to type navigation callbacks without importing `RouteSurface`.
-Legacy `teams` navigation resolves to Chat. The Chat header no longer offers a
-recent-team history shortcut; durable runs remain stored by the native Team store.
-The shell no longer mounts a hidden Team route.
+Teams opens through Chat recruitment cards and Sidecar tabs. `appRoutes.ts`
+contains only current routes; no `teams` alias or hidden Team route remains.
+Durable runs remain stored by the native Team store.
 The shell also marks only the first Chat mount in an app lifetime as a fresh,
 uncreated conversation. Once Chat finishes session hydration, later route
 remounts can restore the tabs opened during that same app lifetime.

@@ -342,7 +342,7 @@ export function ChatPage({
     [composerSkills, t],
   );
   const mcpTool = composerTools.find((tool) => tool.id === "mcp.call_tool");
-  const mcpEnabled = mcpTool ? Boolean(mcpTool.available && (mcpTool.allowed ?? mcpTool.enabled ?? true)) : undefined;
+  const mcpEnabled = mcpTool ? mcpTool.available && mcpTool.allowed : undefined;
   const composerArtifactContextReferences = useMemo<ComposerContextReference[]>(() => (
     [...composerArtifactReferences.map((reference): ComposerContextReference => ({
       mimeType: reference.mimeType,

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -69,7 +70,7 @@ describe("ProviderModelsSettingsPage", () => {
       })
     ));
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(currentConfig)),
       saveProviderSettings,
     };
@@ -102,7 +103,7 @@ describe("ProviderModelsSettingsPage", () => {
     };
     const saveProviderSettings = vi.fn(async () => buildProviderModelsSettings(currentConfig));
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(overrideConfig)),
       saveProviderSettings,
     };
@@ -132,7 +133,7 @@ describe("ProviderModelsSettingsPage", () => {
       models: ["qwen3:8b"],
     }));
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(currentConfig)),
       fetchProviderModels,
     };
@@ -164,7 +165,7 @@ describe("ProviderModelsSettingsPage", () => {
       writeDefaultChatModel(input.modelId, input.providerId);
     });
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadProviderSettings: vi.fn()
         .mockResolvedValueOnce(buildProviderModelsSettings(currentConfig))
         .mockResolvedValue(buildProviderModelsSettings(zaiConfig)),

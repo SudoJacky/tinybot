@@ -8,7 +8,7 @@ import type { TeamRun } from "../../app-core/native/desktopNativeTeams";
 import type { WorkspaceStore } from "../services";
 import { TeamFiles } from "./TeamFiles";
 import { TeamMessage } from "./TeamMessage";
-import { acceptRevision, canExecute, orderedTasks, taskState } from "./teamPresentation";
+import { canExecute, orderedTasks, taskState } from "./teamPresentation";
 
 vi.mock("../chat/AssistantMarkdown", () => ({ AssistantMarkdown: ({ text }: { text: string }) => <div>{text}</div> }));
 afterEach(cleanup);
@@ -39,7 +39,6 @@ it("preserves dependency and status projection used by the Chat team panel", () 
   expect(taskState(current, current.tasks[0])).toBe("queued");
   current.tasks[1].status = "pending";
   expect(taskState(current, current.tasks[0])).toBe("blocked");
-  expect(acceptRevision([{ ...current, revision: 3 }], current)[0].revision).toBe(3);
   current.status = "cancelled";
   expect(canExecute(current)).toBe(false);
   current.tasks[1].task.dependencies = ["final"];

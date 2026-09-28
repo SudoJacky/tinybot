@@ -39,7 +39,7 @@ import {
   type ContextUsageDefaults,
 } from "../chat/chatContextUsage";
 import { prepareChatSubmission } from "../chat/chatSubmission";
-import type { ReactChatMessage } from "../chat/messageActions";
+import type { OptimisticUserMessage } from "../chat/chatMessages";
 import { deriveSessionTitle, displaySessionTitle } from "../chat/sessionTitle";
 import { useChatSessionRuntime, type ChatSessionRuntimeEffect } from "../chat/useChatSessionRuntime";
 import "../chat/ChatPage.css";
@@ -77,7 +77,7 @@ export function DesktopPetQuickChatWindow({
   const [composerModel, setComposerModel] = useState("");
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [reasoningEffort, setReasoningEffort] = useState(readCurrentChatReasoningEffort);
-  const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [loadError, setLoadError] = useState("");
 
   const refreshRecentSessions = useCallback(async () => {
@@ -274,7 +274,7 @@ export function DesktopPetQuickChatWindow({
       sessionId: targetSession.id,
       source: { control: "desktop-pet-quick-chat", surface: "chat" },
     });
-    const optimisticMessage: ReactChatMessage = {
+    const optimisticMessage: OptimisticUserMessage = {
       id: command.commandId,
       role: "user",
       createdAtMs: Date.now(),

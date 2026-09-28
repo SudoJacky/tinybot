@@ -1,15 +1,17 @@
 import { Check, Loader2, RotateCcw } from "lucide-react";
 import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import type { TFunction } from "i18next";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  applyDesktopSettingsFieldEdit,
-} from "../../app-core/settings/desktopSettingsProviders";
-import { buildDesktopSettingsPaneModel } from "../../app-core/settings/desktopSettingsPaneModel";
-import { createDesktopSettingsPatch } from "../../app-core/settings/desktopSettingsPersistence";
-import type { DesktopSettingsFormState } from "../../app-core/settings/desktopSettingsContracts";
-import type { DesktopSettingsPaneField } from "../../app-core/settings/desktopSettingsPaneContracts";
+  configSettingsFields,
+  createDesktopConfigSettingsPatch,
+  isDesktopConfigSettingsDirty,
+  validateDesktopConfigSettings,
+  type ConfigSettingsGroupId,
+  type ConfigSettingsField,
+  type DesktopConfigSettingsValues,
+} from "../../app-core/settings/desktopConfigSettings";
 import type {
   DesktopConfigSettingsData,
   DesktopConfigSettingsSaveResult,
@@ -18,31 +20,18 @@ import type {
 import { SettingsChoiceList } from "./SettingsChoiceList";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
-export type ConfigSettingsGroupId = "tools-mcp" | "channels";
+export type { ConfigSettingsGroupId } from "../../app-core/settings/desktopConfigSettings";
 
 type ConfigSettingsPageProps = {
   groupId: ConfigSettingsGroupId;
   settingsStore: SettingsStore;
 };
 
-const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
-  "tools-mcp": [
-    "webEnable",
-    "execEnable",
-    "webProxy",
-    "searchProvider",
-    "execTimeout",
-    "restrictToWorkspace",
-    "mcpServers",
-  ],
-  channels: ["sendProgress", "sendToolHints", "sendMaxRetries"],
-};
-
 export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPageProps) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
   const [data, setData] = useState<DesktopConfigSettingsData | null>(null);
-  const [draft, setDraft] = useState<DesktopSettingsFormState | null>(null);
+  const [draft, setDraft] = useState<DesktopConfigSettingsValues | null>(null);
   const [advancedVisible, setAdvancedVisible] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
@@ -58,11 +47,11 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     setErrors({});
     setStatus(null);
     setStatusState("idle");
-    settingsStore.loadDesktopConfigSettings?.()
+    settingsStore.loadDesktopConfigSettings()
       .then((snapshot) => {
         if (!cancelled) {
           setData(snapshot);
-          setDraft(snapshot.formState);
+          setDraft(snapshot.values);
           setLoadError(null);
         }
       })
@@ -76,29 +65,22 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     };
   }, [groupId, settingsStore]);
 
-  const pane = useMemo(() => {
-    if (!data || !draft) {
-      return null;
-    }
-    return buildDesktopSettingsPaneModel(draft, { lastSavedState: data.formState });
-  }, [data, draft]);
-  const group = pane?.groups.find((candidate) => candidate.id === groupId) ?? null;
-  const fields = group?.fields.filter((field) => EXPOSED_FIELDS[groupId].includes(field.id)) ?? [];
+  const fields = configSettingsFields(groupId);
   const visibleFields = fields.filter((field) => advancedVisible || !field.advanced);
   const hasAdvancedFields = fields.some((field) => field.advanced);
-  const dirty = pane?.dirty === true;
+  const dirty = Boolean(draft && data && isDesktopConfigSettingsDirty(draft, data.values, groupId));
   const copy = groupId === "tools-mcp"
     ? { title: t("config.toolsTitle"), description: t("config.toolsDescription") }
     : { title: t("config.channelsTitle"), description: t("config.channelsDescription") };
 
-  function editField(field: DesktopSettingsPaneField, value: string | boolean) {
+  function editField(field: ConfigSettingsField, value: string | boolean) {
     if (!draft) {
       return;
     }
-    if (field.confirmation && confirmationApplies(field, value) && !window.confirm(confirmationMessage(field, t))) {
+    if (field.confirmWhen && confirmationApplies(field, value) && !window.confirm(confirmationMessage(field, t))) {
       return;
     }
-    setDraft(applyDesktopSettingsFieldEdit(draft, field.id, value));
+    setDraft({ ...draft, [field.id]: value });
     setErrors((current) => {
       const next = { ...current };
       delete next[field.id];
@@ -112,7 +94,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     if (!data) {
       return;
     }
-    setDraft(data.formState);
+    setDraft(data.values);
     setErrors({});
     setStatus(null);
     setStatusState("idle");
@@ -120,10 +102,10 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!data || !draft || !settingsStore.saveDesktopConfigSettings || !group) {
+    if (!data || !draft) {
       return;
     }
-    const nextErrors = validateGroup(fields, t);
+    const nextErrors = validateGroup(draft, groupId, t);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       if (fields.some((field) => field.advanced && nextErrors[field.id])) {
@@ -133,7 +115,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
       setStatusState("notice");
       return;
     }
-    const patch = createDesktopSettingsPatch(draft, data.currentConfig);
+    const patch = createDesktopConfigSettingsPatch(draft, data.values, groupId);
     if (!Object.keys(patch).length) {
       setStatus(t("config.noChanges"));
       setStatusState("notice");
@@ -145,7 +127,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     try {
       const saved = await settingsStore.saveDesktopConfigSettings(data.currentConfig, patch);
       setData(saved);
-      setDraft(saved.formState);
+      setDraft(saved.values);
       setStatus(formatSaveStatus(saved, t));
       setStatusState("saved");
     } catch (error) {
@@ -159,7 +141,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
   if (loadError) {
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
-  if (!data || !draft || !group) {
+  if (!data || !draft) {
     return <p className="react-empty-state">{t("config.loading", { section: copy.title })}</p>;
   }
 
@@ -181,6 +163,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
             <ConfigField
               error={errors[field.id]}
               field={field}
+              value={draft[field.id]}
               key={field.id}
               onChange={(value) => editField(field, value)}
             />
@@ -222,26 +205,26 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
 function ConfigField({
   error,
   field,
+  value,
   onChange,
 }: {
   error?: string;
-  field: DesktopSettingsPaneField;
+  field: ConfigSettingsField;
+  value: string | boolean;
   onChange: (value: string | boolean) => void;
 }) {
   const { t } = useTranslation("settings");
   const copy = configFieldCopy(field, t);
   if (field.control === "checkbox") {
     return (
-      <label className="react-config-settings__toggle" data-disabled={field.disabled || undefined}>
+      <label className="react-config-settings__toggle">
         <span>
           <strong>{copy.label}</strong>
           {copy.description ? <small>{copy.description}</small> : null}
-          {field.notice ? <small className="react-config-settings__notice">{field.notice}</small> : null}
         </span>
         <LiquidToggle
           aria-label={copy.label}
-          checked={field.checked === true}
-          disabled={field.disabled}
+          checked={value === true}
           onChange={(event) => onChange(event.currentTarget.checked)}
         />
       </label>
@@ -253,15 +236,14 @@ function ConfigField({
       <SettingsChoiceList
         badge={field.advanced ? t("config.advanced") : undefined}
         description={copy.description}
-        disabled={field.disabled}
         error={error}
         label={copy.label}
         onChange={onChange}
         options={(field.options ?? []).map((option) => ({
-          label: friendlyOptionLabel(option.label),
-          value: option.value,
+          label: friendlyOptionLabel(option),
+          value: option,
         }))}
-        value={field.inputValue}
+        value={String(value)}
       />
     );
   }
@@ -279,10 +261,9 @@ function ConfigField({
           aria-label={copy.label}
           id={controlId}
           aria-invalid={Boolean(error)}
-          disabled={field.disabled}
           placeholder={field.placeholder}
           rows={8}
-          value={field.inputValue}
+          value={String(value)}
           onChange={(event) => onChange(event.currentTarget.value)}
         />
       ) : (
@@ -291,16 +272,14 @@ function ConfigField({
             aria-label={copy.label}
             id={controlId}
             aria-invalid={Boolean(error)}
-            disabled={field.disabled}
             max={field.max}
             min={field.min}
             placeholder={field.placeholder}
             step={field.step}
             type={field.control === "number" ? "number" : "text"}
-            value={field.inputValue}
+            value={String(value)}
             onChange={(event) => onChange(event.currentTarget.value)}
           />
-          {field.unit ? <span>{field.unit}</span> : null}
         </div>
       )}
       {error ? <small className="react-config-settings__error" role="alert">{error}</small> : null}
@@ -308,99 +287,41 @@ function ConfigField({
   );
 }
 
-const CONFIG_FIELD_IDS = new Set([
-  "execEnable",
-  "execTimeout",
-  "mcpServers",
-  "restrictToWorkspace",
-  "searchProvider",
-  "sendMaxRetries",
-  "sendProgress",
-  "sendToolHints",
-  "webEnable",
-  "webProxy",
-]);
-
-function configFieldCopy(
-  field: DesktopSettingsPaneField,
-  t: TFunction<"settings">,
-): { description?: string; label: string } {
-  if (!CONFIG_FIELD_IDS.has(field.id)) {
-    return { description: field.description, label: field.label };
-  }
-  const fieldId = field.id as
-    | "execEnable"
-    | "execTimeout"
-    | "mcpServers"
-    | "restrictToWorkspace"
-    | "searchProvider"
-    | "sendMaxRetries"
-    | "sendProgress"
-    | "sendToolHints"
-    | "webEnable"
-    | "webProxy";
+function configFieldCopy(field: ConfigSettingsField, t: TFunction<"settings">) {
   return {
-    description: t(`config.fields.${fieldId}`),
-    label: t(`config.fieldLabels.${fieldId}`),
+    description: t(`config.fields.${field.id}`),
+    label: t(`config.fieldLabels.${field.id}`),
   };
 }
 
-function confirmationMessage(field: DesktopSettingsPaneField, t: TFunction<"settings">): string {
+function confirmationMessage(field: ConfigSettingsField, t: TFunction<"settings">): string {
   if (field.id === "execEnable") {
     return t("config.confirmation.execEnable");
   }
   if (field.id === "restrictToWorkspace") {
     return t("config.confirmation.restrictToWorkspace");
   }
-  return field.confirmation?.message ?? "";
+  throw new Error(`Unexpected confirmation field: ${field.id}`);
 }
 
-function validateGroup(fields: DesktopSettingsPaneField[], t: TFunction<"settings">): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const field of fields) {
-    if (field.disabled || field.control === "readonly") {
-      continue;
-    }
-    if (field.state === "invalid") {
-      errors[field.id] = invalidFieldMessage(field, t);
-      continue;
-    }
-    if (field.requirement === "required" && !field.inputValue.trim()) {
-      errors[field.id] = t("config.required", { label: configFieldCopy(field, t).label });
-      continue;
-    }
-    if (field.control === "number" && field.inputValue.trim()) {
-      const value = Number(field.inputValue);
-      if (!Number.isFinite(value)) {
-        errors[field.id] = t("config.number", { label: configFieldCopy(field, t).label });
-      } else if (field.min !== undefined && value < field.min) {
-        errors[field.id] = t("config.minimum", { label: configFieldCopy(field, t).label, min: field.min });
-      } else if (field.max !== undefined && value > field.max) {
-        errors[field.id] = t("config.maximum", { label: configFieldCopy(field, t).label, max: field.max });
-      }
-    }
+function validateGroup(values: DesktopConfigSettingsValues, groupId: ConfigSettingsGroupId, t: TFunction<"settings">): Record<string, string> {
+  const errors = validateDesktopConfigSettings(values, groupId);
+  const messages: Record<string, string> = {};
+  for (const field of configSettingsFields(groupId)) {
+    const error = errors[field.id];
+    const label = configFieldCopy(field, t).label;
+    if (error === "minimum") messages[field.id] = t("config.minimum", { label, min: field.min! });
+    else if (error === "maximum") messages[field.id] = t("config.maximum", { label, max: field.max! });
+    else if (error) messages[field.id] = t(`config.${error}`, { label });
   }
-  return errors;
+  return messages;
 }
 
-function invalidFieldMessage(field: DesktopSettingsPaneField, t: TFunction<"settings">): string {
-  const label = configFieldCopy(field, t).label;
-  if (field.id === "mcpServers") {
-    return t("config.invalidJson", { label });
-  }
-  if (field.configurationMode === "url") {
-    return t("config.invalidUrl", { label });
-  }
-  return t("config.invalid", { label });
-}
-
-function confirmationApplies(field: DesktopSettingsPaneField, value: string | boolean): boolean {
-  if (!field.confirmation || typeof value !== "boolean") {
+function confirmationApplies(field: ConfigSettingsField, value: string | boolean): boolean {
+  if (!field.confirmWhen || typeof value !== "boolean") {
     return false;
   }
-  return field.confirmation.when === "change"
-    || (field.confirmation.when === "enable" && value)
-    || (field.confirmation.when === "disable" && !value);
+  return field.confirmWhen === "enable" ? value : !value;
 }
 
 function formatSaveStatus(saved: DesktopConfigSettingsSaveResult, t: TFunction<"settings">): string {

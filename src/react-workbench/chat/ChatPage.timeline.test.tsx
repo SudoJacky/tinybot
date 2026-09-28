@@ -8,7 +8,7 @@ import type { ChatStep } from "../../app-core/chat/chatTurnContracts";
 import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
 import { createDesktopNativeEventBridge } from "../adapters/desktopNativeEventBridge";
 import type { ChatEvent } from "../services";
-import type { ReactChatMessage } from "./messageActions";
+import type { TimelineMessageFixture } from "./test/timelineFixtures";
 import { subagentTimeline, timelineFromReactMessages } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
@@ -70,7 +70,7 @@ describe("ChatPage", () => {
   it("hides copy and branch actions for reasoning-only assistant messages", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const reasoningOnlyMessages: ReactChatMessage[] = [
+    const reasoningOnlyMessages: TimelineMessageFixture[] = [
       {
         id: "a-thinking",
         role: "assistant",
@@ -106,7 +106,7 @@ describe("ChatPage", () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const stores = createStores();
-    const liveMessage: ReactChatMessage = {
+    const liveMessage: TimelineMessageFixture = {
       id: "a-live-thinking",
       role: "assistant",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
@@ -151,7 +151,7 @@ describe("ChatPage", () => {
         status: "running",
       }],
     });
-    const midTurnMessages: ReactChatMessage[] = [
+    const midTurnMessages: TimelineMessageFixture[] = [
       {
         id: "a-mid-turn",
         role: "assistant",
@@ -181,7 +181,7 @@ describe("ChatPage", () => {
         status: "running",
       }],
     });
-    const turnScopedMessages: ReactChatMessage[] = [
+    const turnScopedMessages: TimelineMessageFixture[] = [
       {
         id: "a-completed-turn",
         role: "assistant",
@@ -235,7 +235,7 @@ describe("ChatPage", () => {
   it("preserves each tool status in the execution timeline", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const runningMessages: ReactChatMessage[] = [
+    const runningMessages: TimelineMessageFixture[] = [
       {
         id: "a-running",
         role: "assistant",
@@ -732,7 +732,7 @@ describe("ChatPage", () => {
   it("keeps the latest plan visible when a newer turn has not created a plan", async () => {
     const stores = createStores();
     let listener: ((event: ChatEvent) => void) | undefined;
-    const firstUserMessage: ReactChatMessage = {
+    const firstUserMessage: TimelineMessageFixture = {
       id: "u-plan-first-turn",
       role: "user",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),

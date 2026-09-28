@@ -1,5 +1,5 @@
 # Teams in Chat and Sidecar
-<!-- tinybot-module-fingerprint: sha256:e9c2633a54bcc980fecc440ef7e4ff0df2283ef5b6b4f9704d99b8535f71b382 -->
+<!-- tinybot-module-fingerprint: sha256:cae173ee876b2b3f670866e37017e5c5fbc3a52ebfe92b4c41bfc8bb2480e28e -->
 
 The main Agent recruits employees through `team.recruit` while working in Chat. The native Team store owns run revisions, scheduling, retries and durable attempt Threads. Employees use the saved Research, Execution or Review tool profile selected at recruitment and hand work back internally; only the main Agent gives the final user answer. This renderer does not prepare a manual plan or create an independent Team run.
 
@@ -17,6 +17,6 @@ Team inspection opens through recruitment cards and Sidecar tabs. The retired Ch
 
 `useSidecarTeamControls` enforces legal pause, cancel, resume and explicit per-task retry states, prevents duplicate requests and shows native errors. Native `execute` resolves only when the run stops, so it is tracked separately from short control requests. Failed, interrupted or cancelled work is reviewed before retry; successful attempts are never automatically replayed. A newer polled revision wins over a late control response.
 
-`TeamActivity` reads the canonical attempt timeline without changing the active Chat session. It shows recorded messages, reasoning when present, tool activity and patches, with explicit refresh on read failure. `TeamMessage` displays saved handoffs and `TeamFiles` groups artifacts by task and attempt. Historical artifact bytes are read through the verified Team artifact API only on demand; current workspace previews use the separate shared preview reader. These paths stay distinct. The Usage tab reuses `UsageHistory` filtered by run ID, preserving planning, task and eligible background usage attribution from the shared ledger.
+`ChatTeamPanel` owns canonical attempt reads and subscriptions without changing the active Chat session. `teamActivityProjection.ts` projects recorded Steps for `TeamActivity`, which owns their presentation. It shows recorded messages, reasoning when present, tool activity and patches, with explicit refresh on read failure. `TeamMessage` displays saved handoffs and `TeamFiles` groups artifacts by task and attempt. Historical artifact bytes are read through the verified Team artifact API only on demand; current workspace previews use the separate shared preview reader. These paths stay distinct. The Usage tab reuses `UsageHistory` filtered by run ID, preserving planning, task and eligible background usage attribution from the shared ledger.
 
 `teams.css` contains only styles used by the retained Chat/Sidecar components. `teamPresentation` derives task and member status from native run records; no estimated progress or fabricated worker messages are shown.

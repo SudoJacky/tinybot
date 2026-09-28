@@ -8,7 +8,7 @@ import { ToolActivityItem } from "../chat/ToolActivityItem";
 import { MessageReasoning, reasoningDurationMs } from "../chat/MessageReasoning";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "../chat/PatchDiffCard";
 import { DataViewCard } from "../chat/DataViewCard";
-import type { TeamActivity as Activity, TeamActivityItem } from "./useTeamActivity";
+import type { TeamActivity as Activity, TeamActivityItem } from "./teamActivityProjection";
 
 export type TeamActivityView = { expanded: boolean; historyCount: number };
 

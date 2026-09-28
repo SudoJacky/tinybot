@@ -239,7 +239,6 @@ export const zh = {
       mcp: "MCP · {{name}}", noComponents: "没有支持的组件", disableLabel: "停用 {{name}}", enableLabel: "启用 {{name}}",
       enabled: "已启用", disabled: "已停用", removeLabel: "移除 {{name}}", remove: "移除", removeConfirmation: "移除 {{name}}？插件数据会保留。",
     },
-    settingsFallbackEmpty: "没有可显示的设置摘要。",
     deferredSurface: { loading: "正在加载{{name}}…", loadFailed: "无法加载{{name}}：{{message}}", retry: "重新加载{{name}}" },
     fatal: { title: "Tinybot 界面崩溃", unexpected: "渲染器发生意外错误。", crashId: "崩溃 ID：{{id}}", reload: "重新加载" },
     generic: { later: "稍后", cancel: "取消", retry: "重试", refresh: "刷新", save: "保存", saving: "正在保存", close: "关闭" },
@@ -543,9 +542,8 @@ export const zh = {
       channelsDescription: "选择要发送的进度信号，以及发送失败后的重试方式。", persisted: "已保存到 Tinybot 配置",
       showAdvanced: "显示高级设置", hideAdvanced: "隐藏高级设置", advanced: "高级", unsaved: "有未保存的更改", upToDate: "已是最新",
       reset: "重置", saveChanges: "保存更改", loading: "正在加载{{section}}设置…", reviewFields: "保存前请检查标出的字段。",
-      noChanges: "没有需要保存的更改。", saving: "正在保存…", saveFailed: "保存失败：{{message}}", required: "{{label}}为必填项。",
+      noChanges: "没有需要保存的更改。", saving: "正在保存…", saveFailed: "保存失败：{{message}}",
       number: "{{label}}必须是数字。", minimum: "{{label}}不能小于 {{min}}。", maximum: "{{label}}不能大于 {{max}}。", invalidJson: "{{label}}必须包含有效 JSON。",
-      invalidUrl: "{{label}}必须是有效 URL。", invalid: "{{label}}无效。", revision: "配置版本 {{revision}}", revisionUnavailable: "配置版本不可用",
       saved: "已保存到 Tinybot 配置。", savedRestart: "已保存。重启 Tinybot 后此更改生效。", savedReload: "已保存。重新加载当前工作区后此更改生效。",
       confirmation: {
         execEnable: "要允许 Agent 工作流执行本地命令吗？请只在信任当前工作区时启用。",
@@ -790,7 +788,6 @@ export const zh = {
     },
     reasoning: { label: "思考过程", thinking: "正在思考", thinkingSeconds: "思考 {{count}} 秒", underSecond: "思考了不到 1 秒", seconds: "思考了 {{count}} 秒" },
     context: { attachments: "附件", context: "上下文" },
-    steps: { count: "{{count}} 个步骤", title: "执行详情", label: "Agent 步骤", status: { active: "执行中", success: "已完成", waiting: "等待确认", cancelled: "已取消", error: "失败", pending: "待执行" } },
     artifactReview: {
       title: "检查修改",
       compare: "对比修改",

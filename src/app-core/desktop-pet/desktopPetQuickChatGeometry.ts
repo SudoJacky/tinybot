@@ -5,10 +5,6 @@ import type {
 import type { DesktopPetPosition } from "./desktopPetState";
 
 export const DESKTOP_PET_QUICK_CHAT_GAP = 12;
-export const DESKTOP_PET_QUICK_CHAT_LOGICAL_SIZE: DesktopPetPixelSize = {
-  width: 420,
-  height: 600,
-};
 
 export type DesktopPetWindowRect = {
   position: DesktopPetPosition;

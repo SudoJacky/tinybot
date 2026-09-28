@@ -1,23 +1,23 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { buildDesktopSettingsFormState } from "../../app-core/settings/desktopSettingsProviders";
-import { buildDesktopSettingsPaneModel } from "../../app-core/settings/desktopSettingsPaneModel";
+import { buildDesktopConfigSettingsValues } from "../../app-core/settings/desktopConfigSettings";
 import type { SettingsStore } from "../services";
 import { LabsSettingsPage } from "./LabsSettingsPage";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function data(currentConfig: unknown) {
-  const formState = buildDesktopSettingsFormState(currentConfig);
-  return { currentConfig, formState, pane: buildDesktopSettingsPaneModel(formState) };
+  const values = buildDesktopConfigSettingsValues(currentConfig);
+  return { currentConfig, values };
 }
 
 function store(currentConfig: unknown = {}): SettingsStore {
   return {
-    load: vi.fn(async () => []),
+    ...settingsStoreFixture(),
     loadDesktopConfigSettings: vi.fn(async () => data(currentConfig)),
     saveDesktopConfigSettings: vi.fn(async (_config, patch) => ({
       ...data(patch), saveDetails: {

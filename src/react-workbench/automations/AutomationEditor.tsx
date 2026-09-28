@@ -30,7 +30,6 @@ export function AutomationEditor({ services, draft, workspaces, busy, error, onC
     let active = true;
     const load = async () => {
       try {
-        if (!services.settingsStore.loadProviderSettings) throw new Error("Provider settings are unavailable");
         const [catalog, sessions] = await Promise.all([services.settingsStore.loadProviderSettings(), services.sessionStore.list()]);
         if (active) setOptions({ catalog, sessions });
       } catch (error) { if (active) setLoadError(String(error)); }

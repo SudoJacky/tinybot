@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:480fa65018bf667033835387821417d621d0c9d62cae2b2240f8d91b3c782255 -->
+<!-- tinybot-module-fingerprint: sha256:589010efbde9c38c382fffa64ebabccdd2ac177be1b49b4d82be1a8ffecb2bd8 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -61,7 +61,10 @@ read-only in the renderer.
 
 ## Module seams
 
-- `services.ts` defines the interface consumed by routes.
+- `services.ts` defines the interface consumed by routes. Settings config and
+  Provider reads/writes are required capabilities; optional native integrations
+  keep their own availability checks. Tool catalogs expose normalized `allowed`,
+  `defaultSelected`, and `selected` booleans to every renderer consumer.
 - `adapters/` connects those interfaces to native and app-core modules.
 - [`sidecar/`](sidecar/README.md) owns the docked resource shell and its Browser,
   Terminal, and Artifact resource presentations.

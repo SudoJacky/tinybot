@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent, SettingsStore } from "../services";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
-import type { ReactChatMessage } from "./messageActions";
+import type { TimelineMessageFixture } from "./test/timelineFixtures";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
@@ -20,7 +21,7 @@ describe("ChatPage", () => {
   it("opens quick start without creating a native session and appends examples to the draft without sending", async () => {
     const stores = createStores({ sessions: [] });
     const settingsStore: SettingsStore = {
-      load: async () => [],
+      ...settingsStoreFixture(),
       loadChatModels: async () => [{ id: "test-model", label: "Test model", providerId: "deepseek" }],
       loadProviderSettings: async () => buildProviderModelsSettings({}),
       saveProviderSettings: vi.fn(),
@@ -163,14 +164,18 @@ describe("ChatPage", () => {
         source: "workspace",
       }],
       tools: [{
+        defaultSelected: true,
+        selected: true,
         available: true,
         description: "Run the saved incident analysis workflow.",
         displayName: "Incident analysis",
-        enabled: true,
+        allowed: true,
         id: "agent_graph.run.incident-analysis",
         name: "agent_graph.run.incident-analysis",
         source: "agent_graph",
       }, {
+        defaultSelected: true,
+        selected: true,
         available: true,
         allowed: true,
         id: "mcp.call_tool",
@@ -178,6 +183,8 @@ describe("ChatPage", () => {
         displayName: "Call MCP",
         source: "builtin",
       }, {
+        defaultSelected: true,
+        selected: true,
         available: true,
         allowed: true,
         id: "search_file_content",
@@ -235,9 +242,11 @@ describe("ChatPage", () => {
       mcpServers: [],
       skills: [],
       tools: [{
+        defaultSelected: true,
+        selected: true,
         available: true,
         displayName: "Incident analysis",
-        enabled: true,
+        allowed: true,
         id: "agent_graph.run.incident-analysis",
         name: "agent_graph.run.incident-analysis",
         source: "agent_graph",
@@ -367,7 +376,7 @@ describe("ChatPage", () => {
     const end = conversation.lastElementChild!;
     const scrollIntoView = vi.fn();
     Object.defineProperty(end, "scrollIntoView", { configurable: true, value: scrollIntoView });
-    const messages: ReactChatMessage[] = [];
+    const messages: TimelineMessageFixture[] = [];
     for (const index of [1, 2]) {
       fireEvent.scroll(conversation);
       expect(screen.getByRole("button", { name: "Back to latest" })).toBeTruthy();
@@ -416,7 +425,7 @@ describe("ChatPage", () => {
 
   it("renders context window usage as an icon-only composer indicator", async () => {
     const stores = createStores();
-    const usageMessages: ReactChatMessage[] = [
+    const usageMessages: TimelineMessageFixture[] = [
       {
         id: "u1",
         role: "user",
@@ -531,7 +540,7 @@ describe("ChatPage", () => {
   it("restores compacted token usage when no historical usage event was persisted", async () => {
     const stores = createStores();
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadAgentDefaultsSettings: vi.fn(async () => buildAgentDefaultsSettings({
         agents: {
           defaults: {
@@ -940,7 +949,7 @@ describe("ChatPage", () => {
     const user = userEvent.setup();
     const stores = createStores();
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [
         {
           id: "deepseek-chat",
@@ -991,7 +1000,7 @@ describe("ChatPage", () => {
     const user = userEvent.setup();
     const stores = createStores();
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [{
         id: "gpt-5.6",
         label: "gpt-5.6",
@@ -1047,7 +1056,7 @@ describe("ChatPage", () => {
     });
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [
         { id: "deepseek-chat", label: "deepseek-chat" },
         { id: "deepseek-reasoner", label: "deepseek-reasoner" },
@@ -1087,7 +1096,7 @@ describe("ChatPage", () => {
       }],
     });
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [
         { id: "deepseek-v4-flash", label: "deepseek-v4-flash" },
         { id: "deepseek-v4-flash-vision-exp", label: "deepseek-v4-flash-vision-exp" },
@@ -1149,7 +1158,7 @@ describe("ChatPage", () => {
       window.localStorage.setItem("tinybot.ui.chat.composer-provider", input.providerId);
     });
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [
         { id: "deepseek-v4-pro", label: "deepseek-v4-pro", providerId: "deepseek" },
         { id: "glm-5.3-flash", label: "glm-5.3-flash", providerId: "zai" },
@@ -1190,7 +1199,7 @@ describe("ChatPage", () => {
   it("restores a valid new-conversation default and clears a stale one", async () => {
     const stores = createStores();
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [
         {
           id: "deepseek-chat",

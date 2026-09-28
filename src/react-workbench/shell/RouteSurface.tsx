@@ -1,12 +1,11 @@
 import { useTranslation } from "react-i18next";
-import type { ComponentProps } from "react";
 import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
 import { ChatPage } from "../chat/ChatPage";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices } from "../services";
 import type { SettingsModuleId } from "../settings/SettingsRoute";
 import { DeferredSurface } from "./DeferredSurface";
-import { resolveAppRoute, type ActiveAppRoute, type AppRoute } from "./appRoutes";
+import type { AppRoute } from "./appRoutes";
 
 export type SettingsNavigationRequest = {
   moduleId: SettingsModuleId;
@@ -41,11 +40,7 @@ const loadPerformanceTraceRoute = () => import("../performance/PerformanceTraceR
 const loadSettingsRoute = () => import("../settings/SettingsRoute");
 const loadToolsRoute = () => import("../tools/ToolsRoute");
 
-export function RouteSurface(props: Omit<ComponentProps<typeof CurrentRouteSurface>, "route"> & { route: AppRoute }) {
-  return <CurrentRouteSurface {...props} route={resolveAppRoute(props.route)} />;
-}
-
-function CurrentRouteSurface({
+export function RouteSurface({
   chat,
   desktopPet,
   onNavigate,
@@ -59,7 +54,7 @@ function CurrentRouteSurface({
   desktopPet: DesktopPetRouteProps;
   onNavigate: (route: AppRoute) => void;
   onOpenThread: (threadId: string) => Promise<void>;
-  route: ActiveAppRoute;
+  route: AppRoute;
   settingsNavigationRequest?: SettingsNavigationRequest | null;
   services: AppServices;
   workingDirectory?: string;

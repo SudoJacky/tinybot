@@ -6,7 +6,7 @@ import { agentInputAttachmentKind, type AgentInputReference } from "../../app-co
 import type { createDesktopNativeThreadsApi, NativeThreadRecord } from "../../app-core/native/desktopNativeThreads";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { ChatEvent, SessionSummary } from "../services";
-import type { ReactChatMessage } from "./messageActions";
+import type { OptimisticUserMessage } from "./chatMessages";
 
 type Dependencies = {
   initialize(): Promise<void>;
@@ -257,7 +257,7 @@ export function createDesktopChatCommands({ initialize, controller, nativeThread
   return { dispatch: dispatchDesktopCommand, branchFromMessage };
 }
 
-function createOptimisticUserMessage(clientEventId: string, text: string, references: AgentInputReference[] = [], selectedSkills: string[] = []): ReactChatMessage {
+function createOptimisticUserMessage(clientEventId: string, text: string, references: AgentInputReference[] = [], selectedSkills: string[] = []): OptimisticUserMessage {
   return {
     id: clientEventId,
     role: "user",

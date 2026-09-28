@@ -104,6 +104,15 @@ describe("agent defaults settings", () => {
     });
   });
 
+  test.each(["Asia/Singapore", "UTC", "GMT", "UTC+08:00", "GMT-5"])("accepts supported timezone %s", (timezone) => {
+    expect(validateAgentDefaultsInput({
+      timezone,
+      maxTokens: "2048",
+      contextWindowStrategy: "compact",
+      maxToolIterations: "8",
+    })).toEqual({});
+  });
+
   test("rejects an invalid timezone before save", () => {
     expect(validateAgentDefaultsInput({
       timezone: "Shanghai",

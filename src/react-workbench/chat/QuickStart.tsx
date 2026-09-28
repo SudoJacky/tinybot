@@ -79,7 +79,7 @@ export function QuickStartModelDialog({ settingsStore, onClose, onConfigured }: 
   useEffect(() => {
     let cancelled = false;
     setError("");
-    void settingsStore.loadProviderSettings!().then((next) => {
+    void settingsStore.loadProviderSettings().then((next) => {
       if (cancelled) return;
       setData(next);
       const initial = next.providers.find((item) => item.status === "available") ?? next.providers[0];
@@ -95,7 +95,7 @@ export function QuickStartModelDialog({ settingsStore, onClose, onConfigured }: 
 
   async function saveConnection() {
     if (!data || !provider) throw new Error("Provider settings are not loaded");
-    const next = await settingsStore.saveProviderSettings!(data.currentConfig, buildProviderConfigurePatch({
+    const next = await settingsStore.saveProviderSettings(data.currentConfig, buildProviderConfigurePatch({
       providerId: provider.id, profileId, apiBase, apiKey,
       useResponsesApi: provider.useResponsesApi, enabled: true,
     }));
@@ -120,7 +120,7 @@ export function QuickStartModelDialog({ settingsStore, onClose, onConfigured }: 
         setNotice(result.warning || t(result.models.length ? "quickStart.discovered" : "quickStart.noModels"));
       } else {
         const ids = [...new Set([...provider.models.map((item) => item.id), model.trim()])];
-        await settingsStore.saveProviderSettings!(next.currentConfig, buildProviderModelsPatch({
+        await settingsStore.saveProviderSettings(next.currentConfig, buildProviderModelsPatch({
           providerId: provider.id, profileId, models: ids,
           enabledModels: [...new Set([...provider.models.filter((item) => item.enabled).map((item) => item.id), model.trim()])],
           defaultModel: model, setAgentDefault: true,
