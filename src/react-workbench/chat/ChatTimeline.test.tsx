@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ChatStep, ChatTurn } from "../../app-core/chat/chatTurnContracts";
 import { parseDataViewDocument } from "../../app-core/chat/dataView";
-import type { ReactChatMessage } from "./messageActions";
+import type { OptimisticUserMessage } from "./chatMessages";
 import { ChatTimeline, type ChatTimelineActions } from "./ChatTimeline";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import { createAgentTimelineModel } from "../../app-core/chat/agentTimelineModel";
@@ -19,12 +19,12 @@ afterEach(() => {
 describe("ChatTimeline", () => {
   test("keeps selected Skill chips from optimistic send through canonical history reload", () => {
     const selectedSkills = ["typesafe-ai:typesafe-ai", "apple-design"];
-    const draft: ReactChatMessage = { id: "client-skill", role: "user", createdAtMs: Date.now(),
+    const draft: OptimisticUserMessage = { id: "client-skill", role: "user", createdAtMs: Date.now(),
       text: "这是什么", status: "complete", selectedSkills };
     const turn = completedTurn();
     turn.userMessage = { ...turn.userMessage, clientEventId: draft.id, text: draft.text, selectedSkills };
-    const view = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
-      <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId=""
+    const view = (turns: ChatTurn[], optimisticMessages: OptimisticUserMessage[] = []) => (
+      <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId=""
         optimisticMessages={optimisticMessages} sessionRunning={false} turns={turns} />
     );
     const assertSkills = () => {
@@ -63,7 +63,7 @@ describe("ChatTimeline", () => {
       // Preview text is presentation-only; identity must use the full arguments.
       turns[0].steps[0].toolCall!.argsPreview = "Clipped display preview";
       return <ChatTeamContext.Provider value={{ run, selectedTaskId: "verify", open }}>
-        <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />
+        <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />
       </ChatTeamContext.Provider>;
     };
     const { container, rerender, unmount } = render(view(first, recruitmentRuntime(first, [["sources", "compare"]])));
@@ -109,7 +109,7 @@ describe("ChatTimeline", () => {
     expect(payload.timeline.items[2].data.args.members).toEqual([]);
     const turns = createAgentTimelineModel().load("recruitment-chat", [payload]).turns;
     const open = vi.fn();
-    const { container } = render(<ChatTeamContext.Provider value={{ run, open }}><ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} /></ChatTeamContext.Provider>);
+    const { container } = render(<ChatTeamContext.Provider value={{ run, open }}><ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} /></ChatTeamContext.Provider>);
     const cards = container.querySelectorAll<HTMLDetailsElement>(".chat-team-card");
     const later = cards[2]; later.open = true; fireEvent(later, new Event("toggle"));
     expect(later.querySelector("summary")?.textContent).toContain("Employees in this batch: 1 · Tasks: 2");
@@ -125,7 +125,7 @@ describe("ChatTimeline", () => {
     const item = payload.timeline.items[0];
     const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, timeline: { ...payload.timeline, items: [{ ...item, data: { ...item.data, args: undefined } }] } }]).turns;
     const open = vi.fn();
-    const { container } = render(<ChatTeamContext.Provider value={{ run, open }}><ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} /></ChatTeamContext.Provider>);
+    const { container } = render(<ChatTeamContext.Provider value={{ run, open }}><ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} /></ChatTeamContext.Provider>);
     const card = container.querySelector(".chat-team-card") as HTMLDetailsElement;
     card.open = true; fireEvent(card, new Event("toggle"));
     expect(card.querySelector("summary")?.textContent).toBe("Agent recruitment");
@@ -146,7 +146,7 @@ describe("ChatTimeline", () => {
       : failure === "invalid-result" ? { raw: '{"runId": "truncated' } : item.data.result;
     const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, status: failure === "running" ? "running" : payload.status, timeline: { ...payload.timeline, items: [{ ...item, status, data: { ...item.data, status, result,
       args: failure === "invalid-args" ? '{"tasks": [' : JSON.stringify(item.data.args) } }] } }]).turns;
-    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
+    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
     expect(container.querySelector(".chat-team-card")).toBeNull();
     expect(container.querySelector(".react-tool-activity")).not.toBeNull();
     if (["truncated", "mismatched", "invalid-args", "invalid-result"].includes(failure)) expect(screen.getByRole("alert").textContent).toContain("incomplete or inconsistent");
@@ -159,7 +159,7 @@ describe("ChatTimeline", () => {
     const turns = createAgentTimelineModel().load("recruitment-chat", [{ ...payload, timeline: { ...payload.timeline,
       items: [{ ...item, data: { ...item.data, args } }],
     } }]).turns;
-    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
+    const { container } = render(<ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />);
     expect(container.querySelector(".chat-team-card")).toBeNull();
     expect(container.querySelector(".react-tool-activity")).not.toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("incomplete or inconsistent");
@@ -168,8 +168,7 @@ describe("ChatTimeline", () => {
   test("shows real retry progress while running and hides it on completion or failure", () => {
     const base = completedTurn();
     const retry = { turnId: base.id, modelCallId: "model-1", attempt: 1, maxRetries: 3, delayMs: 200, reason: "server_error" as const };
-    const view = (turn: ChatTurn, progress = retry) => <ChatTimeline actions={{}} hookResults={[]}
-      interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning
+    const view = (turn: ChatTurn, progress = retry) => <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning
       providerRetry={progress} turns={[turn]} />;
     const running = { ...base, status: "running" as const };
     const { rerender } = render(view(running));
@@ -194,7 +193,7 @@ describe("ChatTimeline", () => {
       { kind: "reference", referenceKind: "file", title: "sales.xlsx", detail: "Whole artifact", sourcePath: "reports/sales.xlsx", sourceText: "Artifact: sales.xlsx\nViewed content" },
       { kind: "reference", referenceKind: "file", title: "notes.pdf", detail: "PDF - 2 KB", rawPath: "C:/uploads/notes.pdf" },
     ];
-    render(<ChatTimeline actions={{ onOpenFileLink }} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={[turn]} />);
+    render(<ChatTimeline actions={{ onOpenFileLink }} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={[turn]} />);
     const message = screen.getByTestId("message-user-1");
     const attachments = within(message).getByRole("region", { name: "Attachments" });
     expect(message.querySelector(".react-message__body")?.contains(attachments)).toBe(true);
@@ -210,15 +209,15 @@ describe("ChatTimeline", () => {
 
   test("keeps one status line above work and answers through dispatch, execution, and completion", () => {
     const base = completedTurn();
-    const timeline = (turns: ChatTurn[], optimisticMessages: ReactChatMessage[] = []) => (
-      <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId=""
+    const timeline = (turns: ChatTurn[], optimisticMessages: OptimisticUserMessage[] = []) => (
+      <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId=""
         optimisticMessages={optimisticMessages} sessionRunning turns={turns} />
     );
     const { container, rerender } = render(timeline([], [optimisticMessage()]));
     expect(container.querySelectorAll('.react-thought-line')).toHaveLength(1);
     expect(container.querySelector('.react-thought-line')?.getAttribute('data-phase')).toBe('thinking');
 
-    const pending: ChatTurn = { ...base, status: "pending", finalMessage: undefined, executionItems: [], steps: [] };
+    const pending: ChatTurn = { ...base, status: "pending", finalAnswer: undefined, steps: [] };
     rerender(timeline([pending], [optimisticMessage()]));
     const indicator = container.querySelector('.react-thought-line')!;
     const turnElement = indicator.closest(".react-canonical-turn")!;
@@ -230,20 +229,20 @@ describe("ChatTimeline", () => {
       agentContext: { id: "main", title: "Tinybot", type: "main" },
       toolCall: { id: "tool-running", name: "read_file" },
     };
-    const running: ChatTurn = { ...pending, status: "running", executionItems: [tool], steps: [tool] };
+    const running: ChatTurn = { ...pending, status: "running", steps: [tool] };
     rerender(timeline([running]));
     expect(container.querySelector('.react-thought-line')).toBe(indicator);
     expect(indicator.getAttribute('data-phase')).toBe('running');
     const toggle = within(indicator as HTMLElement).getByRole('button', {name:/Work performed: Running/});
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
-    rerender(timeline([{ ...running, finalMessage: base.finalMessage }]));
+    rerender(timeline([{ ...running, finalAnswer: base.finalAnswer }]));
     expect(screen.getByTestId("message-assistant-1").textContent).toContain("Canonical answer");
     expect(indicator.getAttribute('data-phase')).toBe('responding');
     expect(turnElement.lastElementChild).toBe(screen.getByTestId('message-assistant-1'));
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
-    rerender(timeline([{ ...running, finalMessage: { ...base.finalMessage!, text: 'More answer' } }]));
+    rerender(timeline([{ ...running, finalAnswer: { ...base.finalAnswer!, text: 'More answer' } }]));
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
 
     rerender(timeline([{ ...running, status: "awaiting_user" }]));
@@ -253,7 +252,7 @@ describe("ChatTimeline", () => {
     rerender(timeline([running]));
     expect(container.querySelector('.react-thought-line')).toBe(indicator);
     for (const status of ["completed", "failed", "interrupted"] as const) {
-      rerender(timeline([{ ...running, status, finalMessage: base.finalMessage }]));
+      rerender(timeline([{ ...running, status, finalAnswer: base.finalAnswer }]));
       expect(indicator.getAttribute('data-phase')).toBe(status);
       expect(indicator.hasAttribute('data-working')).toBe(false);
       expect(container.querySelectorAll('.react-thought-line')).toHaveLength(1);
@@ -269,7 +268,6 @@ describe("ChatTimeline", () => {
         actions={actions}
         error="Timeline connection failed"
         hookResults={[]}
-        interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[optimisticMessage()]}
         sessionRunning={false}
@@ -279,7 +277,7 @@ describe("ChatTimeline", () => {
 
     expect(screen.getByText("Timeline connection failed").getAttribute("aria-live")).toBe("assertive");
     expect(screen.getByText("Canonical answer")).toBeTruthy();
-    expect(screen.getByTestId("message-optimistic-1").textContent).toContain("Pending answer");
+    expect(screen.getByTestId("message-optimistic-1").textContent).toContain("Pending question");
 
     fireEvent.click(screen.getByRole("button", { name: /branch/i }));
     expect(actions.onBranch).toHaveBeenCalledWith("assistant-1");
@@ -297,7 +295,6 @@ describe("ChatTimeline", () => {
       <ChatTimeline
         actions={actions}
         hookResults={[]}
-        interactiveFormIds={new Set()}
         latestFailedTurnId={turn.id}
         optimisticMessages={[]}
         sessionRunning={false}
@@ -317,7 +314,6 @@ describe("ChatTimeline", () => {
       <ChatTimeline
         actions={{}}
         hookResults={[]}
-        interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[]}
         sessionRunning={false}
@@ -356,7 +352,6 @@ describe("ChatTimeline", () => {
           toolCallId: "tool-1",
           turnId: turn.id,
         }]}
-        interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[]}
         sessionRunning={false}
@@ -378,7 +373,6 @@ describe("ChatTimeline", () => {
       <ChatTimeline
         actions={createActions()}
         hookResults={[]}
-        interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[]}
         sessionRunning={false}
@@ -416,7 +410,6 @@ describe("ChatTimeline", () => {
       startedAt: "2026-09-02T00:00:00.000Z",
       status: "running",
       steps: [reasoningStep],
-      executionItems: [reasoningStep],
       updatedAt: "2026-09-02T00:00:05.000Z",
       userMessage: {
         id: "user-reasoning-live",
@@ -430,11 +423,10 @@ describe("ChatTimeline", () => {
       <ChatTimeline
         actions={createActions()}
         hookResults={[]}
-        interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[]}
         sessionRunning
-        turns={[{ ...turn, executionItems: [step], steps: [step] }]}
+        turns={[{ ...turn, steps: [step] }]}
       />
     );
     const { rerender } = render(view(reasoningStep));
@@ -474,7 +466,6 @@ function createActions(): ChatTimelineActions {
     onBranch: vi.fn(),
     onOpenArtifact: vi.fn(),
     onOpenSubagent: vi.fn(),
-    onOpenTool: vi.fn(),
   };
 }
 
@@ -514,7 +505,7 @@ function failedTurn(): ChatTurn {
   };
   return {
     ...base,
-    finalMessage: undefined,
+    finalAnswer: undefined,
     status: "failed",
     steps: [errorStep],
   };
@@ -572,15 +563,15 @@ function dataViewTurn(): ChatTurn {
       title: "Progress update",
     }),
   ];
-  return { ...turn, executionItems, steps: executionItems };
+  return { ...turn, steps: executionItems };
 }
 
-function optimisticMessage(): ReactChatMessage {
+function optimisticMessage(): OptimisticUserMessage {
   return {
     createdAtMs: 3,
     id: "optimistic-1",
-    role: "assistant",
-    status: "streaming",
-    text: "Pending answer",
+    role: "user",
+    status: "complete",
+    text: "Pending question",
   };
 }

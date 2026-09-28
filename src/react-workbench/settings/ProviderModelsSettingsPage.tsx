@@ -43,7 +43,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
   const [modelsProvider, setModelsProvider] = useState<ProviderCardModel | null>(null);
   useEffect(() => {
     let cancelled = false;
-    settingsStore.loadProviderSettings?.()
+    settingsStore.loadProviderSettings()
       .then((snapshot) => {
         if (!cancelled) {
           setData(snapshot);
@@ -61,7 +61,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
   }, [settingsStore]);
 
   async function savePatch(patch: unknown): Promise<void> {
-    if (!data || !settingsStore.saveProviderSettings) {
+    if (!data) {
       return;
     }
     setSaveStatus(t("provider.saving"));
@@ -78,7 +78,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
     }
   }
   async function saveDefaultSelection(input: { modelId: string; providerId: string }): Promise<void> {
-    if (!settingsStore.saveDefaultChatModel || !settingsStore.loadProviderSettings) {
+    if (!settingsStore.saveDefaultChatModel) {
       throw new Error("Native default Provider/model persistence is unavailable.");
     }
     setSaveStatus(t("provider.saving"));

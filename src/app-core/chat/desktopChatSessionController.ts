@@ -186,8 +186,7 @@ export function createDesktopChatSessionController({
     if (existingLoad) {
       return existingLoad;
     }
-    let load: Promise<ChatTimelineSnapshot>;
-    load = loadTimelineFromRuntime(sessionKey).finally(() => {
+    const load: Promise<ChatTimelineSnapshot> = loadTimelineFromRuntime(sessionKey).finally(() => {
       if (timelineLoads.get(sessionKey) === load) {
         timelineLoads.delete(sessionKey);
       }

@@ -7,36 +7,9 @@ import { TableKit } from "@tiptap/extension-table";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useImperativeHandle, useRef, type KeyboardEvent, type Ref } from "react";
-import type { ComposerSkillOption } from "./composerContracts";
+import { useEffect, useImperativeHandle, useRef } from "react";
+import type { ComposerCursor, ComposerEditorProps } from "./composerContracts";
 import "./MarkdownComposerEditor.css";
-
-export interface MarkdownComposerCursor {
-  text: string;
-  offset: number;
-}
-
-export interface MarkdownComposerHandle {
-  focusEnd(): void;
-  replaceTrigger(from: number, to: number, skill?: ComposerSkillOption, text?: string): void;
-}
-
-interface MarkdownComposerEditorProps {
-  ref?: Ref<MarkdownComposerHandle>;
-  value: string;
-  disabled: boolean;
-  label: string;
-  placeholder: string;
-  skills: readonly ComposerSkillOption[];
-  removeSkillLabel: (skill: ComposerSkillOption) => string;
-  onChange: (markdown: string) => void;
-  onCursorChange: (cursor: MarkdownComposerCursor) => void;
-  onSkillsChange: (ids: string[]) => void;
-  onImportFiles: (files: File[]) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
-  activeDescendant?: string;
-  controls?: string;
-}
 
 const SkillToken = EditorNode.create({
   name: "composerSkill",
@@ -75,7 +48,7 @@ function skillIds(editor: Editor): string[] {
   return ids;
 }
 
-function cursor(editor: Editor): MarkdownComposerCursor {
+function cursor(editor: Editor): ComposerCursor {
   const { $from } = editor.state.selection;
   if ($from.parent.type.spec.code) return { text: "", offset: 0 };
   return {
@@ -85,7 +58,7 @@ function cursor(editor: Editor): MarkdownComposerCursor {
   };
 }
 
-export function MarkdownComposerEditor(props: MarkdownComposerEditorProps) {
+export function MarkdownComposerEditor(props: ComposerEditorProps) {
   const { value, skills, removeSkillLabel } = props;
   const latest = useRef(props);
   latest.current = props;

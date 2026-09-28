@@ -5,7 +5,7 @@ import { useState } from "react";
 import { ChatPage, type ChatPageProps } from "../ChatPage";
 import type { ChatStore, SessionStore, SessionSummary, WorkspaceRegistryEntry, WorkspaceRegistryStore } from "../../services";
 import type { DesktopTurnSubmitCommand } from "../../../app-core/chat/desktopCommand";
-import type { ReactChatMessage } from "../messageActions";
+import type { TimelineMessageFixture } from "./timelineFixtures";
 import { createNativeBrowserSessionSnapshot } from "../../../app-core/native/nativeBrowserSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../../app-core/native/desktopNativeBrowser";
 import type { NativeTerminalRuntimeApi } from "../../../app-core/native/desktopNativeTerminal";
@@ -163,7 +163,7 @@ export function createStores(options: {
       status: "idle" as const,
     },
   ];
-  const messages: ReactChatMessage[] = [
+  const messages: TimelineMessageFixture[] = [
     {
       id: "u1",
       role: "user",

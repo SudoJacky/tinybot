@@ -5,7 +5,6 @@ import {
 import type {
   AgentContext,
   ArtifactRef,
-  AssistantMessagePhase,
   BackendAgentTurnItem,
   BackendAgentTurnRuntimeState,
   BackendAgentTurnStatus,
@@ -60,14 +59,6 @@ function safeRasterImageDataUrl(value: string): string | undefined {
   return /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(value)
     ? value
     : undefined;
-}
-
-function assistantMessagePhase(value: unknown, itemId: string): AssistantMessagePhase {
-  const phase = stringValue(value);
-  if (phase === "unknown" || phase === "commentary" || phase === "final_answer") {
-    return phase;
-  }
-  throw new Error(`Canonical assistant item ${itemId} has invalid phase ${phase || "missing"}`);
 }
 
 function requiredCanonicalString(value: Record<string, unknown>, key: string): string {
@@ -134,7 +125,6 @@ function runtimeStateToTurn(
   }
   attachScopedErrors(turn, runtimeState.timeline.items);
   attachFileReferences(turn, runtimeState.timeline.items);
-  turn.executionItems = turn.steps;
   turn.status = statusForRuntimeBoundary(
     runtimeState.status,
     statusForTurnItems(runtimeState.timeline.items, turn.status),
@@ -190,11 +180,10 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     turn.userMessageId = messageId;
     return;
   }
-  if (item.kind === "assistant_message") {
+  if (payload.type === "assistant_message") {
     const text = safeArtifactText(stringValue(payload.content ?? payload.text ?? payload.finalContent ?? item.summary));
     const messageId = stringValue(payload.messageId ?? payload.message_id) || item.itemId;
-    const phase = assistantMessagePhase(payload.phase, item.itemId);
-    const modelCallId = requiredCanonicalString(payload, "modelCallId");
+    const { phase, modelCallId } = payload;
     if (phase === "final_answer") {
       turn.finalAnswer = {
         id: messageId,
@@ -217,10 +206,10 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     }
     return;
   }
-  if (item.kind === "reasoning") {
+  if (payload.type === "reasoning") {
     turn.steps.push(runtimeStep(item, sequence, {
       kind: "reasoning",
-      modelCallId: requiredCanonicalString(payload, "modelCallId"),
+      modelCallId: payload.modelCallId,
       status,
       summary: safeArtifactText(stringValue(payload.content ?? payload.summary ?? item.summary)),
       title: item.title || (status === "completed" ? "Thinking complete" : "Thinking"),

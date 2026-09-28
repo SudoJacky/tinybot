@@ -48,7 +48,7 @@ import {
   type DesktopPetPreferences,
 } from "../../app-core/desktop-pet/desktopPetState";
 import { RouteSurface, type SettingsNavigationRequest } from "./RouteSurface";
-import { resolveAppRoute, type ActiveAppRoute, type AppRoute } from "./appRoutes";
+import type { AppRoute } from "./appRoutes";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 
 type RouteHistory = {
@@ -122,7 +122,7 @@ type TopMenuItem = {
 const menuCommand = (command: TopMenuCommand): TopMenuEntry => ({ kind: "command", command });
 const menuSeparator = (id: string): TopMenuEntry => ({ kind: "separator", id });
 
-function createRouteLabels(t: TFunction<"common">): Record<ActiveAppRoute, string> {
+function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
   return {
     chat: t("routes.chat"),
     automations: t("routes.automations"),
@@ -136,7 +136,7 @@ function createRouteLabels(t: TFunction<"common">): Record<ActiveAppRoute, strin
 
 function createTopMenuItems(
   t: TFunction<"common">,
-  routeLabels: Record<ActiveAppRoute, string>,
+  routeLabels: Record<AppRoute, string>,
   shortcuts: ShortcutPreferences,
 ): TopMenuItem[] {
   return [
@@ -218,7 +218,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     current: "chat",
     forward: [],
   });
-  const route = resolveAppRoute(routeHistory.current);
+  const route = routeHistory.current;
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [menuMotionSource, setMenuMotionSource] = useState<MotionSource>("pointer");
   const [settingsNavigationRequest, setSettingsNavigationRequest] = useState<SettingsNavigationRequest | null>(null);
@@ -329,14 +329,13 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     }
   }, [services.chatStore]);
 
-  const navigateToRoute = useCallback((nextRoute: AppRoute) => {
-    const destination = resolveAppRoute(nextRoute);
+  const navigateToRoute = useCallback((destination: AppRoute) => {
     setRouteHistory((current) => {
-      if (destination === resolveAppRoute(current.current)) {
+      if (destination === current.current) {
         return current;
       }
       return {
-        back: [...current.back, resolveAppRoute(current.current)],
+        back: [...current.back, current.current],
         current: destination,
         forward: [],
       };

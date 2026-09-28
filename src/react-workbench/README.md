@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:3d5c4e96f294628d1eaf94da1a5892f3445d196c2998f57c6560dffa31c4f2a4 -->
+<!-- tinybot-module-fingerprint: sha256:589010efbde9c38c382fffa64ebabccdd2ac177be1b49b4d82be1a8ffecb2bd8 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -33,6 +33,8 @@ native adapters and event notifications from this composition root.
 `ChatStore.readTimeline` reads canonical Thread activity without changing the
 selected Chat session. Teams uses it with the shared subscription to observe
 workers; `load` retains its existing Chat navigation behavior.
+Markdown export reads each canonical Turn's `finalAnswer`, preserving completed
+answers from both single-turn and multi-turn histories.
 
 The standalone [`agent-graph/`](agent-graph/README.md) route owns the locally recoverable
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
@@ -59,7 +61,10 @@ read-only in the renderer.
 
 ## Module seams
 
-- `services.ts` defines the interface consumed by routes.
+- `services.ts` defines the interface consumed by routes. Settings config and
+  Provider reads/writes are required capabilities; optional native integrations
+  keep their own availability checks. Tool catalogs expose normalized `allowed`,
+  `defaultSelected`, and `selected` booleans to every renderer consumer.
 - `adapters/` connects those interfaces to native and app-core modules.
 - [`sidecar/`](sidecar/README.md) owns the docked resource shell and its Browser,
   Terminal, and Artifact resource presentations.

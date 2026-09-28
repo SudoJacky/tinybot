@@ -102,6 +102,39 @@ describe("desktop native app services", () => {
     });
   });
 
+  test.each([1, 2])("copies %i canonical answers into conversation Markdown", async (count) => {
+    const invokeDefault = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "thread_list_turns") {
+        return { turns: Array.from({ length: count }, (_, index) => ({ turnId: `turn-${index + 1}` })) };
+      }
+      if (command === "thread_get_turn_runtime_state") {
+        const { turnId } = (args?.input as { body: { turnId: string } }).body;
+        return canonicalRuntimeState(turnId, "completed");
+      }
+      return invokeDefault(command, args);
+    });
+    const services = createDesktopAppServices();
+
+    expect(await services.chatStore.copyMarkdown("thread-1"))
+      .toBe(Array.from({ length: count }, () => "user: hello\n\nassistant: hi").join("\n\n"));
+  });
+
+  test("copies Markdown while the final canonical answer is still pending", async () => {
+    const invokeDefault = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "thread_list_turns") return { turns: [{ turnId: "turn-1" }] };
+      if (command === "thread_get_turn_runtime_state") {
+        const runtime = canonicalRuntimeState("turn-1");
+        runtime.timeline.items = runtime.timeline.items.slice(0, 1);
+        return runtime;
+      }
+      return invokeDefault(command, args);
+    });
+
+    expect(await createDesktopAppServices().chatStore.copyMarkdown("thread-1")).toBe("user: hello");
+  });
+
   test("projects native content matches with conversation scope and Turn targets", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
@@ -900,7 +933,7 @@ describe("desktop native app services", () => {
     await Promise.resolve();
 
     const liveTimelineEvents = events.filter((event) => event.type === "timeline.patch");
-    expect(liveTimelineEvents[liveTimelineEvents.length - 1]?.timeline?.turns[0].executionItems).toEqual([
+    expect(liveTimelineEvents[liveTimelineEvents.length - 1]?.timeline?.turns[0].steps).toEqual([
       expect.objectContaining({
         id: `${completedTurnId}:reasoning`,
         kind: "reasoning",
@@ -916,7 +949,7 @@ describe("desktop native app services", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const timelineEvents = events.filter((event) => event.type === "timeline.patch");
-    expect(timelineEvents[timelineEvents.length - 1]?.timeline?.turns[0].executionItems).toEqual([
+    expect(timelineEvents[timelineEvents.length - 1]?.timeline?.turns[0].steps).toEqual([
       expect.objectContaining({
         id: `${completedTurnId}:reasoning`,
         kind: "reasoning",

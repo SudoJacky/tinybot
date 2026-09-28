@@ -1,10 +1,11 @@
+import type { OptimisticUserMessage } from "./chatMessages";
 // @vitest-environment happy-dom
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent } from "../services";
-import type { ReactChatMessage } from "./messageActions";
+import type { TimelineMessageFixture } from "./test/timelineFixtures";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
@@ -90,7 +91,7 @@ describe("ChatPage", () => {
 
   it("renders assistant Markdown tables instead of raw pipe text", async () => {
     const stores = createStores();
-    const markdownMessages: ReactChatMessage[] = [
+    const markdownMessages: TimelineMessageFixture[] = [
       {
         id: "a-table",
         role: "assistant",
@@ -129,7 +130,7 @@ describe("ChatPage", () => {
         reasoningText: "**keep reasoning syntax literal**",
         status: "complete",
       },
-    ] satisfies ReactChatMessage[]));
+    ] satisfies TimelineMessageFixture[]));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -137,16 +138,19 @@ describe("ChatPage", () => {
     const assistantMessage = await screen.findByTestId("message-a-markdown");
     expect(userMessage.querySelector("strong")).toBeNull();
     expect(within(userMessage).getByText("**keep user syntax literal**")).toBeTruthy();
-    await user.click(within(assistantMessage).getByRole("button", { name: "Reasoning" }));
-    expect(assistantMessage.querySelector(".react-message-reasoning strong")).toBeNull();
-    expect(within(assistantMessage).getByText("**keep reasoning syntax literal**")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Work performed:/ }));
+    const reasoning = screen.getByRole("region", { name: "Reasoning" });
+    await user.click(within(reasoning).getByRole("button"));
+    const reasoningContent = within(reasoning).getByTestId("execution-reasoning-content");
+    expect(reasoningContent.querySelector("strong")).toBeNull();
+    expect(reasoningContent.textContent).toBe("**keep reasoning syntax literal**");
     expect(assistantMessage.querySelector(".react-message-markdown strong")?.textContent).toBe("format the answer");
   });
 
   it("copies individual message text from message actions", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const copyMessages: ReactChatMessage[] = [
+    const copyMessages: TimelineMessageFixture[] = [
       {
         id: "a-copy",
         role: "assistant",
@@ -182,7 +186,7 @@ describe("ChatPage", () => {
       updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
       status: "idle" as const,
     };
-    const branchMessages: ReactChatMessage[] = [
+    const branchMessages: TimelineMessageFixture[] = [
       {
         id: "b1",
         role: "assistant",
@@ -192,7 +196,7 @@ describe("ChatPage", () => {
       },
     ];
     stores.chatStore.branchFromMessage = vi.fn(async () => branchedSession);
-    const sourceMessages: ReactChatMessage[] = [
+    const sourceMessages: TimelineMessageFixture[] = [
       {
         id: "a1",
         role: "assistant",
@@ -230,7 +234,7 @@ describe("ChatPage", () => {
       status: "idle" as const,
       updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
     };
-    const assistantMessages: ReactChatMessage[] = [
+    const assistantMessages: TimelineMessageFixture[] = [
       {
         id: "a1",
         role: "assistant",
@@ -267,7 +271,7 @@ describe("ChatPage", () => {
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const stores = createStores();
     let sent = false;
-    const optimisticMessages: ReactChatMessage[] = [{
+    const optimisticMessages: OptimisticUserMessage[] = [{
       id: "local-user",
       role: "user",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
@@ -300,7 +304,7 @@ describe("ChatPage", () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const stores = createStores();
-    const optimisticMessage: ReactChatMessage = {
+    const optimisticMessage: OptimisticUserMessage = {
       id: "client-message-1",
       role: "user",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
@@ -349,7 +353,7 @@ describe("ChatPage", () => {
       updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
       status: "running" as const,
     };
-    const optimisticMessage: ReactChatMessage = {
+    const optimisticMessage: OptimisticUserMessage = {
       id: "local-user",
       role: "user",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
@@ -385,8 +389,9 @@ describe("ChatPage", () => {
   });
 
   it("renders assistant thinking and context separately from the answer", async () => {
+    const user = userEvent.setup();
     const stores = createStores();
-    const streamingMessages: ReactChatMessage[] = [
+    const streamingMessages: TimelineMessageFixture[] = [
       {
         id: "assistant-live",
         role: "assistant",
@@ -409,8 +414,10 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-assistant-live");
-    const reasoning = within(message).getByLabelText("Reasoning");
-    expect(within(reasoning).getByRole("button", { name: "Thinking" }).getAttribute("aria-expanded")).toBe("true");
+    await user.click(screen.getByRole("button", { name: /Work performed:/ }));
+    const reasoning = screen.getByRole("region", { name: "Reasoning" });
+    expect(message.contains(reasoning)).toBe(false);
+    expect(within(reasoning).getByRole("button").getAttribute("aria-expanded")).toBe("false");
     expect(reasoning.textContent).toContain("I am checking the available context.");
     expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
     expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");

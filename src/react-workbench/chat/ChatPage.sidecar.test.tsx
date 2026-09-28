@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { NativeTerminalRuntimeApi } from "../../app-core/native/desktopNativeTerminal";
 import type { ChatEvent } from "../services";
+import { subagentTimeline } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
   createStores,
@@ -18,13 +19,13 @@ describe("ChatPage", () => {
     const user = userEvent.setup();
     const browserRuntime = sidecarBrowserRuntime();
     const stores = createStores({ browserRuntime });
+    stores.chatStore.load = vi.fn(async () => subagentTimeline());
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
     await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
     await user.click(within(screen.getByLabelText("Sidecar")).getAllByRole("button", { name: "New Sidecar tab" })[0]);
     await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
     await waitFor(() => expect(document.querySelector(".react-sidecar-browser-surface")?.getAttribute("data-live")).toBe("true"));
-    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
-    await user.click(await screen.findByRole("button", { name: "Open details for shell" }));
+    await user.click(await screen.findByRole("button", { name: "Open details for Research agent" }));
     const drawer = screen.getByLabelText("Details drawer");
     let finish!: () => void;
     const animation = {

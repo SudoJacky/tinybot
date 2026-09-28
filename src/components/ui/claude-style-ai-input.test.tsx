@@ -59,6 +59,23 @@ it("selects @team as a capability without attaching another conversation", async
 });
 
 describe("composer multiline keyboard input", () => {
+  it("waits for IME composition to commit before reading inline text or sending", () => {
+    const onSendMessage = vi.fn();
+    const onValueChange = vi.fn();
+    render(<ClaudeStyleAiInput skillOptions={skillOptions} onSendMessage={onSendMessage} onValueChange={onValueChange} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.compositionStart(input);
+    input.textContent = "中文输入";
+    fireEvent.input(input);
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true, keyCode: 229 });
+    expect(onValueChange).not.toHaveBeenCalled();
+    expect(onSendMessage).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    expect(onValueChange).toHaveBeenCalledWith("中文输入");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSendMessage).toHaveBeenCalledWith("中文输入", [], { reasoningEffort: "high" });
+  });
+
   it.each([
     [false, "Hello"],
     [true, "Hello"],
@@ -390,24 +407,14 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onRemoveSessionMention).toHaveBeenCalledWith("thread-2");
   });
 
-  it("uses catalog MCP availability without a composer tools menu", async () => {
+  it("submits explicit MCP availability and omits an unspecified policy", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();
-    const view = render(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
+    const view = render(<ClaudeStyleAiInput onSendMessage={onSendMessage} />);
 
     view.rerender(<ClaudeStyleAiInput
       onSendMessage={onSendMessage}
-      tools={[{
-        allowed: true,
-        available: true,
-        defaultSelected: true,
-        description: "Call configured MCP services.",
-        id: "mcp.call_tool",
-        name: "Call MCP",
-        selected: true,
-      }, { id: "search_file_content", name: "Search files", selected: false },
-      { id: "agent_graph.run.review", name: "Review workflow", selected: true },
-      { id: "mcp.docs.search", name: "Search documentation", selected: true }]}
+      mcpEnabled={true}
     />);
 
     expect(screen.queryByRole("button", { name: "Tools" })).toBeNull();
@@ -419,7 +426,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
       reasoningEffort: "high",
       mcpEnabled: true,
     });
-    view.rerender(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
+    view.rerender(<ClaudeStyleAiInput onSendMessage={onSendMessage} />);
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Continue review");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(onSendMessage).toHaveBeenLastCalledWith("Continue review", [], { reasoningEffort: "high" });
@@ -428,7 +435,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
   it("submits permission-denied MCP availability as off", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();
-    render(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[{ id: "mcp.call_tool", name: "Call MCP", disabled: true }]} />);
+    render(<ClaudeStyleAiInput onSendMessage={onSendMessage} mcpEnabled={false} />);
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Search local files");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(onSendMessage).toHaveBeenCalledWith("Search local files", [], { reasoningEffort: "high", mcpEnabled: false });

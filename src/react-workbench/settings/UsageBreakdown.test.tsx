@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
@@ -22,7 +23,7 @@ it("keeps unknown counts separate and does not add cached/reasoning subsets to t
 });
 
 it("filters global totals and tables by purpose including entirely unreported requests", async () => {
-  render(<ProfileSettingsPage settingsStore={{ load: vi.fn(), loadTokenUsage: async () => ({
+  render(<ProfileSettingsPage settingsStore={{ ...settingsStoreFixture(), loadTokenUsage: async () => ({
     schemaVersion: "tinybot.token_usage.v3", totals: usage, days: [{ date: "2026-09-17", ...usage }],
     modelDays: [{ date: "2026-09-17", providerId: "openai", modelId: "model", ...usage }],
     groups: [group(), group({ purpose: "title", usage: null, reportedCalls: 0 })],

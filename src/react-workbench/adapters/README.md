@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:381afa86e561039f9ddc2e4bae30849beaa819eaa127ed9a02aa62c3f74085d7 -->
+<!-- tinybot-module-fingerprint: sha256:8d94e2afc79fa402463888eaf8ca2d5b139a6c303223c3219b795939211bf642 -->
 
 The Settings adapter exposes global usage snapshots and on-demand invocation
 details through the native token-usage API, preserving nullable usage values.
@@ -23,6 +23,11 @@ Conditional chunk reads preserve the `unchanged` response without manufacturing 
 normalizes the raw IPC body to `Uint8Array` without interpreting file content,
 preserving Rust as the authority for workspace selection, path containment,
 source revision, and byte limits.
+
+Tools & MCP and Channels settings load directly from the native config snapshot
+and save only the page patch with its revision. They do not query the Provider
+catalog. Native save metadata, including restart/reload effects and warnings,
+passes through to the caller.
 
 The desktop Settings adapter projects the native Provider catalog into the
 shared Chat model catalog. Only enabled Providers whose runtime status is
@@ -49,7 +54,9 @@ transport-specific field patches without exposing stored bearer tokens, and
 removes dynamic map entries through unambiguous JSON Pointer operations.
 
 The desktop Tools adapter normalizes callable tools, MCP server source/status,
-and Skill summaries into the renderer-facing `ToolCatalogSummary`. It uses the
+and Skill summaries into the renderer-facing `ToolCatalogSummary`. Legacy tool
+`enabled` values are accepted only here and normalized to the required `allowed`,
+`defaultSelected`, and `selected` fields. It uses the
 dedicated Skill-detail route when the UI requests one entry; filesystem reads
 remain in Rust. Catalog callers may provide a conversation working directory,
 which the adapter URL-encodes for Rust-owned workspace Skill and MCP discovery.

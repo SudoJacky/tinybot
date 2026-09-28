@@ -31,7 +31,6 @@ describe("ChatPage", () => {
       summary: "Inspecting layout.",
       title: "Progress update",
     }];
-    turn.executionItems = turn.steps;
     stores.chatStore.load = vi.fn(async () => timeline);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);

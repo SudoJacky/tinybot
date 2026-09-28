@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -10,7 +11,7 @@ afterEach(() => cleanup());
 
 function createSettingsStore(): SettingsStore {
   return {
-    load: vi.fn(async () => []),
+    ...settingsStoreFixture(),
     loadPersonalizationInstructions: vi.fn(async () => ({
       path: "USER.md" as const,
       contents: "Prefer concise answers.",

@@ -1,5 +1,5 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:bede82af4e0e6ef91ec4fa1de34e52431e7c591951f211d00eb678151abc042a -->
+<!-- tinybot-module-fingerprint: sha256:7b1e96eb8a09b94d5d6e7a4e5090fee8fefdb29025145562c59c7c32af52e0ca -->
 
 MCP form inputs use the panel background token, with existing border, focus, and validation feedback.
 
@@ -21,7 +21,8 @@ secret ownership, and persistence outside React. Saving a definition marks the
 catalog for an explicit restart; the restart action preserves the current rows
 while discovery is in progress and disappears only after a successful refresh.
 Native protocol details and normalization remain in the adapter and app-core
-modules.
+modules. Callable Tool status consumes the normalized `available` and `allowed`
+flags directly; renderer components do not interpret the legacy `enabled` key.
 
 The route requests its Skill catalog and Skill-detail reads across all existing
 workspaces in `WorkspaceRegistry`. It also inherits the active Chat workspace

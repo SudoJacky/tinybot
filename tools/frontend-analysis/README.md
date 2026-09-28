@@ -42,6 +42,12 @@ Generated files live under `tools/frontend-analysis/reports/latest/`:
 
 The local `reports/` directory is ignored by this toolkit's own `.gitignore`. `baseline.json` is intentionally versioned.
 
+ESLint extends the JavaScript and TypeScript recommended flat configurations
+for `src/**/*.ts`, `src/**/*.tsx`, and `vite.config.ts`, then applies the React
+Hooks rules. Unused locals and parameters remain owned by TypeScript's strict
+compiler checks. The tooling tests exercise the actual ESLint configuration
+with invalid TypeScript and valid overloads to catch missing rule presets.
+
 `window-entry.test.mjs` builds the actual window bootstrap with lightweight
 renderer fixtures, then checks the emitted preload behavior for each surface.
 It verifies that the selected entry waits for its own CSS, and runs in the

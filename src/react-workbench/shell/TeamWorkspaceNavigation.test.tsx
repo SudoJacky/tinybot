@@ -6,7 +6,6 @@ import type { ComponentProps } from "react";
 import { DEFAULT_DESKTOP_PET_PREFERENCES } from "../../app-core/desktop-pet/desktopPetState";
 import type { AppServices } from "../services";
 import { RouteSurface } from "./RouteSurface";
-import { resolveAppRoute } from "./appRoutes";
 
 vi.mock("../chat/ChatPage", () => ({ ChatPage: () => <div>Chat view</div> }));
 afterEach(cleanup);
@@ -21,20 +20,11 @@ function props(route: ComponentProps<typeof RouteSurface>["route"]): ComponentPr
   };
 }
 
-it("resolves legacy Teams navigation to Chat without mounting or loading Team data", () => {
-  const input = props("teams");
+it("opens Chat without loading Team workspace data", () => {
+  const input = props("chat");
   const view = render(<RouteSurface {...input} />);
   expect(screen.getByText("Chat view")).toBeVisible();
   expect(input.services.teamStore.list).not.toHaveBeenCalled();
   expect(input.services.teamStore.get).not.toHaveBeenCalled();
   expect(view.container.querySelector("[hidden]")).toBeNull();
-  expect(resolveAppRoute("teams")).toBe("chat");
-});
-
-it("keeps Chat mounted when an old Teams route is restored", () => {
-  const input = props("chat");
-  const view = render(<RouteSurface {...input} />);
-  const chat = screen.getByText("Chat view");
-  view.rerender(<RouteSurface {...input} route="teams" />);
-  expect(screen.getByText("Chat view")).toBe(chat);
 });

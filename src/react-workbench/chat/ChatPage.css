@@ -861,198 +861,9 @@
   justify-content: flex-end;
 }
 
-.react-agent-steps {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-surface-soft) 62%, var(--color-panel));
-  overflow: hidden;
-}
-
-.react-agent-steps[data-stepper="true"] {
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 64%);
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header {
-  gap: 8px;
-  padding: 9px 10px;
-  color: var(--color-body);
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header:hover,
-.react-agent-steps__activity > .react-timeline-activity__header:focus-visible {
-  background: var(--color-panel);
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
-.react-agent-step-item__marker {
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
-  width: 22px;
-  height: 22px;
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__heading,
-.react-agent-steps__activity > .react-timeline-activity__header .react-timeline-activity__title {
-  flex: 1;
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header .react-timeline-activity__title {
-  color: var(--color-ink);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.react-agent-steps__activity > .react-timeline-activity__header .react-timeline-activity__meta {
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.react-agent-steps__list {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0 10px 10px;
-  list-style: none;
-}
-
-.react-agent-step-item {
-  position: relative;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 10px;
-  min-width: 0;
-}
-
-.react-agent-step-item[aria-current="step"] .react-agent-step {
-  border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-hairline));
-  background: var(--color-panel);
-}
-
-.react-agent-step-item[aria-current="step"] .react-agent-step-item__marker {
-  animation: react-stepper-current 900ms var(--motion-ease-standard) infinite alternate;
-}
-
-.react-agent-step-item__line {
-  position: absolute;
-  top: 28px;
-  bottom: -2px;
-  left: 11px;
-  width: 1px;
-  background: var(--color-hairline);
-}
-
-.react-agent-step-item__marker {
-  position: relative;
-  z-index: 1;
-  width: 24px;
-  height: 24px;
-  margin-top: 7px;
-  border: 3px solid var(--color-panel);
-  background: var(--color-surface-card);
-  color: var(--color-muted);
-}
-
-.react-agent-step {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 18px;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  margin-bottom: 6px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 7px 8px;
-  text-align: left;
-}
-
-.react-agent-step:hover,
-.react-agent-step:focus-visible {
-  border-color: var(--color-hairline);
-  background: var(--color-panel);
-}
-
-.react-agent-step__content {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.react-agent-step__content > span,
-.react-agent-step__content > small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-agent-step__content > span {
-  color: var(--color-ink);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.react-agent-step__content > small,
-.react-agent-step__status {
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.react-agent-step__status {
-  border-radius: 999px;
-  background: var(--color-panel);
-  padding: 2px 7px;
-  white-space: nowrap;
-}
-
-.react-agent-steps[data-status="success"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
-.react-agent-step-item__marker[data-status="success"] {
-  background: color-mix(in srgb, var(--color-success) 14%, var(--color-panel));
-  color: var(--color-success);
-}
-
-.react-agent-steps[data-status="active"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
-.react-agent-step-item__marker[data-status="active"] {
-  background: color-mix(in srgb, #4c8bf5 13%, var(--color-panel));
-  color: #3b75d9;
-}
-
-.react-agent-steps[data-status="active"] > .react-agent-steps__activity > .react-timeline-activity__header .react-chat-disclosure-icon__symbol svg,
-.react-agent-step-item__marker[data-status="active"] svg {
-  animation: react-spin 1s linear infinite;
-}
-
-.react-agent-steps[data-status="waiting"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
-.react-agent-step-item__marker[data-status="waiting"] {
-  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-panel));
-  color: var(--color-warning);
-}
-
-.react-agent-steps[data-status="error"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
-.react-agent-step-item__marker[data-status="error"] {
-  background: color-mix(in srgb, var(--color-error) 14%, var(--color-panel));
-  color: var(--color-error);
-}
-
 @keyframes react-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes react-stepper-current {
-  from {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 28%, transparent);
-  }
-
-  to {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 0%, transparent);
   }
 }
 
@@ -1927,38 +1738,6 @@
   padding-top: 14px;
 }
 
-.react-tool-detail {
-  display: grid;
-  gap: 12px;
-  margin-top: 0;
-}
-
-.react-tool-detail section {
-  display: grid;
-  gap: 6px;
-}
-
-.react-tool-detail h3 {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.react-tool-detail pre {
-  overflow: auto;
-  max-height: 180px;
-  margin: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-surface-soft);
-  padding: 8px;
-  color: var(--color-ink);
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .react-canonical-turn {
   display: contents;
 }
@@ -2169,7 +1948,6 @@
 
 .react-execution-timeline__item > .react-message,
 .react-execution-timeline__item > .react-message-reasoning,
-.react-execution-timeline__item > .react-agent-steps,
 .react-execution-timeline__item > .react-canonical-step,
 .react-execution-timeline__item > .react-execution-error,
 .react-execution-timeline__item > .react-canonical-step-stack,
@@ -2184,16 +1962,6 @@
   border-radius: 0;
   background: transparent;
   padding: 0;
-}
-
-.react-execution-timeline__item > .react-agent-steps {
-  gap: 0;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  overflow: visible;
 }
 
 .react-execution-reasoning {
@@ -2231,33 +1999,6 @@
   font-size: 12px;
   font-weight: 400;
   line-height: 1.6;
-}
-
-.react-execution-timeline__item > .react-agent-steps > .react-agent-steps__list {
-  padding: 0;
-}
-
-.react-execution-timeline__item .react-agent-step-item {
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.react-execution-timeline__item .react-agent-step-item__marker {
-  margin-top: 5px;
-  border: 0;
-}
-
-.react-execution-timeline__item .react-agent-step {
-  margin: 0;
-  border: 0;
-  border-radius: 4px;
-  padding: 5px 0;
-}
-
-.react-execution-timeline__item .react-agent-step:hover,
-.react-execution-timeline__item .react-agent-step:focus-visible {
-  border: 0;
-  background: var(--color-surface-soft);
 }
 
 .react-tool-activity,
@@ -2596,13 +2337,6 @@
   padding: 14px 12px;
   color: var(--color-muted);
   font-size: 12px;
-}
-
-.react-canonical-tool-group {
-  display: grid;
-  gap: 6px;
-  width: min(720px, 100%);
-  margin: 0 auto;
 }
 
 .react-canonical-step,
@@ -4596,7 +4330,6 @@
 
 @media (prefers-reduced-motion: reduce) {
 
-  .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
 .react-message-markdown [data-sd-animate],
 .react-right-drawer[data-motion="fade-content"] {
     opacity: 1;

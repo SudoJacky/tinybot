@@ -54,14 +54,14 @@ describe("desktop settings store", () => {
     expect(route).toHaveBeenCalledWith({ method: "GET", path: "/api/providers" });
   });
 
-  it("includes models when the provider API key is configured through the environment", async () => {
+  it.each(["apiKeyConfigured", "api_key_configured"])("includes models configured through the environment (%s)", async (configuredKey) => {
     const store = createDesktopSettingsStore({
       initialize: async () => undefined,
       nativeConfig: { get: async () => config },
       nativeWebui: {
         route: async () => ({
           providers: [
-            { id: "deepseek", displayName: "DeepSeek", api_key_configured: true },
+            { id: "deepseek", displayName: "DeepSeek", [configuredKey]: true },
           ],
         }),
       },
@@ -301,6 +301,21 @@ describe("desktop settings store", () => {
     expect(initialize).toHaveBeenCalledTimes(2);
   });
 
+  it("loads tools and channels settings without querying the provider catalog", async () => {
+    const currentConfig = { ...config, tools: { web: { enable: false } }, channels: { sendProgress: true } };
+    const route = vi.fn(async () => { throw new Error("Provider catalog is unavailable"); });
+    const store = createDesktopSettingsStore({
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => currentConfig },
+      nativeWebui: { route },
+    });
+
+    const settings = await store.loadDesktopConfigSettings();
+    expect(settings.currentConfig).toBe(currentConfig);
+    expect(settings.values).toMatchObject({ webEnable: false, sendProgress: true });
+    expect(route).not.toHaveBeenCalled();
+  });
+
   it("reconciles native save metadata into the desktop settings projection", async () => {
     const response: DesktopNativeConfigPatchResponse = {
       ok: true,
@@ -317,10 +332,9 @@ describe("desktop settings store", () => {
     const store = createDesktopSettingsStore({
       applyNativeConfigPatch,
       initialize: async () => undefined,
-      nativeWebui: { route: async () => ({ providers: [] }) },
     });
 
-    const result = await store.saveDesktopConfigSettings!(config, {
+    const result = await store.saveDesktopConfigSettings(config, {
       agents: { defaults: { model: "deepseek-reasoner" } },
     });
 

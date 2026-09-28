@@ -9,7 +9,7 @@ afterEach(cleanup);
 function turn(id: string, patch: Partial<ChatTurn> = {}): ChatTurn {
   return {
     id, sessionKey: "session", status: "completed", startedAt: "1000", completedAt: "20000", updatedAt: "20000",
-    steps: [], executionItems: [], userMessageId: `user-${id}`,
+    steps: [], userMessageId: `user-${id}`,
     userMessage: { id: `user-${id}`, role: "user", text: "Question", timestamp: "1000" },
     finalAnswer: { id: `answer-${id}`, role: "assistant", text: "Answer", timestamp: "20000" },
     metrics: { timeToRequestMs: 125, timeToFirstTokenMs: 600, tokensPerSecond: 108 }, ...patch,
@@ -17,7 +17,7 @@ function turn(id: string, patch: Partial<ChatTurn> = {}): ChatTurn {
 }
 
 function timeline(turns: ChatTurn[]) {
-  return <ChatTimeline actions={{}} hookResults={[]} interactiveFormIds={new Set()} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />;
+  return <ChatTimeline actions={{}} hookResults={[]} latestFailedTurnId="" optimisticMessages={[]} sessionRunning={false} turns={turns} />;
 }
 
 describe("turn timing footer", () => {

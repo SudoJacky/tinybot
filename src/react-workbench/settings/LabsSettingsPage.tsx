@@ -21,9 +21,6 @@ export function LabsSettingsPage({ settingsStore }: { settingsStore: SettingsSto
     setSave({ state: "idle" });
     async function load() {
       try {
-        if (!settingsStore.loadDesktopConfigSettings || !settingsStore.saveDesktopConfigSettings) {
-          throw new Error("Experimental settings are unavailable in this runtime");
-        }
         const { currentConfig } = await settingsStore.loadDesktopConfigSettings();
         const settings = readExperimentalSettings(currentConfig);
         if (!cancelled) setLoaded({ config: currentConfig, settings });
@@ -37,7 +34,7 @@ export function LabsSettingsPage({ settingsStore }: { settingsStore: SettingsSto
   }, [attempt, settingsStore]);
 
   async function toggleActionFusion(enabled: boolean) {
-    if (!loaded || save.state === "saving" || !settingsStore.saveDesktopConfigSettings) return;
+    if (!loaded || save.state === "saving") return;
     setSave({ state: "saving" });
     try {
       const { currentConfig } = await settingsStore.saveDesktopConfigSettings(loaded.config, actionFusionSettingsPatch(enabled));

@@ -1,4 +1,5 @@
 import { createDesktopNativeTeamsApi } from "../../app-core/native/desktopNativeTeams";
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -11,7 +12,7 @@ import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary } from "../services";
-import type { ReactChatMessage } from "../chat/messageActions";
+import type { TimelineMessageFixture } from "../chat/test/timelineFixtures";
 import { CHAT_SESSION_TABS_STORAGE_KEY } from "../chat/sessionTabWorkspace";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableThreadEffectiveCapabilities } from "../../app-core/chat/threadCapabilities";
@@ -45,7 +46,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); dismissAppToast(); });
 
-function createServices(options: { messages?: ReactChatMessage[]; sessions?: SessionSummary[] } = {}): AppServices & {
+function createServices(options: { messages?: TimelineMessageFixture[]; sessions?: SessionSummary[] } = {}): AppServices & {
   memoryStore: {
     load: ReturnType<typeof vi.fn>;
   };
@@ -65,7 +66,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     uninstallPlugin: ReturnType<typeof vi.fn>;
   };
   settingsStore: {
-    load: ReturnType<typeof vi.fn>;
     loadTokenUsage?: ReturnType<typeof vi.fn>;
     loadAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
     saveAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
@@ -163,12 +163,14 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       loadCatalog: vi.fn(async () => ({
         tools: [
           {
+            defaultSelected: true,
+            selected: true,
             id: "builtin.read_file",
             name: "read_file",
             displayName: "Read file",
             description: "Read a workspace file",
             source: "builtin",
-            enabled: true,
+            allowed: true,
             available: true,
           },
         ],
@@ -244,7 +246,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       uninstallPlugin: vi.fn(async () => undefined),
     },
     settingsStore: {
-      load: vi.fn(async () => [{ label: "Default model", value: "tinybot" }]),
+      ...settingsStoreFixture(),
     },
     performanceStore: {
       load: vi.fn(async () => ({

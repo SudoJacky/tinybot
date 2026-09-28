@@ -16,7 +16,7 @@ export function useQuickStart(settingsStore: SettingsStore | undefined) {
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [requested, setRequested] = useState(false);
-  const supported = Boolean(settingsStore?.loadChatModels && settingsStore.loadProviderSettings && settingsStore.saveProviderSettings);
+  const supported = Boolean(settingsStore?.loadChatModels);
   const saveProgress = useCallback((next: Exclude<Progress, null>) => {
     localStorage.setItem(QUICK_START_STORAGE_KEY, next);
     setProgress(next);

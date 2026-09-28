@@ -1,8 +1,12 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c927a53108f68b87980e985c05e9c3dcb4e2aef54e9bee0e6cbec0d15605c249 -->
+<!-- tinybot-module-fingerprint: sha256:ddffcd717f494db86f5657f072477d52403239532c32d5f746a7181dbd5c94e3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
+`chatMessages.ts` limits transient messages to optimistic user submissions.
+Assistant output, reasoning, tool activity, branching, and answer actions come
+from canonical Turns and Steps; the timeline has no second assistant-message
+renderer. Historical-message builders live only in test fixtures.
 `MessageReasoning` shares recorded reasoning disclosure and duration labels with
 the Team workbench. `ToolActivityItem` keeps long previews compact and lets users
 expand their full recorded content without leaving the timeline.
@@ -111,6 +115,11 @@ update received during a load invalidates that older load before rendering.
 Canonical Turn memoization relies on preserved model references and grouped Hook
 results. The timeline notifies the page after content commits so follow-to-bottom
 and saved scroll anchors continue working independently of page renders.
+`useConversationViewport` owns the scroll refs, session anchor memory, search
+focus, and following state. Session switches, manual scrolling, sends, deletion,
+and unmount cancel queued restoration. Late content callbacks from another
+session cannot scroll the current conversation; draft materialization migrates
+its saved position to the persisted session ID.
 Each composer send clears the current saved scroll position and resumes following
 the timeline, revealing the new user input when it mounts. Scrolling up afterward
 pauses following again until the next send or Back to latest action.
@@ -157,7 +166,7 @@ without mounting Chat or provisioning Sidecar resources.
 `ChatPage.queue-rendering.test.tsx` verifies that deleting a queued input adds
 neither a Timeline render nor a session-list request, and that browser snapshots
 add no Timeline render while Chat and Sidecar share one native subscription.
-The ChatPage details drawer retains closing content through a reversible 220 ms
+The ChatPage subagent details drawer retains closing content through a reversible 220 ms
 opacity/transform transition using `lib/useExitPresence`. Closing immediately
 makes the drawer inert and restores trigger focus; reopening cancels pending
 removal. Thread changes clear incompatible details. Native Sidecar browser
@@ -166,7 +175,9 @@ the shared overlay coordinator. The retained drawer declares a whole-window
 native overlay marker, without coupling its state to Sidecar resources.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
-branch, recovery, artifact, delegate, and tool-detail controls.
+branch, recovery, artifact, and delegate controls. Canonical Turns always render
+their ordered `steps` and separate `finalAnswer`. Tool arguments and results
+expand inline; attached Artifacts and scoped errors stay with the owning step.
 Assistant message actions belong only to a Turn's final answer; commentary in
 the ordered execution trace remains readable but does not expose copy actions.
 `TurnMetrics.tsx` places one elapsed-time pill beside final-answer actions, or
@@ -208,7 +219,7 @@ larger breaks around commentary and modest spacing around plans. Recorded
 content, disclosure behavior and explicit failure states remain unchanged.
 
 `TimelineActivity.tsx` owns the shared Tool, Diff, Reasoning, Plan, compaction,
-execution-summary, and legacy tool-group shell:
+and execution-summary shell:
 header layout, disclosure controls, stable accessible IDs, collapsed previews,
 and the details region. Its CSS and the disclosure icon CSS are imported by
 their owning modules. Ordinary tools use local expansion state; Reasoning and
@@ -228,8 +239,8 @@ parent updates after the closing transition and receive the latest content when
 reopened; headers and summaries stay live. `ToolActivityItem` also skips unchanged
 canonical calls when a projected Turn creates new wrappers around the same payloads.
 This keeps completed tool rows stable while subsequent text streams, including
-when the execution trace remains open. Flat legacy tool groups use
-the same list renderer without a disclosure shell. Business-specific renderers
+when the execution trace remains open. Optimistic messages retain their grouped
+tool presentation until canonical Turns arrive. Business-specific renderers
 own content and lifecycle decisions; they do not create disclosure buttons or IDs.
 `FloatingPlanStatus` mirrors the latest canonical plan at the top right across Turns.
 The capsule expands into step details; updates expand it for five seconds, while

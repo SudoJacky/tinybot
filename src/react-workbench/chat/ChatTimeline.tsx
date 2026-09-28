@@ -15,7 +15,6 @@ import {
   Lightbulb,
   ListCollapse,
   Loader2,
-  PanelRightOpen,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -29,15 +28,8 @@ import type {
   ChatStep,
   ChatTurn,
   DelegatedAgentState,
-  ToolCallState,
 } from "../../app-core/chat/chatTurnContracts";
-import {
-  canBranchFromMessage,
-  canCopyMessage,
-  type ContextReferenceSummary,
-  type ReactChatMessage,
-  type ToolCallSummary,
-} from "./messageActions";
+import type { ContextReferenceSummary, OptimisticUserMessage } from "./chatMessages";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { MessageSkills } from "./MessageSkills";
 import { ThoughtLine, type ThoughtPhase } from "./ThoughtLine";
@@ -56,16 +48,16 @@ export type ChatTimelineActions = {
   onOpenArtifact?: (artifact: ArtifactRef) => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
-  onOpenTool?: (toolCall: ToolCallSummary) => void;
 };
 
 const EMPTY_HOOK_RESULTS: HookExecutionResult[] = [];
+const EMPTY_INTERACTIVE_FORM_IDS: ReadonlySet<string> = new Set();
 
 export function ChatTimeline({
   actions,
   error,
   hookResults,
-  interactiveFormIds,
+  interactiveFormIds = EMPTY_INTERACTIVE_FORM_IDS,
   latestFailedTurnId,
   highlightedTurnId,
   optimisticMessages,
@@ -76,10 +68,10 @@ export function ChatTimeline({
   actions: ChatTimelineActions;
   error?: string;
   hookResults: readonly HookExecutionResult[];
-  interactiveFormIds: ReadonlySet<string>;
+  interactiveFormIds?: ReadonlySet<string>;
   latestFailedTurnId: string;
   highlightedTurnId?: string;
-  optimisticMessages: readonly ReactChatMessage[];
+  optimisticMessages: readonly OptimisticUserMessage[];
   providerRetry?: ProviderRetryStatus;
   sessionRunning: boolean;
   turns: readonly ChatTurn[];
@@ -109,18 +101,14 @@ export function ChatTimeline({
           onOpenArtifact={actions.onOpenArtifact}
           onOpenFileLink={actions.onOpenFileLink}
           onOpenSubagent={actions.onOpenSubagent}
-          onOpenTool={actions.onOpenTool}
         />
       ))}
       {optimisticMessages.map((message) => (
-        <MessageBubble
+        <OptimisticUserMessageBubble
           key={message.id}
           message={message}
-          onBranch={() => undefined}
-          onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
+          onCopy={() => void writeClipboardText(message.text)}
           onOpenFileLink={actions.onOpenFileLink}
-          onOpenTool={() => undefined}
-          sessionRunning={sessionRunning}
         />
       ))}
       {sessionRunning && optimisticMessages.length > 0 && !turns.some((turn) => (
@@ -143,7 +131,6 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
   onOpenArtifact,
   onOpenFileLink,
   onOpenSubagent,
-  onOpenTool,
   providerRetry,
   turn,
 }: {
@@ -155,26 +142,13 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
   onOpenArtifact?: (artifact: ArtifactRef) => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
-  onOpenTool?: (toolCall: ToolCallSummary) => void;
   turn: ChatTurn;
   providerRetry?: ProviderRetryStatus;
 }) {
   const { t } = useTranslation("chat");
-  const executionItems = turn.executionItems ?? turn.steps;
-  const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
+  const finalAnswer = turn.finalAnswer;
   const metricsFooter = (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted")
     && turnDurationMs(turn) !== undefined ? <TurnMetrics turn={turn} /> : undefined;
-  const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
-  const planSteps = turn.steps.filter((step) => step.kind === "plan");
-  const errorSteps = turn.status === "interrupted"
-    ? []
-    : turn.steps.filter((step) => step.kind === "error");
-  const legacyProcessSteps = turn.steps.filter((step) => (
-    step.kind !== "reasoning"
-    && step.kind !== "plan"
-    && step.kind !== "error"
-    && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
-  ));
   const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length || turn.userMessage.selectedSkills?.length);
   return (
     <section aria-label={t("turn.label")} className="react-canonical-turn" data-search-match={searchMatch || undefined} data-status={turn.status} data-scroll-anchor={`turn:${turn.id}`}>
@@ -188,70 +162,26 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
           text={turn.userMessage.text}
         />
       ) : null}
-      {turn.executionItems ? (
-        <ExecutionTimeline
-          executionItems={executionItems}
-          focusError={focusError}
-          onOpenArtifact={onOpenArtifact}
-          onOpenSubagent={onOpenSubagent}
-          turn={turn}
-        />
-      ) : !turn.executionItems ? (
-        <>
-          <ThoughtLine
-            phase={turnThoughtPhase(turn, executionItems)}
-            summary={executionTimelineSummary(executionItems, false, t)}
-            startedAt={turn.startedAt}
-            endedAt={turn.completedAt ?? turn.updatedAt}
-          />
-          {planSteps.map((step) => (
-            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} step={step} />
-          ))}
-          {groupCanonicalSteps(legacyProcessSteps).map((group) => (
-            Array.isArray(group) ? (
-              <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
-                <AgentSteps onOpenTool={onOpenTool} toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!, t))} />
-                <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
-                <CanonicalDataViews artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
-                <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
-              </div>
-            ) : (
-              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} step={group} />
-            )
-          ))}
-          {errorSteps.map((step, index) => (
-            <InlineExecutionError
-              focusOnMount={focusError && index === errorSteps.length - 1}
-              key={step.id}
-              step={step}
-              turn={turn}
-            />
-          ))}
-        </>
-      ) : null}
+      <ExecutionTimeline
+        focusError={focusError}
+        interactiveFormIds={interactiveFormIds}
+        onOpenArtifact={onOpenArtifact}
+        onOpenFileLink={onOpenFileLink}
+        onOpenSubagent={onOpenSubagent}
+        turn={turn}
+      />
       {hookResults.length ? <HookExecutionResults results={hookResults} /> : null}
       {finalAnswer ? (
         <CanonicalMessage
           allowActions={turn.status === "completed"}
           messageId={finalAnswer.id}
           footer={metricsFooter}
-          reasoning={turn.executionItems ? [] : reasoningSteps}
           references={finalAnswer.references}
           role="assistant"
           streaming={turn.status === "running"}
           text={finalAnswer.text}
           onOpenFileLink={onOpenFileLink}
           onBranch={turn.status === "completed" && onBranch ? () => onBranch(finalAnswer.id) : undefined}
-        />
-      ) : !turn.executionItems && reasoningSteps.length ? (
-        <CanonicalMessage
-          allowActions={false}
-          messageId={reasoningSteps[reasoningSteps.length - 1]?.messageId || reasoningSteps[reasoningSteps.length - 1]?.id || turn.id}
-          reasoning={reasoningSteps}
-          role="assistant"
-          streaming={turn.status === "running"}
-          text=""
-          onOpenFileLink={onOpenFileLink}
         />
       ) : null}
       {!finalAnswer && metricsFooter ? <div className="react-message__actions">{metricsFooter}</div> : null}
@@ -322,47 +252,34 @@ function hookDecisionLabel(decision: string, t: TFunction<"chat">): string {
   }
 }
 
-function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
-  const groups: Array<ChatStep | ChatStep[]> = [];
-  for (const step of steps) {
-    if (step.kind !== "tool_call" || !step.toolCall || step.toolCall.name === "team.recruit") {
-      groups.push(step);
-      continue;
-    }
-    const previous = groups[groups.length - 1];
-    if (Array.isArray(previous)) {
-      previous.push(step);
-    } else {
-      groups.push([step]);
-    }
-  }
-  return groups;
-}
-
 function ExecutionTimeline({
-  executionItems,
   focusError,
+  interactiveFormIds,
   onOpenArtifact,
+  onOpenFileLink,
   onOpenSubagent,
   turn,
 }: {
-  executionItems: ChatStep[];
   focusError: boolean;
+  interactiveFormIds: ReadonlySet<string>;
   onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   turn: ChatTurn;
 }) {
   const { t } = useTranslation("chat");
+  const executionItems = turn.steps;
   const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
     || turn.status === "failed"
     || turn.status === "interrupted"
     || turn.status === "awaiting_user";
-  const shouldFold = Boolean(turn.finalAnswer ?? turn.finalMessage);
+  const shouldFold = Boolean(turn.finalAnswer);
   const foldedOnce = useRef(shouldFold);
   const [open, setOpen] = useState(!shouldFold);
-  const visibleExecutionItems = turn.status === "interrupted"
-    ? executionItems.filter((step) => step.kind !== "error")
-    : executionItems;
+  const visibleExecutionItems = executionItems.filter((step) => (
+    !(turn.status === "interrupted" && step.kind === "error")
+    && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
+  ));
   const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
 
   useEffect(() => {
@@ -396,6 +313,7 @@ function ExecutionTimeline({
               ) : (
                 <CanonicalChatStep
                   onOpenArtifact={onOpenArtifact}
+                  onOpenFileLink={onOpenFileLink}
                   onOpenSubagent={onOpenSubagent}
                   step={step}
                 />
@@ -511,7 +429,7 @@ function executionActivityLabel(category: ExecutionActivityCategory, count: numb
 function turnThoughtPhase(turn: ChatTurn, items: ChatStep[]): ThoughtPhase {
   if (turn.status === "awaiting_user") return "awaiting";
   if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") return turn.status;
-  if (turn.finalAnswer ?? turn.finalMessage) return "responding";
+  if (turn.finalAnswer) return "responding";
   const active = [...items].reverse().find((item) => item.status === "running");
   return !items.length || active?.kind === "reasoning" ? "thinking" : "running";
 }
@@ -584,7 +502,6 @@ function CanonicalMessage({
   messageId,
   onBranch,
   onOpenFileLink,
-  reasoning = [],
   references = [],
   selectedSkills,
   role,
@@ -596,7 +513,6 @@ function CanonicalMessage({
   messageId: string;
   onBranch?: () => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
-  reasoning?: ChatStep[];
   references?: AgentInputReference[];
   selectedSkills?: string[];
   role: "user" | "assistant";
@@ -618,9 +534,6 @@ function CanonicalMessage({
       {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
         {role === "user" ? <MessageSkills skills={selectedSkills} /> : null}
-        {reasoning.map((step) => (
-          <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
-        ))}
         {role === "assistant" ? <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
         {fileReferences.length ? <MessageAttachments references={fileReferences} onOpenFileLink={onOpenFileLink} /> : null}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
@@ -688,7 +601,9 @@ function CanonicalChatStep({
       <>
         {recruitment?.kind === "invalid" && <p role="alert">{teamText("teams.recruitmentInvalid")}</p>}
         {activity}
+        <CanonicalArtifacts artifacts={step.artifacts ?? []} onOpen={onOpenArtifact} />
         <CanonicalDataViews artifacts={step.artifacts ?? []} onOpen={onOpenArtifact} />
+        <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
       </>
     );
   }
@@ -999,17 +914,6 @@ function canonicalReferenceSummary(reference: AgentInputReference, index: number
   };
 }
 
-function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState, t: TFunction<"chat">): ToolCallSummary {
-  return {
-    id: toolCall.id,
-    name: displayToolName(toolCall.name, t),
-    status: step.status,
-    summary: toolCall.resultPreview || step.summary,
-    ...(toolCall.argsPreview ? { argsText: toolCall.argsPreview } : {}),
-    ...(toolCall.resultPreview ? { responseText: toolCall.resultPreview } : {}),
-  };
-}
-
 function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
   if (step.status === "completed") return "success";
   if (step.status === "running") return "active";
@@ -1018,68 +922,40 @@ function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
   return "pending";
 }
 
-function MessageBubble({
+function OptimisticUserMessageBubble({
   message,
-  onBranch,
   onCopy,
   onOpenFileLink,
-  onOpenTool,
-  sessionRunning,
 }: {
-  message: ReactChatMessage;
-  onBranch: () => void;
+  message: OptimisticUserMessage;
   onCopy: () => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  sessionRunning: boolean;
 }) {
   const { t } = useTranslation("chat");
-  const actionAlignment = message.role === "user" ? "right" : "left";
-  const attachmentReferences = message.role === "user"
-    ? (message.contextReferences ?? []).filter(isAttachmentReference)
-    : [];
-  const inlineReferences = message.role === "user"
-    ? (message.contextReferences ?? []).filter((reference) => !isAttachmentReference(reference))
-    : message.contextReferences ?? [];
+  const attachmentReferences = (message.contextReferences ?? []).filter(isAttachmentReference);
+  const inlineReferences = (message.contextReferences ?? []).filter((reference) => !isAttachmentReference(reference));
   const imageReferences = attachmentReferences.filter((reference) => reference.attachmentKind === "image");
   const fileReferences = attachmentReferences.filter((reference) => reference.attachmentKind !== "image");
-  const showCopyAction = canCopyMessage(message, { sessionRunning });
-  const showBranchAction = canBranchFromMessage(message, { sessionRunning });
   return (
     <article
       className="react-message"
       data-actions-placement="bottom"
-      data-role={message.role}
+      data-role="user"
       data-testid={`message-${message.id}`}
       data-scroll-anchor={`message:${message.id}`}
     >
       {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
-        {message.role === "user" ? <MessageSkills skills={message.selectedSkills} /> : null}
-        {message.reasoningText ? (
-          <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
-        ) : null}
-        {message.role === "assistant" ? (
-          <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={message.status === "streaming"} text={message.text} />
-        ) : (
-          <PlainMessageText text={message.text} />
-        )}
+        <MessageSkills skills={message.selectedSkills} />
+        <PlainMessageText text={message.text} />
         {fileReferences.length ? <MessageAttachments references={fileReferences} onOpenFileLink={onOpenFileLink} /> : null}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
-        {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
       </div>
-      {showCopyAction || showBranchAction ? (
-        <div className="react-message__actions" data-align={actionAlignment}>
-          {showCopyAction ? (
-            <button aria-label={t("turn.copyMessage")} type="button" onClick={onCopy}>
-              <Copy aria-hidden="true" size={14} />
-            </button>
-          ) : null}
-          {showBranchAction ? (
-            <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
-              <GitBranch aria-hidden="true" size={14} />
-            </button>
-          ) : null}
+      {message.text.trim() ? (
+        <div className="react-message__actions" data-align="right">
+          <button aria-label={t("turn.copyMessage")} type="button" onClick={onCopy}>
+            <Copy aria-hidden="true" size={14} />
+          </button>
         </div>
       ) : null}
     </article>
@@ -1170,85 +1046,7 @@ function managedImagePreviewSource(path: string | undefined): string | undefined
   return path && tauriWindow?.__TAURI_INTERNALS__ ? convertFileSrc(path) : undefined;
 }
 
-function formatMessageForCopy(message: ReactChatMessage): string {
-  return message.text;
-}
-
 type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
-
-function AgentSteps({
-  flat = false,
-  onOpenTool,
-  toolCalls,
-}: {
-  flat?: boolean;
-  onOpenTool?: (toolCall: ToolCallSummary) => void;
-  toolCalls: ToolCallSummary[];
-}) {
-  const { t } = useTranslation("chat");
-  const overallStatus = resolveAgentStepsStatus(toolCalls);
-  const countLabel = t("steps.count", { count: toolCalls.length });
-  const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
-  const list = (
-    <ol aria-label={t("steps.label")} className="react-agent-steps__list">
-      {toolCalls.map((toolCall, index) => {
-        const status = normalizeAgentStepStatus(toolCall.status);
-        const isLast = index === toolCalls.length - 1;
-        const isCurrent = index === currentStepIndex;
-        return (
-          <li
-            aria-current={isCurrent ? "step" : undefined}
-            className="react-agent-step-item"
-            data-motion-role="step"
-            data-status={status}
-            data-step-count={toolCalls.length}
-            data-step-index={index}
-            key={toolCall.id}
-          >
-            {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
-            <span className="react-agent-step-item__marker" data-status={status}>
-              <AgentStepIcon status={status} />
-            </span>
-            {onOpenTool ? <button
-              aria-label={t("steps.openDetails", { name: toolCall.name })}
-              className="react-agent-step"
-              type="button"
-              onClick={() => onOpenTool(toolCall)}
-            >
-              <span className="react-agent-step__content">
-                <span>{toolCall.name}</span>
-                {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-              </span>
-              <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
-              <PanelRightOpen aria-hidden="true" size={15} />
-            </button> : (
-              <div className="react-agent-step">
-                <span className="react-agent-step__content">
-                  <span>{toolCall.name}</span>
-                  {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-                </span>
-                <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ol>
-  );
-  return (
-    <section className="react-agent-steps" data-flat={flat ? "true" : undefined} data-status={overallStatus} data-stepper="true">
-      {flat ? list : (
-        <TimelineActivity
-          className="react-agent-steps__activity"
-          icon={<AgentStepIcon status={overallStatus} />}
-          meta={countLabel}
-          title={t("steps.title")}
-          triggerLabel={`${t("steps.label")}, ${countLabel}`}
-        >{list}</TimelineActivity>
-      )}
-    </section>
-  );
-}
 
 function AgentStepIcon({ status }: { status: AgentStepStatus }) {
   switch (status) {
@@ -1261,66 +1059,6 @@ function AgentStepIcon({ status }: { status: AgentStepStatus }) {
       return <AlertTriangle aria-hidden="true" size={14} />;
     default:
       return <Circle aria-hidden="true" size={12} />;
-  }
-}
-
-function resolveAgentStepsStatus(toolCalls: ToolCallSummary[]): AgentStepStatus {
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "error")) {
-    return "error";
-  }
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting")) {
-    return "waiting";
-  }
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active")) {
-    return "active";
-  }
-  if (toolCalls.length && toolCalls.every((toolCall) => normalizeAgentStepStatus(toolCall.status) === "success")) {
-    return "success";
-  }
-  return "pending";
-}
-
-function resolveCurrentAgentStepIndex(toolCalls: ToolCallSummary[]): number {
-  const activeIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active");
-  if (activeIndex >= 0) {
-    return activeIndex;
-  }
-  const waitingIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting");
-  if (waitingIndex >= 0) {
-    return waitingIndex;
-  }
-  return -1;
-}
-
-function normalizeAgentStepStatus(status: string): AgentStepStatus {
-  switch (status.toLowerCase()) {
-    case "complete":
-    case "completed":
-    case "success":
-    case "succeeded":
-      return "success";
-    case "running":
-    case "active":
-      return "active";
-    case "blocked":
-      return "waiting";
-    case "failed":
-    case "error":
-    case "cancelled":
-    case "canceled":
-      return "error";
-    default:
-      return status ? "pending" : "pending";
-  }
-}
-
-function formatAgentStepStatus(status: string, t: TFunction<"chat">): string {
-  switch (normalizeAgentStepStatus(status)) {
-    case "active": return t("steps.status.active");
-    case "success": return t("steps.status.success");
-    case "waiting": return t("steps.status.waiting");
-    case "error": return status.toLowerCase().includes("cancel") ? t("steps.status.cancelled") : t("steps.status.error");
-    default: return t("steps.status.pending");
   }
 }
 
@@ -1365,10 +1103,6 @@ function canonicalErrorInfo(step: ChatStep, t: TFunction<"chat">): { code: strin
     code: typeof error.code === "string" && error.code ? error.code : "runtime_error",
     message: typeof error.message === "string" && error.message ? error.message : step.summary || t("friendlyError.taskFailed"),
   };
-}
-
-function displayToolName(name: string, t?: TFunction<"chat">): string {
-  return name === "update_plan" ? t?.("tool.updatePlan") ?? name : name;
 }
 
 function friendlyErrorMessage(code: string, message: string, t: TFunction<"chat">): string {

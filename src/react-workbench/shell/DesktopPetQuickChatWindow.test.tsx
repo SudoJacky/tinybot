@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -61,7 +62,7 @@ describe("DesktopPetQuickChatWindow", () => {
       subscribe: vi.fn(() => () => undefined),
     };
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => [
         { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", providerId: "deepseek", default: true },
         { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", providerId: "deepseek" },
@@ -183,7 +184,7 @@ describe("DesktopPetQuickChatWindow", () => {
       subscribe: vi.fn(() => () => undefined),
     };
     const settingsStore: SettingsStore = {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadChatModels: vi.fn(async () => []),
     };
     const user = userEvent.setup();

@@ -1,5 +1,3 @@
-import { validateDesktopTimezone } from "./desktopSettingsProviders";
-
 export type AgentDefaultsFormValues = {
   timezone: string;
   maxTokens: string;
@@ -187,4 +185,23 @@ function pick(record: JsonRecord, ...keys: string[]): unknown {
 
 function asRecord(value: unknown): JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as JsonRecord : {};
+}
+
+function validateDesktopTimezone(value: string): boolean {
+  const timezone = value.trim();
+  if (!timezone) {
+    return false;
+  }
+  if (/^(?:UTC|GMT)[+-](?:[0-9]|0[0-9]|1[0-4])(?::[0-5][0-9])?$/i.test(timezone)) {
+    return true;
+  }
+  if (["UTC", "GMT"].includes(timezone)) {
+    return true;
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
 }

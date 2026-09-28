@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:60384c4a66742d9ca1587260557637933f89a2ee821ec2726994b83d173f0034 -->
+<!-- tinybot-doc-fingerprint: sha256:a5143b8d99bd507bf1e8a051043671d3ab31c916f6bf876fcca4f17e9d737324 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -30,7 +30,7 @@ The native bridge and runtime also write scoped `agent.preparation` diagnostics
 to the application log for identifying preparation delays without adding
 diagnostic events to conversation history.
 
-The Chat application owns client submission preparation, optimistic messages,
+The Chat application owns client submission preparation, optimistic user messages,
 queue and command coordination. Native Chat command orchestration is injected
 by the renderer composition root; canonical conversation projection remains
 owned by the existing Timeline model. Item patches reproject only the changed
@@ -38,6 +38,11 @@ Turn and preserve historical references. Streaming content is published through
 a session-scoped source consumed by the Timeline view; the Chat route subscribes
 to stable lifecycle, plan and usage summaries. Content commits retain scroll
 following and restoration without rerendering the composer on each text update.
+The conversation viewport owns session scroll memory and cancels obsolete
+restoration work. Composer editors own DOM selection, IME and Skill positions
+behind shared focus and trigger-replacement operations; the input owns menus,
+attachments and submission. Timeline views and transcript export consume the
+same ordered steps and final-answer projection.
 
 Chat can release offscreen Markdown and chart renderers while retaining message
 interaction owners and semantic scroll anchors. The native browser owns idle
@@ -301,21 +306,20 @@ existing application window.
 
 ## Cross-module flows
 
-- Team preparation accepts a supplied plan or a tool-free model proposal.
-  The renderer submits the selected roster from its pixel-avatar member picker.
-  Planning follows configured responsibilities; each attempt receives its own
-  member role as instructions and the saved team roster as task context.
+- The main Chat Agent recruits employees through `team.recruit`, recording their
+  instructions, tool profiles, tasks, and dependencies in the native Team board.
+  Each attempt receives its saved employee instructions and team context.
   The Team scheduler validates the dependency graph and dispatches ready tasks
   to the native Thread/Turn bridge. Attempt identities and results are committed
   before execution and downstream dispatch respectively. Native Threads own
   tool/runtime events; the Team store owns dependency and run state. Restart
   reconciliation marks uncertain work interrupted and requires explicit retry.
-  The Team renderer reads worker timelines without changing the selected Chat
-  session and subscribes to canonical activity for running and inspected tasks.
-  Recent activity and latest attempts are shown first, with older records folded.
-  Overall progress and the selected member's work use separate panes linked by
-  task selection and a persistent bottom member dock. Messages, recorded reasoning,
-  tool inputs/results, patch diffs and data views reuse Chat renderers. Tool
+  The Team Sidecar loads and subscribes to the selected attempt's canonical
+  timeline without changing the selected Chat session. The panel owns reads and
+  retries; a pure projection maps recorded Steps into activity items. A member
+  dock and attempt selector connect task status to its saved history. Messages,
+  recorded reasoning, tool inputs/results, patch diffs and data views reuse Chat
+  renderers. Tool
   previews can reveal their full recorded content; reading positions remain per task attempt.
   Its Files view groups reported artifacts by producer task and attempt, reusing
   verified artifact reads and the separate current-workspace file preview.
@@ -343,9 +347,9 @@ existing application window.
 Teams are recruited by the main Agent in Chat and inspected in the shared
 Sidecar. A typed native adapter supplies durable run revisions and attempt
 Threads. Renderer polling never owns the scheduler; explicit pause, cancel and
-retry requests remain backend decisions. The former independent Teams route
-resolves to Chat. Chat no longer shows the recent-team history shortcut;
-removing that entry does not change saved native run records.
+retry requests remain backend decisions. Teams opens through Chat recruitment
+cards and Sidecar tabs; the renderer route contract has no standalone Teams route
+or compatibility alias. Durable run records remain owned by the native store.
 
 Team collaboration uses a run-scoped shared message board: completion publishes a full handoff with summary, unresolved issues and artifact references. Handoff text has no size limit; artifact bodies are read in verified ranges on demand. The Team store remains the single publication/state owner; this does not add a project task store or long-term memory extraction.
 

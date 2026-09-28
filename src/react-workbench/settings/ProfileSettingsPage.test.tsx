@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { settingsStoreFixture } from "../test/settingsStoreFixture";
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -226,7 +227,7 @@ function selectProvider(name: string) {
 
 function createSettingsStore(): SettingsStore {
   return {
-      load: vi.fn(async () => []),
+      ...settingsStoreFixture(),
       loadTokenUsage: vi.fn(async () => ({
         schemaVersion: "tinybot.token_usage.v3" as const,
         totals: usage(14_000, 8_000, 3_000, 1_200, 17_000),

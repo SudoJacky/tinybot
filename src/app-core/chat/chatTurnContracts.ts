@@ -204,9 +204,7 @@ export type ChatTurn = {
   metrics?: TurnMetrics;
   canonicalItems?: BackendAgentTurnItem[];
   completedAt?: string;
-  executionItems?: ChatStep[];
   finalAnswer?: ChatMessage;
-  finalMessage?: ChatMessage;
   id: string;
   sessionKey: string;
   startedAt: string;

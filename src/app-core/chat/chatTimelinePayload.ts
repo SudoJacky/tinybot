@@ -134,16 +134,14 @@ function normalizeCanonicalTurnItem(
   if (!CANONICAL_ITEM_KINDS.has(kind)) {
     throw new Error(`Canonical item ${itemId} has unsupported kind ${kind || "missing"}`);
   }
-  const data = payloadRecord(raw.data);
+  let data = payloadRecord(raw.data);
   if (payloadString(data.type) !== kind) {
     throw new Error(`Canonical item ${itemId} kind/data mismatch: ${kind}/${payloadString(data.type) || "missing"}`);
   }
   if (kind === "assistant_message") {
-    requiredCanonicalString(data, "modelCallId");
-    assistantMessagePhase(data.phase, itemId);
-  }
-  if (kind === "reasoning") {
-    requiredCanonicalString(data, "modelCallId");
+    data = { ...data, modelCallId: requiredCanonicalString(data, "modelCallId"), phase: assistantMessagePhase(data.phase, itemId) };
+  } else if (kind === "reasoning") {
+    data = { ...data, modelCallId: requiredCanonicalString(data, "modelCallId") };
   }
   if (kind === "usage" && data.modelTiming !== undefined) {
     const timing = payloadRecord(data.modelTiming);

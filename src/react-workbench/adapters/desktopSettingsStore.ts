@@ -12,11 +12,7 @@ import {
   writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
-import {
-  buildDesktopProviderCatalogItems,
-  buildDesktopSettingsFormState,
-} from "../../app-core/settings/desktopSettingsProviders";
-import { buildDesktopSettingsPaneModel } from "../../app-core/settings/desktopSettingsPaneModel";
+import { buildDesktopConfigSettingsValues } from "../../app-core/settings/desktopConfigSettings";
 import {
   buildProviderDefaultLlmPatch,
   buildProviderModelsSettings,
@@ -170,16 +166,12 @@ export function createDesktopSettingsStore({
         return nativeTokenUsage.snapshot();
       },
     } : {}),
-    async load() {
-      await initialize();
-      return normalizeSettingsSummary(await loadSettingsSnapshot());
-    },
     async loadChatModels() {
       await initialize();
       const snapshot = await loadSettingsSnapshot();
       if (!isRecord(snapshot)) return [];
       const settings = await reconcileDefaultChatModel(snapshot);
-      const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
+      const providerCatalog = await loadProviderCatalog();
       return normalizeChatModelOptions(settings, providerCatalog);
     },
     async loadPersonalizationInstructions() {
@@ -201,38 +193,13 @@ export function createDesktopSettingsStore({
     async loadDesktopConfigSettings() {
       await initialize();
       const currentConfig = await loadSettingsSnapshot();
-      const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-      const formState = buildDesktopSettingsFormState(currentConfig, providerCatalog);
-      return {
-        currentConfig,
-        formState,
-        pane: buildDesktopSettingsPaneModel(formState, { providerCatalog }),
-      };
+      return { currentConfig, values: buildDesktopConfigSettingsValues(currentConfig) };
     },
     async saveDesktopConfigSettings(currentConfig, patch) {
       await initialize();
       const { result, savedConfig } = await persistSettingsConfig(currentConfig, patch);
-      const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-      const formState = buildDesktopSettingsFormState(savedConfig, providerCatalog);
-      const saveDetails = {
-        transport: result.transport,
-        persistedRevision: result.persistedRevision,
-        updatedFields: result.updatedFields,
-        applied: result.applied,
-        restartRequired: result.restartRequired,
-        reloadRequired: result.reloadRequired,
-        warnings: result.warnings,
-      };
-      return {
-        currentConfig: savedConfig,
-        formState,
-        pane: buildDesktopSettingsPaneModel(formState, {
-          providerCatalog,
-          saveStatus: "saved",
-          saveDetails,
-        }),
-        saveDetails,
-      };
+      const { config: _config, ...saveDetails } = result;
+      return { currentConfig: savedConfig, values: buildDesktopConfigSettingsValues(savedConfig), saveDetails };
     },
     async createStreamableHttpMcpServer(input) {
       await initialize();
@@ -605,37 +572,21 @@ function normalizePersonalizationWrite(payload: unknown, contents: string): Pers
   };
 }
 
-function normalizeSettingsSummary(snapshot: unknown): Array<{ label: string; value: string }> {
-  const rows: Array<{ label: string; value: string }> = [];
-  if (!isRecord(snapshot)) return rows;
-  const agents = isRecord(snapshot.agents) ? snapshot.agents : {};
-  const defaults = isRecord(snapshot.defaults)
-    ? snapshot.defaults
-    : isRecord(agents.defaults)
-      ? agents.defaults
-      : agents;
-  const model = stringValue(defaults.model ?? defaults.default_model ?? snapshot.model);
-  if (model) rows.unshift({ label: "Default model", value: model });
-  const providers = payloadItems(snapshot.providers ?? snapshot.llm_providers ?? snapshot.provider_configs, ["items"]);
-  if (providers.length) rows.push({ label: "Providers", value: String(providers.length) });
-  return rows;
-}
-
 function normalizeChatModelOptions(
   settings: ReturnType<typeof buildProviderModelsSettings>,
-  providerCatalog: ReturnType<typeof buildDesktopProviderCatalogItems>,
+  providerCatalog: unknown[],
 ): ChatModelOption[] {
   const defaultModel = stringValue(settings.agentDefaultModel);
   const defaultProviderId = stringValue(settings.agentDefaultProviderId)
     || settings.providers.find((provider) => provider.profileId === settings.activeProfileId)?.id
     || "";
   const defaultProvider = settings.providers.find((provider) => provider.id === defaultProviderId);
+  const availableProviderIds = new Set(providerCatalog.filter(isRecord).filter((item) => (
+    (item.apiKeyConfigured ?? item.api_key_configured) === true
+    || ["available", "ready"].includes(stringValue(item.status).trim().toLowerCase())
+  )).map((item) => stringValue(item.id)));
   const providers = settings.providers.filter((provider) => provider.enabled && (
-    provider.status === "available"
-    || providerCatalog.some((item) => item.id === provider.id && (
-      item.apiKeyConfigured === true
-      || ["available", "ready"].includes(stringValue(item.status).trim().toLowerCase())
-    ))
+    provider.status === "available" || availableProviderIds.has(provider.id)
   ));
   const options = new Map<string, ChatModelOption>();
   for (const provider of providers) {

@@ -1,5 +1,5 @@
 # Renderer Library
-<!-- tinybot-module-fingerprint: sha256:2e1ceeb196f78eff2a1cbecfe2f9eb54aeacbe591a14f30a97ec76f9369b407a -->
+<!-- tinybot-module-fingerprint: sha256:624fc104c80d253dedfdc07aad3e677bf7618ddcc9ec1c6087cbbefc5dbfdc05 -->
 
 `lib` contains small, renderer-only presentation helpers shared by frontend
 modules. Formatting helpers are pure; presentation hooks do not own route state.
@@ -23,10 +23,6 @@ replace old ones; info/success messages remain for three seconds and warnings/er
 for eight seconds. Timers pause while hovered, focused or hidden, then fade out
 over 220 ms. An optional action button can open the relevant route. Portals avoid route clipping, reduced-motion removes movement, and timers
 are cleaned up when messages are replaced.
-
-SplitFlapText adapts React Bits' split-flap renderer with its upstream license
-retained in the source. It owns only tile transitions and phrase cycling; reduced
-motion renders a static first phrase, and unmounting clears timers and frames.
 
 `FormControls.css` shares desktop buttons, text inputs, focus rings, and primary/danger actions between Memory and Automations. The `react-form-controls` scope excludes `SettingsChoiceList` controls so their own styles remain authoritative.
 

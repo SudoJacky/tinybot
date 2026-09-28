@@ -1,12 +1,15 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:f18642668a8827727a2a87a657fd03ca7bb264e81658886ff2c47c529e7d8969 -->
+<!-- tinybot-module-fingerprint: sha256:2efda364150a2076ff1e01e819c2de48204868bc8dea6bbc7f847243f0c8af73 -->
 
 `tokenUsage.ts` defines the v3 snapshot, purpose/source groups and paginated
 invocation contracts. Nullable usage distinguishes unavailable counts from zero;
 legacy attribution remains explicit instead of being assigned to a guessed run.
 
-`settings` owns framework-independent settings contracts, metadata, value
-semantics, validation, pane models, and persistence patch construction.
+`settings` owns framework-independent form models, validation, and partial
+persistence patches. `desktopConfigSettings.ts` defines only the Tools & MCP
+and Channels groups used by `ConfigSettingsPage`: ten fields with one saved
+baseline for dirty checks, reset, validation, and edited-field patches. Defaults
+and unrelated Provider or Agent settings are never materialized by these saves.
 
 `composerPreferences` persists the device-local rich-text composer preference,
 enabled when unset. Same-window change events and storage events keep settings,
@@ -42,10 +45,9 @@ Built-in provider presets include Z.ai with a static GLM model list and a
 Chat-Completions-only protocol choice, plus Ollama with a keyless local default
 endpoint and an initially empty, discoverable model catalog. Presets state
 whether an API key is required, so local Providers can become available without
-fabricating a credential. The dynamic desktop catalog preserves backend default
-API bases, model-discovery support, and the non-secret API-key-configured signal
-so both settings entry points present the same connection contract without
-exposing credentials.
+fabricating a credential. Provider pages use the Profile-based model and
+presets. The native Provider catalog is consumed at the desktop adapter boundary
+only to determine availability for shared Chat model choices.
 
 Default-LLM patches treat `agents.defaults.activeProfile` and
 `agents.defaults.model` as one pair. Provider activation builders require a
@@ -62,7 +64,7 @@ duplicate Provider routing or model temperature controls. Max output tokens is
 optional: missing or cleared values stay absent so the selected Provider applies
 its own model default. New defaults use the host system time zone reported by
 the renderer, with UTC as the validation-safe fallback, and persisted zones must
-belong to the runtime-supported IANA catalog.
+use runtime-supported IANA names, UTC/GMT, or supported UTC/GMT offsets.
 
 Provider model settings keep the discovered `models` catalog separate from
 `enabledModels`, which controls every shared model selector. Model rows also

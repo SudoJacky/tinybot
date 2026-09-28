@@ -1,10 +1,44 @@
+import { createAgentTimelineModel } from "../../../app-core/chat/agentTimelineModel";
 import type { ChatTimelineSnapshot } from "../../../app-core/chat/agentTimelineModel";
-import type { ChatStep, ChatTurn } from "../../../app-core/chat/chatTurnContracts";
-import type { ReactChatMessage } from "../messageActions";
+import type { ChatStep, ChatTurn, TokenUsage } from "../../../app-core/chat/chatTurnContracts";
+import type { ContextReferenceSummary } from "../chatMessages";
+
+type ToolCallSummary = {
+  argsText?: string;
+  childTurnId?: string;
+  delegateId?: string;
+  delegateTask?: string;
+  delegateTitle?: string;
+  delegateType?: string;
+  finalOutput?: string;
+  id: string;
+  name: string;
+  parentTurnId?: string;
+  responseText?: string;
+  sessionKey?: string;
+  status: "pending" | "running" | "complete" | "failed" | "blocked" | string;
+  summary?: string;
+  traceRef?: string;
+};
+
+export type TimelineMessageFixture = {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  createdAtMs: number;
+  text: string;
+  status: "streaming" | "complete" | "failed";
+  contextReferences?: ContextReferenceSummary[];
+  selectedSkills?: string[];
+  reasoningText?: string;
+  toolCalls?: ToolCallSummary[];
+  turnId?: string;
+  turnStatus?: string;
+  usage?: TokenUsage;
+};
 
 export function timelineFromReactMessages(
   sessionId: string,
-  messages: ReactChatMessage[],
+  messages: TimelineMessageFixture[],
 ): ChatTimelineSnapshot {
   const turns: ChatTurn[] = [];
   let turn: ChatTurn | undefined;
@@ -52,6 +86,8 @@ export function timelineFromReactMessages(
             ? "failed"
             : toolCall.status === "blocked"
               ? "blocked"
+              : toolCall.status === "queued"
+                ? "pending"
               : "running",
         toolCall: {
           id: toolCall.id,
@@ -62,16 +98,16 @@ export function timelineFromReactMessages(
       });
     }
     if (message.text) {
-      if (turn.finalMessage) {
+      if (turn.finalAnswer) {
         turn.steps.push(step(
-          { ...message, id: turn.finalMessage.id },
+          { ...message, id: turn.finalAnswer.id },
           turn.steps.length + 1,
           "message",
           "Assistant message",
-          turn.finalMessage.text,
+          turn.finalAnswer.text,
         ));
       }
-      turn.finalMessage = {
+      turn.finalAnswer = {
         id: message.id,
         role: "assistant",
         text: message.text,
@@ -116,7 +152,7 @@ export function timelineFromReactMessages(
 }
 
 function step(
-  message: ReactChatMessage,
+  message: TimelineMessageFixture,
   sequence: number,
   kind: ChatStep["kind"],
   title: string,
@@ -132,4 +168,19 @@ function step(
     title,
     summary,
   };
+}
+
+export function subagentTimeline() {
+  return createAgentTimelineModel().load("s1", [{
+    timeline: {
+      schemaVersion: "tinybot.timeline.v2", sessionId: "s1", turnId: "turn-subagent", snapshotRevision: 1,
+      items: [{
+        schemaVersion: "tinybot.turn_item.v2", sessionId: "s1", turnId: "turn-subagent",
+        itemId: "delegate-1", sequence: 1, revision: 1, kind: "subagent_lifecycle",
+        status: "running", createdAt: "2026-07-04T12:00:00Z", title: "Research agent",
+        data: { type: "subagent_lifecycle", agentId: "delegate-1", action: "spawned",
+          status: "running", name: "Research agent", task: "Read project files", message: "Inspecting source" },
+      }],
+    },
+  }]);
 }
