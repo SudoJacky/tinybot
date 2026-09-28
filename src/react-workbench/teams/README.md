@@ -1,5 +1,5 @@
 # Teams in Chat and Sidecar
-<!-- tinybot-module-fingerprint: sha256:69232634db1ebeebc5dc111891afccdcbedb17a49360d0a43b62cacea7eee924 -->
+<!-- tinybot-module-fingerprint: sha256:e9c2633a54bcc980fecc440ef7e4ff0df2283ef5b6b4f9704d99b8535f71b382 -->
 
 The main Agent recruits employees through `team.recruit` while working in Chat. The native Team store owns run revisions, scheduling, retries and durable attempt Threads. Employees use the saved Research, Execution or Review tool profile selected at recruitment and hand work back internally; only the main Agent gives the final user answer. This renderer does not prepare a manual plan or create an independent Team run.
 
@@ -13,7 +13,7 @@ The compact workspace header uses the generated transparent orange collaboration
 
 `TeamMainPlan` displays the current parent Chat's nonempty canonical plan below the shared workspace title, consistently across Tasks, Files and Usage. Its completed/total count and current step come from that plan, never employee tasks. Completed, failed, cancelled and no-current-step states remain explicit. The two-line current-step preview expands with click or keyboard to the full recorded steps and explanation in a bounded scroll area. Escape folds the plan and retains summary focus before a further Escape can hide Team. Plan identity resets disclosure for a new plan; revisions keep an open list open. Sidecar determines parent ownership and visibility in the same render that suppresses the original floating note; independent or unrelated history never borrows Chat's progress.
 
-The Chat header no longer mounts the recent-team history shortcut, in either an empty draft or an existing conversation. This does not rewrite durable run records or their `parentThreadId`. Hiding Sidecar closes the view without cancelling native work. Switching conversations scopes their Team tabs separately.
+Team inspection opens through recruitment cards and Sidecar tabs. The retired Chat-header history shortcut and its component have been removed; durable run records and their `parentThreadId` retain their original ownership. Hiding Sidecar closes the view without cancelling native work. Switching conversations scopes their Team tabs separately.
 
 `useSidecarTeamControls` enforces legal pause, cancel, resume and explicit per-task retry states, prevents duplicate requests and shows native errors. Native `execute` resolves only when the run stops, so it is tracked separately from short control requests. Failed, interrupted or cancelled work is reviewed before retry; successful attempts are never automatically replayed. A newer polled revision wins over a late control response.
 

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ESLint } from "eslint";
+import { ROOT_DIR } from "./config.mjs";
 import { analyzeSource } from "./source-analysis.mjs";
 import { analyzeBundle, compareBaseline, createBaseline } from "./bundle-analysis.mjs";
 import { compareEslintFindings } from "./eslint-analysis.mjs";
@@ -99,6 +101,26 @@ test("ESLint debt comparison fails only for findings beyond the reviewed baselin
   assert.equal(comparison.status, "failed");
   assert.deepEqual(comparison.added, [{ fingerprint: "src/b.ts|rule-b|message-b", count: 1 }]);
   assert.deepEqual(comparison.resolved, [{ fingerprint: "src/old.ts|rule-old|message-old", count: 1 }]);
+});
+
+test("ESLint enables TypeScript recommendations for source and Vite configuration", async () => {
+  const eslint = new ESLint({
+    cwd: ROOT_DIR,
+    overrideConfigFile: path.join(ROOT_DIR, "tools/frontend-analysis/eslint.config.mjs"),
+  });
+  for (const filePath of ["src/analysis-fixture.ts", "src/analysis-fixture.tsx", "vite.config.ts"]) {
+    const [invalid] = await eslint.lintText("export const value = input?.value!;", { filePath });
+    assert.deepEqual(invalid.messages.map((message) => message.ruleId), [
+      "@typescript-eslint/no-non-null-asserted-optional-chain",
+    ], filePath);
+
+    const [valid] = await eslint.lintText([
+      "export function identity(value: string): string;",
+      "export function identity(value: number): number;",
+      "export function identity(value: string | number) { return value; }",
+    ].join("\n"), { filePath });
+    assert.deepEqual(valid.messages, [], filePath);
+  }
 });
 
 function temporaryDirectory(context) {
