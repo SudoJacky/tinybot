@@ -368,6 +368,7 @@ export function createDesktopChatSessionController({
         content,
         clientEventId,
         ...(references?.length ? { references } : {}),
+        ...(selectedSkills?.length ? { selectedSkills } : {}),
       },
       spec: {
         turnId,

@@ -5,7 +5,6 @@ import { memo, useMemo, useEffect, useLayoutEffect, useRef, useState, type React
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
-  Activity,
   AlertTriangle,
   Check,
   Circle,
@@ -40,7 +39,8 @@ import {
   type ToolCallSummary,
 } from "./messageActions";
 import { AssistantMarkdown } from "./AssistantMarkdown";
-import { AgentResponseIndicator } from "./AgentResponseIndicator";
+import { MessageSkills } from "./MessageSkills";
+import { ThoughtLine, type ThoughtPhase } from "./ThoughtLine";
 import type { AssistantFileLink } from "./assistantFileLinks";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { MessageReasoning, reasoningDurationMs, formatThinkingLabel } from "./MessageReasoning";
@@ -125,7 +125,7 @@ export function ChatTimeline({
       ))}
       {sessionRunning && optimisticMessages.length > 0 && !turns.some((turn) => (
         turn.status === "pending" || turn.status === "running" || turn.status === "awaiting_user"
-      )) ? <AgentResponseIndicator /> : null}
+      )) ? <ThoughtLine phase="thinking" /> : null}
     </>
   );
 }
@@ -175,7 +175,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
     && step.kind !== "error"
     && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
   ));
-  const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
+  const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length || turn.userMessage.selectedSkills?.length);
   return (
     <section aria-label={t("turn.label")} className="react-canonical-turn" data-search-match={searchMatch || undefined} data-status={turn.status} data-scroll-anchor={`turn:${turn.id}`}>
       {hasUserMessage ? (
@@ -183,11 +183,12 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
           messageId={turn.userMessage.id}
           onOpenFileLink={onOpenFileLink}
           references={turn.userMessage.references}
+          selectedSkills={turn.userMessage.selectedSkills}
           role="user"
           text={turn.userMessage.text}
         />
       ) : null}
-      {turn.executionItems && executionItems.length ? (
+      {turn.executionItems ? (
         <ExecutionTimeline
           executionItems={executionItems}
           focusError={focusError}
@@ -197,6 +198,12 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
         />
       ) : !turn.executionItems ? (
         <>
+          <ThoughtLine
+            phase={turnThoughtPhase(turn, executionItems)}
+            summary={executionTimelineSummary(executionItems, false, t)}
+            startedAt={turn.startedAt}
+            endedAt={turn.completedAt ?? turn.updatedAt}
+          />
           {planSteps.map((step) => (
             <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} step={step} />
           ))}
@@ -248,10 +255,7 @@ const CanonicalChatTurn = memo(function CanonicalChatTurn({
         />
       ) : null}
       {!finalAnswer && metricsFooter ? <div className="react-message__actions">{metricsFooter}</div> : null}
-      {turn.status === "pending" || turn.status === "running" || turn.status === "awaiting_user" ? (
-        providerRetry && turn.status === "running" ? <ProviderRetryIndicator retry={providerRetry} />
-          : <AgentResponseIndicator awaitingUser={turn.status === "awaiting_user"} />
-      ) : null}
+      {providerRetry && turn.status === "running" ? <ProviderRetryIndicator retry={providerRetry} /> : null}
     </section>
   );
 });
@@ -353,33 +357,32 @@ function ExecutionTimeline({
     || turn.status === "failed"
     || turn.status === "interrupted"
     || turn.status === "awaiting_user";
-  const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
-  const finalAnswerObservedRef = useRef(hasFinalAnswer);
-  const [open, setOpen] = useState(!hasFinalAnswer);
+  const shouldFold = Boolean(turn.finalAnswer ?? turn.finalMessage);
+  const foldedOnce = useRef(shouldFold);
+  const [open, setOpen] = useState(!shouldFold);
   const visibleExecutionItems = turn.status === "interrupted"
     ? executionItems.filter((step) => step.kind !== "error")
     : executionItems;
   const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
 
   useEffect(() => {
-    if (!hasFinalAnswer || finalAnswerObservedRef.current) return;
-    finalAnswerObservedRef.current = true;
+    if (!shouldFold || foldedOnce.current) return;
+    foldedOnce.current = true;
     setOpen(false);
-  }, [hasFinalAnswer]);
+  }, [shouldFold]);
 
-  const summary = executionTimelineSummary(turn, executionItems, abnormal, t);
+  const summary = executionTimelineSummary(executionItems, abnormal, t);
   return (
     <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} data-status={turn.status}>
-      <TimelineActivity
-        className="react-execution-timeline__activity"
-        icon={<Activity size={16} />}
-        keepMounted
+      <ThoughtLine
+        phase={turnThoughtPhase(turn, executionItems)}
+        summary={summary}
+        startedAt={turn.startedAt}
+        endedAt={turn.completedAt ?? turn.updatedAt}
         onOpenChange={setOpen}
         open={open}
-        title={<span aria-live="polite" className="react-execution-timeline__summary" title={summary}>{summary}</span>}
-        triggerLabel={`${t("turn.workPerformed")}: ${summary}`}
       >
-        <div className="react-execution-timeline__content">
+        {visibleExecutionItems.length ? <div className="react-execution-timeline__content">
           {visibleExecutionItems.map((step) => (
             <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
               {step.kind === "reasoning" ? (
@@ -399,8 +402,8 @@ function ExecutionTimeline({
               )}
             </div>
           ))}
-        </div>
-      </TimelineActivity>
+        </div> : null}
+      </ThoughtLine>
     </section>
   );
 }
@@ -432,19 +435,12 @@ const EXECUTION_ACTIVITY_ORDER: ExecutionActivityCategory[] = [
   "other",
 ];
 
-function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: boolean, t: TFunction<"chat">): string {
+function executionTimelineSummary(items: ChatStep[], abnormal: boolean, t: TFunction<"chat">): string {
   const plan = [...items].reverse().find((step) => step.plan)?.plan;
-  const durationMs = executionDurationMs(turn);
   const activityParts = executionActivitySummary(items, t);
-  const parts = [
-    executionStatusLabel(turn.status, t),
-    ...(activityParts.length ? activityParts : [t("execution.actionCount", { count: items.length })]),
-  ].filter((part): part is string => Boolean(part));
+  const parts = activityParts.length ? activityParts : items.length ? [t("execution.actionCount", { count: items.length })] : [];
   if (plan) {
     parts.push(t("execution.plan", { completed: plan.completed, total: plan.total }));
-  }
-  if (durationMs !== undefined) {
-    parts.push(formatExecutionDuration(durationMs));
   }
   if (abnormal) {
     const blocked = items.find((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked");
@@ -512,13 +508,12 @@ function executionActivityLabel(category: ExecutionActivityCategory, count: numb
   }
 }
 
-function executionDurationMs(turn: ChatTurn): number | undefined {
-  const startedAtMs = Date.parse(turn.startedAt);
-  const endedAtMs = Date.parse(turn.completedAt ?? turn.updatedAt);
-  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
-    return undefined;
-  }
-  return Math.max(0, endedAtMs - startedAtMs);
+function turnThoughtPhase(turn: ChatTurn, items: ChatStep[]): ThoughtPhase {
+  if (turn.status === "awaiting_user") return "awaiting";
+  if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") return turn.status;
+  if (turn.finalAnswer ?? turn.finalMessage) return "responding";
+  const active = [...items].reverse().find((item) => item.status === "running");
+  return !items.length || active?.kind === "reasoning" ? "thinking" : "running";
 }
 
 function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
@@ -583,28 +578,6 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
   );
 }
 
-function executionStatusLabel(status: ChatTurn["status"], t: TFunction<"chat">): string | undefined {
-  switch (status) {
-    case "completed": return undefined;
-    case "failed": return t("execution.status.failed");
-    case "interrupted": return t("execution.status.interrupted");
-    case "awaiting_user": return t("execution.status.awaiting");
-    default: return t("execution.status.running");
-  }
-}
-
-function formatExecutionDuration(durationMs: number): string {
-  if (durationMs < 1_000) {
-    return `${Math.round(durationMs)}ms`;
-  }
-  if (durationMs < 60_000) {
-    return `${Math.round(durationMs / 1_000)}s`;
-  }
-  const minutes = Math.floor(durationMs / 60_000);
-  const seconds = Math.round((durationMs % 60_000) / 1_000);
-  return `${minutes}m ${seconds}s`;
-}
-
 function CanonicalMessage({
   allowActions = true,
   footer,
@@ -613,6 +586,7 @@ function CanonicalMessage({
   onOpenFileLink,
   reasoning = [],
   references = [],
+  selectedSkills,
   role,
   streaming = false,
   text,
@@ -624,6 +598,7 @@ function CanonicalMessage({
   onOpenFileLink?: (link: AssistantFileLink) => void;
   reasoning?: ChatStep[];
   references?: AgentInputReference[];
+  selectedSkills?: string[];
   role: "user" | "assistant";
   streaming?: boolean;
   text: string;
@@ -642,6 +617,7 @@ function CanonicalMessage({
     <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`} data-scroll-anchor={`message:${messageId}`}>
       {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
+        {role === "user" ? <MessageSkills skills={selectedSkills} /> : null}
         {reasoning.map((step) => (
           <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
         ))}
@@ -1079,6 +1055,7 @@ function MessageBubble({
     >
       {imageReferences.length ? <MessageAttachments references={imageReferences} /> : null}
       <div className="react-message__body">
+        {message.role === "user" ? <MessageSkills skills={message.selectedSkills} /> : null}
         {message.reasoningText ? (
           <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
         ) : null}

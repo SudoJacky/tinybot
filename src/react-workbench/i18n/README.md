@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:29e18f7f5432c6ecd4cfbe7eb45c43b35025b4c68f1d031f88b11b4386d301ec -->
+<!-- tinybot-module-fingerprint: sha256:32be7f6dfb79fb6d12512c1e03de50686cf46a4f1f7ee884d5cc14658d7f9aa5 -->
 
 Settings usage resources cover purposes, request outcomes, source identities,
 missing-usage explanations and the shared Team Usage tab in English and Chinese.
@@ -7,6 +7,8 @@ missing-usage explanations and the shared Team Usage tab in English and Chinese.
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles. Composer drag targets and attachment preparation
 status are localized in both languages.
+Skill-only composer messages interpolate the selected activation names in both
+languages, so the submitted message identifies the requested Skills.
 Labs localizes its Action Fusion toggle, persistence failures, next-Turn scope,
 and command-Hook restriction in both languages.
 Quick start localizes welcome and model setup, catalog-validation feedback,
@@ -39,6 +41,8 @@ values, protocol fields, and diagnostic codes must remain language-neutral.
 Chat code-block wrapping controls use localized labels and tooltips; code
 content remains unchanged.
 Tool previews localize their full-content and collapse controls in both languages.
+The execution status line localizes thinking, running, responding, completion,
+and waiting/failure states; playful split-flap phrases have been retired.
 Memory management localizes creation, editing, scope filters, selection,
 deletion confirmation, protection explanations, and save status. Entry content
 and paths remain user data; backend conflict details are displayed verbatim.

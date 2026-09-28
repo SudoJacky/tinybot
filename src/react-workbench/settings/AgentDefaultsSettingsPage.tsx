@@ -15,6 +15,7 @@ import {
 } from "../../app-core/settings/agentDefaultsSettings";
 import type { SettingsStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
+import { SettingsSegmentedChoice } from "./SettingsSegmentedChoice";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
 type AgentDefaultsSettingsPageProps = {
@@ -131,10 +132,9 @@ export function AgentDefaultsSettingsPage({ settingsStore }: AgentDefaultsSettin
               value={values.maxTokens}
               onChange={(value) => editValue("maxTokens", value)}
             />
-            <SettingsChoiceList
+            <SettingsSegmentedChoice
               error={validationMessage(t, errors.contextWindowStrategy)}
               label={t("agent.contextStrategy")}
-              showMenuDescriptions={false}
               options={[
                 { value: "discard", label: t("agent.discard"), description: t("agent.discardDescription") },
                 { value: "compact", label: t("agent.compact"), description: t("agent.compactDescription") },

@@ -415,8 +415,9 @@ describe("ChatPage", () => {
     expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
     expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");
     const turn = message.closest(".react-canonical-turn")!;
-    expect(turn.lastElementChild).toBe(screen.getByLabelText("Agent is responding"));
-    expect(within(message).queryByLabelText("Agent is responding")).toBeNull();
+    expect(turn.querySelector('.react-thought-line')?.getAttribute('data-phase')).toBe('responding');
+    expect(turn.lastElementChild).toBe(message);
+    expect(turn.querySelector('.react-agent-response')).toBeNull();
     expect(message.querySelector(".react-message-markdown")?.textContent).toContain("Here is the answer.");
   });
 

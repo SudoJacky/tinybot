@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:fe1cab633c1d0ae60da10f3874017ff94893fd0ab768a70bd1eb46f35a8b59da -->
+<!-- tinybot-module-fingerprint: sha256:368c5c74096e542a6794e3cbe5feeecc71759382fca49dfaa0ffcd42c1f921d2 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -17,6 +17,9 @@ Persisted input references use `referenceKind` to distinguish ordinary file
 attachments, managed images, referenced Threads, and browser evidence. Image references preserve their local path,
 MIME type, byte size, and content hash through canonical timeline projection;
 they never store an encoded payload.
+Selected Skill activation IDs travel with user input as `selectedSkills`, in
+addition to the Turn metadata used to load instructions. Canonical message
+projection preserves these IDs for sent-message labels and history reload.
 
 `agentTimelineModel` caches each published snapshot. An accepted Item patch
 reprojects only its Turn, retaining unchanged historical Turn references and

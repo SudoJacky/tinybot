@@ -44,6 +44,7 @@ describe("chat projection", () => {
           type: "user_message",
           messageId: "user-1",
           content: "Check the README",
+          selectedSkills: ["typesafe-ai:typesafe-ai", "workspace-review"],
           references: [{
             detail: "File selection",
             evidenceId: "item-file-1",
@@ -90,6 +91,7 @@ describe("chat projection", () => {
       userMessage: {
         references: [expect.objectContaining({ evidenceId: "item-file-1", sourcePath: "README.md" })],
         text: "Check the README",
+        selectedSkills: ["typesafe-ai:typesafe-ai", "workspace-review"],
       },
     });
     expect(turn.steps.map((step) => [step.kind, step.title, step.status])).toEqual([

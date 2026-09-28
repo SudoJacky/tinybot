@@ -278,6 +278,7 @@ impl NativeToolRouter {
         activated_tool_ids: &[String],
     ) -> Result<(), String> {
         let mut deferred_tool_ids = Vec::new();
+        let mut restored_deferred_ids = HashSet::new();
         for tool_id in activated_tool_ids {
             let entry = self
                 .entries
@@ -293,7 +294,18 @@ impl NativeToolRouter {
                 ));
             }
             match entry.exposure {
-                ToolExposure::Deferred => deferred_tool_ids.push(entry.tool_id.clone()),
+                ToolExposure::Deferred => {
+                    if !restored_deferred_ids.insert(entry.tool_id.clone()) {
+                        return Err(format!(
+                            "deferred tool activation contains duplicate ID: {}",
+                            entry.tool_id
+                        ));
+                    }
+                    // Turn preparation may already activate MCP or backend-selected tools.
+                    if !self.activated_tool_ids.contains(&entry.tool_id) {
+                        deferred_tool_ids.push(entry.tool_id.clone());
+                    }
+                }
                 ToolExposure::Model => {}
                 ToolExposure::Direct | ToolExposure::Hidden => {
                     return Err(format!(
@@ -569,6 +581,7 @@ mod tests {
             for name in ["publish_data_view", "exec_command", "mcp.call_tool"] {
                 assert!(!router.is_permitted(name));
                 assert!(router.activate_for_turn(&[name.into()]).is_err());
+                assert!(router.restore_activated_tool_ids(&[name.into()]).is_err());
             }
             let definitions = router.tool_definitions().unwrap();
             assert!(!definitions
@@ -644,6 +657,38 @@ mod tests {
             assert!(router.is_permitted("mcp.config.list"));
             assert_eq!(router.is_permitted("mcp.4:docs.6:search"), enabled);
             assert!(!router.is_permitted(MCP_CALL_TOOL_METHOD));
+        }
+    }
+
+    #[test]
+    fn checkpoint_restoration_revalidates_already_active_tools() {
+        for exposure in [
+            ToolExposure::Deferred,
+            ToolExposure::Direct,
+            ToolExposure::Hidden,
+        ] {
+            let mut router = router();
+            router.configure_mcp_for_turn(Some(true)).unwrap();
+            let entry = router
+                .entries
+                .iter_mut()
+                .find(|entry| entry.method == MCP_CALL_TOOL_METHOD)
+                .unwrap();
+            entry.exposure = exposure.clone();
+            if exposure == ToolExposure::Deferred {
+                entry.available = false;
+            }
+            let error = router
+                .restore_activated_tool_ids(&[MCP_CALL_TOOL_METHOD.into()])
+                .expect_err("being active must not bypass registry validation");
+            assert!(
+                error.contains(if exposure == ToolExposure::Deferred {
+                    "unavailable deferred tool"
+                } else {
+                    "tool is not deferred"
+                }),
+                "{error}"
+            );
         }
     }
 

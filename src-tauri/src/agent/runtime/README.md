@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:3efd5fce49081762de27b7cd7141a8320696426f4181bd61c17929505d0b3147 -->
+<!-- tinybot-module-fingerprint: sha256:cec12c37dcbff5f66c4621b3cda48d3e3ffda343fbfc7cdb1a23a6a72fe6773a -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -18,6 +18,14 @@ origin. Accounting remains at the shared provider boundary, not event replay.
 loop. It turns a validated turn specification, runtime services, and composed
 instructions into typed agent items, runtime events, checkpoints, usage, and a
 terminal result.
+
+Explicit Skill selections are rendered with their activation name, source file,
+resource directory, and a current-Turn selection statement around the complete
+Skill content. Both provider protocols receive that context; source provenance
+still hashes the original Skill document. Catalog-only Skills are not marked as
+selected and do not inject their full content.
+Turn-start user-message events also carry the selected activation IDs for Chat
+labels, separately from the model's loaded Skill instructions.
 
 Data-view validation accepts unique nonblank natural row IDs, while column and
 source identifiers follow the registry's documented pattern. View-specific wire
@@ -487,8 +495,11 @@ and chart validation failures return tool errors without skipping later tools.
 Published artifacts use the normal tool observation, hook, and checkpoint path.
 
 Resumable form checkpoints persist the activated tool set. Continuation
-revalidates it against the current registry and capability policy. Stale IDs,
-malformed arrays, or provider-name collisions fail explicitly.
+revalidates it against the current registry and capability policy, then restores
+only tools not already activated by Turn preparation. Both submit and cancel
+accept tools preactivated by the MCP preference or backend selection. Stale IDs,
+unavailable tools, malformed arrays, duplicate deferred IDs, and provider-name
+collisions still fail explicitly; failed restoration adds no tools.
 Checkpoints also capture effective Turn settings, controls, metadata, composed
 instructions and Responses-native input items, without provider credentials.
 The application bridge restores these before preparing continuation services;

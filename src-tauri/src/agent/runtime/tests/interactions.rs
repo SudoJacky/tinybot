@@ -345,6 +345,126 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
 }
 
 #[test]
+fn request_user_input_with_active_mcp_can_be_cancelled() {
+    for explicitly_selected in [false, true] {
+        assert_form_continuation_with_active_mcp("cancel", explicitly_selected);
+    }
+}
+
+#[test]
+fn request_user_input_with_active_mcp_can_be_submitted() {
+    for explicitly_selected in [false, true] {
+        assert_form_continuation_with_active_mcp("submit", explicitly_selected);
+    }
+}
+
+fn assert_form_continuation_with_active_mcp(action: &str, explicitly_selected: bool) {
+    struct FormProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl BlockingTestProvider for FormProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            assert_eq!(
+                context
+                    .tool_router
+                    .tool_definitions()?
+                    .iter()
+                    .filter(|tool| tool.name == "mcp_call_tool")
+                    .count(),
+                1,
+                "MCP must be available exactly once before and after form submission"
+            );
+            let first_call = self.calls.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(NativeAgentProviderResponse {
+                final_content: if first_call { "" } else { "form accepted" }.into(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: Vec::new(),
+                tool_calls: if first_call {
+                    vec![NativeAgentToolCall {
+                        id: "choose-skill".into(),
+                        name: "request_user_input".into(),
+                        arguments_json: json!({
+                            "title": "Choose a skill",
+                            "fields": [{"name": "skill", "type": "text", "label": "Skill"}]
+                        })
+                        .to_string(),
+                        result: Value::Null,
+                    }]
+                } else {
+                    Vec::new()
+                },
+            })
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(FormProvider {
+            calls: calls.clone(),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let mut spec = json!({
+        "turnId": "turn-form-active-mcp",
+        "sessionId": "session-form-active-mcp",
+        "maxIterations": 3,
+        "metadata": {"mcpEnabled": true},
+        "messages": [{"role": "user", "content": "Install a skill"}]
+    });
+    // Exercise both production activation paths: MCP preference and backend selection.
+    if explicitly_selected {
+        spec["metadata"] = json!({});
+        spec["selectedTools"] = json!(["request_user_input", "mcp.call_tool"]);
+    }
+    let waiting = run_native_agent_turn_with_services(&services, spec.clone())
+        .expect("form request should suspend the turn");
+    assert_eq!(waiting["stopReason"], "awaiting_form");
+    assert_eq!(
+        waiting["checkpoint"]["activatedToolIds"],
+        json!(["mcp.call_tool"])
+    );
+
+    spec.as_object_mut().unwrap().remove("messages");
+    spec["metadata"]["agentContinuation"] = json!({
+        "kind": "form",
+        "formId": waiting["form"]["form_id"],
+        "action": action,
+        "values": {"skill": "example"}
+    });
+    let resolved = run_native_agent_turn_with_services(&services, spec)
+        .expect("preactivated MCP must not prevent resolving the form checkpoint");
+    let cancelled = action == "cancel";
+    assert_eq!(
+        resolved["stopReason"],
+        if cancelled {
+            "form_cancelled"
+        } else {
+            "final_response"
+        }
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), if cancelled { 1 } else { 2 });
+    assert!(
+        services.restore_turn_checkpoint("session-form-active-mcp", "turn-form-active-mcp")
+            ["checkpoint"]
+            .is_null()
+    );
+    assert!(resolved["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| {
+            event["eventName"] == "agent.form.resolution" && event["payload"]["action"] == action
+        }));
+}
+
+#[test]
 fn request_user_input_rejects_invalid_forms_without_waiting() {
     struct InvalidInputProvider {
         calls: AtomicUsize,
@@ -689,6 +809,42 @@ fn legacy_checkpoint_accepts_a_tool_now_injected_by_backend_policy() {
 
     assert!(router.is_permitted("test.backend_selected"));
     assert!(router.activated_tool_ids().is_empty());
+}
+
+#[test]
+fn checkpoint_restoration_merges_tools_idempotently_and_atomically() {
+    let mut router = NativeToolRouter::new(vec![
+        test_read_only_tool("test.preselected", ToolExposure::Deferred),
+        test_read_only_tool("test.restored", ToolExposure::Deferred),
+        test_read_only_tool("test.pending", ToolExposure::Deferred),
+        test_read_only_tool("test_restored", ToolExposure::Deferred),
+    ]);
+    router
+        .activate_for_turn(&["test.preselected".into()])
+        .unwrap();
+    for _ in 0..2 {
+        router
+            .restore_activated_tool_ids(&["test.preselected".into(), "test.restored".into()])
+            .expect("restoration must accept overlap with already active tools");
+    }
+    let activated = vec!["test.preselected".to_string(), "test.restored".to_string()];
+    assert_eq!(router.activated_tool_ids(), activated);
+    for (invalid, message) in [
+        (vec!["missing.tool"], "unknown deferred tool ID"),
+        (vec!["test.preselected", "test.preselected"], "duplicate ID"),
+        (vec!["test_restored"], "provider tool name collision"),
+    ] {
+        let mut checkpoint = vec!["test.pending".into()];
+        checkpoint.extend(invalid.into_iter().map(str::to_string));
+        let error = router.restore_activated_tool_ids(&checkpoint).unwrap_err();
+        assert!(error.contains(message), "{error}");
+        assert_eq!(router.activated_tool_ids(), activated);
+        assert!(!router.is_permitted("test.pending"));
+    }
+    assert!(router
+        .activate_for_turn(&["test.preselected".into()])
+        .unwrap_err()
+        .contains("already active"));
 }
 
 #[test]

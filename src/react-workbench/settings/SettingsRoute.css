@@ -740,7 +740,7 @@
   grid-row: 1;
 }
 
-.react-pet-settings__controls > .react-settings-choice > .react-settings-choice-trigger {
+.react-pet-settings__controls > .react-settings-choice > :is(.react-settings-choice-trigger, .react-settings-choice__control) {
   grid-column: 2;
   grid-row: 1;
 }
@@ -1081,7 +1081,7 @@
   grid-row: 1;
 }
 
-.react-appearance-theme__rows > .react-settings-choice > .react-settings-choice-trigger {
+.react-appearance-theme__rows > .react-settings-choice > :is(.react-settings-choice-trigger, .react-settings-choice__control) {
   grid-column: 2;
   grid-row: 1;
 }
@@ -1124,37 +1124,6 @@
   font-family: var(--font-code);
   font-size: 11px;
   text-align: right;
-}
-
-.react-appearance-row--toggle > input {
-  justify-self: end;
-  width: 38px;
-  height: 22px;
-  appearance: none;
-  border-radius: 999px;
-  background: var(--color-surface-card);
-  cursor: pointer;
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-appearance-row--toggle > input::after {
-  display: block;
-  width: 16px;
-  height: 16px;
-  margin: 3px;
-  border-radius: 50%;
-  background: var(--color-panel);
-  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
-  content: "";
-  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-appearance-row--toggle > input:checked {
-  background: var(--color-primary);
-}
-
-.react-appearance-row--toggle > input:checked::after {
-  transform: translateX(16px);
 }
 
 .react-appearance-range {
@@ -1458,7 +1427,7 @@
 }
 
 .react-config-settings__field > span,
-.react-config-settings__toggle > span {
+.react-config-settings__toggle > span:first-child {
   min-width: 0;
 }
 
@@ -1562,46 +1531,9 @@
   cursor: pointer;
 }
 
-.react-config-settings__toggle > span {
+.react-config-settings__toggle > span:first-child {
   display: grid;
   gap: 4px;
-}
-
-.react-config-settings__toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.react-config-settings__toggle i {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-config-settings__toggle i::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--color-panel);
-  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
-  content: "";
-  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-config-settings__toggle input:checked + i {
-  background: var(--color-primary);
-}
-
-.react-config-settings__toggle input:checked + i::after {
-  transform: translateX(16px);
 }
 
 .react-config-settings__toggle:focus-within {
@@ -2629,7 +2561,7 @@
 }
 
 .react-agent-defaults-grid > label > input,
-.react-agent-defaults-grid > .react-settings-choice > .react-settings-choice-trigger {
+.react-agent-defaults-grid > .react-settings-choice > :is(.react-settings-choice-trigger, .react-settings-choice__control) {
   grid-column: 2;
   grid-row: 1;
 }
@@ -3176,7 +3108,7 @@
   cursor: pointer;
 }
 
-.react-provider-config__switch > span {
+.react-provider-config__switch > span:first-child {
   display: grid;
   gap: 4px;
 }
@@ -3194,88 +3126,8 @@
   line-height: 1.4;
 }
 
-.react-provider-config__switch input,
-.react-provider-config__mode input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  min-height: 0;
-  padding: 0;
-  opacity: 0;
-}
-
-.react-provider-config__switch i {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-provider-config__switch i::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--color-panel);
-  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
-  content: "";
-  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-provider-config__switch input:checked + i {
-  background: var(--color-primary);
-}
-
-.react-provider-config__switch input:checked + i::after {
-  transform: translateX(16px);
-}
-
-.react-provider-config__switch:has(input:focus-visible) i {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
-}
-
 .react-provider-config__switch[data-disabled="true"] {
   cursor: default;
-}
-
-.react-provider-config__mode > div {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-surface-soft);
-  padding: 3px;
-}
-
-.react-provider-config__mode label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  border-radius: 6px;
-  color: var(--color-muted);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition:
-    background-color var(--motion-duration-fast) var(--motion-ease-standard),
-    color var(--motion-duration-fast) var(--motion-ease-standard),
-    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-provider-config__mode label[data-selected="true"] {
-  background: var(--color-panel);
-  color: var(--color-ink);
-  box-shadow: 0 1px 4px rgb(20 20 19 / 11%);
-}
-
-.react-provider-config__mode label:has(input:focus-visible) {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
 .react-provider-config__cancel {
@@ -3522,7 +3374,7 @@
   gap: 5px;
 }
 
-.react-provider-model-context input {
+.react-provider-model-context > input {
   width: 100%;
   min-width: 0;
   min-height: 30px;
@@ -3542,35 +3394,13 @@
   display: none;
 }
 
-.react-provider-model-context .react-settings-choice-trigger {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px;
-  align-items: center;
-  min-height: 30px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 6px;
-  background: var(--color-panel);
-  padding: 4px 8px;
-}
-
-.react-provider-model-context .react-settings-choice-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 18px;
-  width: 100%;
-  min-height: 36px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  padding: 4px 10px;
-}
-
-.react-provider-model-context .react-settings-choice-trigger strong,
-.react-provider-model-context .react-settings-choice-item strong {
+.react-provider-model-context .liquid-segmented {
   font-size: 11px;
 }
 
-.react-provider-model-context .react-settings-choice-popover {
-  min-width: 190px;
+.react-provider-model-context .liquid-segmented__option {
+  padding: 4px;
+  min-height: 28px;
 }
 
 .react-provider-model-context input[aria-invalid="true"] {
@@ -3892,12 +3722,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 
-  .react-settings-choice-trigger svg,
-.react-config-settings__toggle i,
-.react-config-settings__toggle i::after,
-.react-provider-config__switch i,
-.react-provider-config__switch i::after,
-.react-provider-config__mode label {
+  .react-settings-choice-trigger svg {
     transition-duration: 0ms;
   }
 

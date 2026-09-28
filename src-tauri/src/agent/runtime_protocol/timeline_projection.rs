@@ -760,6 +760,17 @@ fn legacy_item_data(
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default(),
+            selected_skills: payload
+                .get("selectedSkills")
+                .and_then(Value::as_array)
+                .map(|skills| {
+                    skills
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
         },
         AgentTurnItemKind::AssistantMessage => AgentTurnItemData::AssistantMessage {
             message_id: item_string(payload, &["messageId", "message_id", "id"]),
@@ -1150,6 +1161,12 @@ fn projected_user_payload(event: &AgentRuntimeEventEnvelope) -> Value {
                 payload.insert("messageId".to_string(), Value::String(id.to_string()));
             }
         }
+        if let Some(skills) = message
+            .get("selectedSkills")
+            .filter(|value| value.is_array())
+        {
+            payload.insert("selectedSkills".to_string(), skills.clone());
+        }
         if !payload.is_empty() {
             return Value::Object(payload);
         }
@@ -1198,6 +1215,15 @@ fn projected_user_payload(event: &AgentRuntimeEventEnvelope) -> Value {
         .filter(|value| value.is_array())
     {
         payload.insert("references".to_string(), references.clone());
+    }
+    if let Some(skills) = event
+        .payload
+        .get("input")
+        .and_then(|input| input.get("selectedSkills"))
+        .or_else(|| event.payload.get("selectedSkills"))
+        .filter(|value| value.is_array())
+    {
+        payload.insert("selectedSkills".to_string(), skills.clone());
     }
     Value::Object(payload)
 }

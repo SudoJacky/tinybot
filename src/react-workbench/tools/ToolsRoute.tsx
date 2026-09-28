@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { readDefaultChatModel } from "../../app-core/chat/chatModelPreference";
 import {
@@ -455,17 +456,15 @@ function McpCatalogView({
                         >
                           {busyServer === server.id ? <LoaderCircle aria-hidden="true" className="react-spin" size={16} /> : <Settings aria-hidden="true" size={16} />}
                         </button>
-                        <button
-                          aria-checked={server.enabled}
-                          aria-label={t(server.enabled ? "tools.mcpForm.disableLabel" : "tools.mcpForm.enableLabel", { name: server.id })}
-                          className="react-mcp-switch"
-                          disabled={Boolean(busyServer)}
-                          role="switch"
-                          type="button"
-                          onClick={() => void toggleServer(server)}
-                        >
-                          <span aria-hidden="true"><i /></span>
-                        </button>
+                        <label className="react-mcp-switch">
+                          <LiquidToggle
+                            aria-label={t(server.enabled ? "tools.mcpForm.disableLabel" : "tools.mcpForm.enableLabel", { name: server.id })}
+                            checked={server.enabled}
+                            disabled={Boolean(busyServer)}
+                            role="switch"
+                            onChange={() => void toggleServer(server)}
+                          />
+                        </label>
                       </>
                     ) : null}
                   </footer>
@@ -1339,18 +1338,16 @@ function PluginsSection({
                 ) : null}
               </div>
               <footer className="react-plugin-card__actions">
-                <button
-                  aria-checked={plugin.enabled}
-                  aria-label={t(plugin.enabled ? "plugins.disableLabel" : "plugins.enableLabel", { name: plugin.name })}
-                  className="react-plugin-switch"
-                  disabled={busyPlugin === plugin.name || (!plugin.valid && !plugin.enabled)}
-                  role="switch"
-                  type="button"
-                  onClick={() => void togglePlugin(plugin)}
-                >
-                  <span aria-hidden="true"><i /></span>
+                <label className="react-plugin-switch">
+                  <LiquidToggle
+                    aria-label={t(plugin.enabled ? "plugins.disableLabel" : "plugins.enableLabel", { name: plugin.name })}
+                    checked={plugin.enabled}
+                    disabled={busyPlugin === plugin.name || (!plugin.valid && !plugin.enabled)}
+                    role="switch"
+                    onChange={() => void togglePlugin(plugin)}
+                  />
                   {plugin.enabled ? t("plugins.enabled") : t("plugins.disabled")}
-                </button>
+                </label>
                 {!plugin.builtIn ? (
                   <button
                     aria-label={t("plugins.removeLabel", { name: plugin.name })}

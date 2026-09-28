@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:bcfd0eeb7c85393c7a53cc20630dd3976287afdbd4788823ed55381f562db508 -->
+<!-- tinybot-doc-fingerprint: sha256:b29219cb5cdaee3eb2d6928676e1f6dd06dbdd96472586c208b7b58cec20c641 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -88,6 +88,15 @@ verified using in-memory inputs. It renders sources in increasing precedence:
 The ordered sources are materialized as system instruction items. The runtime
 records their identifiers, scope roots, hashes, truncation state, warnings,
 and a hash of the complete rendered prompt.
+Explicitly selected Skills include a model-visible selection statement, activation
+name, source file, and resource directory around their full content. The statement
+identifies the current Turn's user selection separately from the available catalog;
+per-source hashes continue to describe the original Skill document. Skill-only
+composer submissions also name the selected Skills in the visible user message.
+All Skill selections are also retained as `selectedSkills` on user-message
+records and canonical timeline items. Chat renders these IDs as labels in both
+optimistic and reloaded messages, independently of the user's text. Older message
+records without this field remain readable but do not gain inferred labels.
 
 Built-in guidance prefers `search_file_content` for local content searches when
 the tool is available and requires checking scope/truncation before concluding

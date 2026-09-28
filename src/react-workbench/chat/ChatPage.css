@@ -2065,21 +2065,11 @@
   flex: 1 1 auto;
 }
 
-.react-execution-timeline__summary {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-execution-timeline[data-abnormal="true"] > .react-execution-timeline__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
+.react-execution-timeline[data-abnormal="true"] .react-thought-line > .react-execution-timeline__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
   color: var(--color-error);
 }
 
-.react-execution-timeline[data-status="awaiting_user"] > .react-execution-timeline__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
+.react-execution-timeline[data-status="awaiting_user"] .react-thought-line > .react-execution-timeline__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
   color: var(--color-warning);
 }
 
@@ -2087,6 +2077,34 @@
   display: grid;
   gap: 4px;
   padding: 4px 0;
+}
+
+.react-message-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.react-message-skills__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  color: var(--color-accent);
+  font-size: 0.875em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.react-message-skills__chip svg {
+  flex-shrink: 0;
 }
 
 .react-execution-timeline__item {
@@ -2258,19 +2276,6 @@
   font-size: 10px;
   font-weight: 550;
   white-space: nowrap;
-}
-
-.react-tool-activity__status svg {
-  width: 15px;
-  height: 15px;
-}
-
-.react-tool-activity__status[data-status="active"] {
-  color: #3b75d9;
-}
-
-.react-tool-activity__status[data-status="active"] svg {
-  animation: react-spin 1s linear infinite;
 }
 
 .react-tool-activity__status[data-status="waiting"] {
@@ -4551,10 +4556,6 @@
 
   .react-tool-activity__details {
     padding-left: 22px;
-  }
-
-  .react-tool-activity__status > span {
-    display: none;
   }
 
   .react-patch-diff-row {

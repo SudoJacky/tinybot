@@ -1,9 +1,14 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:3331b139727be35c8aa333b524398eee3665b544762950a88bfc10c3e0153012 -->
+<!-- tinybot-module-fingerprint: sha256:706b6bf54663309b1727eaf5327f92efe276e89102ec53734ed28a920df749ae -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
 the system browser; failures are logged and shown as a transient error notice.
+
+Visual on/off switches use the shared `LiquidToggle` in App, Appearance, Labs,
+configuration fields, and Provider configuration. Routes retain their existing
+controlled values and persistence; pending or failed saves cannot be mistaken
+for a successful toggle. List-selection checkboxes keep their checkbox UI.
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -86,28 +91,34 @@ monospace inline editor. Unsaved changes require confirmation before switching,
 and version-conflict handling remains native. Hand-written hooks remain visible
 as advanced, read-only catalog entries.
 
-Workspace, script, event, matcher, and language choices reuse the shared
-`SettingsChoiceList` interaction instead of native selects. Definition hashes
+Workspace, script, event, and matcher choices reuse the shared
+`SettingsChoiceList` interaction instead of native selects. Script language uses
+`SettingsSegmentedChoice` to expose both fixed choices directly. Definition hashes
 remain an internal trust identifier and are not rendered. The script editor
 supports toolbar actions plus Ctrl/Cmd+/ comment toggling, Tab and Shift+Tab
 indentation, and Ctrl/Cmd+S save; pure text transformations are covered in
 `hookScriptEditing.test.ts`.
 
-`SettingsChoiceList.tsx` is the canonical fixed-choice control for workbench
-configuration surfaces. App preferences, appearance fonts, Agent defaults,
-Profile usage filters, fixed config options, and Agent Graph workspace choices
-reuse its trigger, popover, selected state, keyboard navigation, and co-located
-stylesheet instead of rendering platform-native select menus. App-language
-choices keep their names and descriptions in each target language so they remain
-discoverable regardless of the currently selected interface language.
+`SettingsSegmentedChoice` wraps the shared `LiquidSegmentedControl` for short,
+stable choices: App language, desktop-pet size, theme fonts, Agent context strategy,
+managed Hook language, and model context auto/custom mode. Selected explanations
+remain below the control; labels, errors, and descriptions stay accessible.
+Provider API mode uses the same capsule with only supported modes. Existing
+persistence and save boundaries remain unchanged. App-language names remain in
+their target language. Theme and pet-style preview cards retain their visual previews.
+
+`SettingsChoiceList.tsx` owns dropdown choices for larger or dynamic sets:
+time zones, Profile filters, search providers, Hook workspaces/scripts/events/matchers,
+and Agent Graph workspaces. The control is chosen explicitly by the field, never
+swapped automatically when a dynamic option list happens to contain few items.
 Memory also reuses this control for scope filtering and editing. Escape from
 an open choice menu is consumed locally so it does not close a containing dialog.
 Each choice menu owns the input source for its opening event, independently of
 shell-menu history. Pointer openings use the shared 160 ms anchored transition;
 keyboard openings are immediate. Reduced motion keeps only a 140 ms pointer
 fade, with keyboard behavior still immediate.
-The context-window strategy menu shows option names only via
-`showMenuDescriptions={false}`; its trigger retains the selected explanation.
+The context-window strategy capsule shows both names and retains the selected
+explanation underneath.
 The Agent Defaults time-zone choice lists runtime-supported IANA zones and
 starts from the Windows/system zone reported through `Intl`; Provider fallback
 and temperature remain owned by Provider/model configuration rather than being
@@ -139,7 +150,7 @@ The same page exposes a separate long-term Memory model selector. It follows
 the global default until the user chooses an enabled Profile/model pair, and
 can remove that override to resume dynamic fallback.
 Its model manager configures context windows per model with the shared
-`SettingsChoiceList`: known models default to Tinybot's automatic value,
+`SettingsSegmentedChoice`: known models default to Tinybot's automatic value,
 unknown models show the runtime fallback, and either can store a custom positive
 Token limit. Agent Defaults retains the compaction strategy but no longer
 presents one editable window as if it applied to every model.

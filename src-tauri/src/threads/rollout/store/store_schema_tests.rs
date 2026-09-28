@@ -637,7 +637,7 @@ fn persistence_check_and_repair_use_the_process_local_index() {
 }
 
 #[test]
-fn thread_item_timestamp_is_persisted_as_iso_8601() {
+fn thread_item_timestamp_and_selected_skills_survive_rollout_reload() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-thread-item-timestamp-{}-{}",
         std::process::id(),
@@ -699,7 +699,8 @@ fn thread_item_timestamp_is_persisted_as_iso_8601() {
             created_at: "1784710180728".to_string(),
             kind: ThreadItemKind::UserMessage(serde_json::json!({
                 "content": "hello",
-                "role": "user"
+                "role": "user",
+                "selectedSkills": ["typesafe-ai:typesafe-ai", "apple-design"]
             })),
         }],
     )
@@ -712,6 +713,21 @@ fn thread_item_timestamp_is_persisted_as_iso_8601() {
         .expect("thread should be indexed");
     let lines = read_thread_lines(Path::new(&record.thread_path))
         .expect("Rollout should read after thread item append");
+    let indices = (0..lines.len()).collect::<Vec<_>>();
+    let restored =
+        thread_items_from_effective_rollout(&lines, &indices, &thread.thread_id).unwrap();
+    let message = restored
+        .iter()
+        .find_map(|item| match &item.kind {
+            ThreadItemKind::UserMessage(payload) => Some(payload),
+            _ => None,
+        })
+        .expect("user message should survive Rollout reload");
+    assert_eq!(message["content"], "hello");
+    assert_eq!(
+        message["selectedSkills"],
+        serde_json::json!(["typesafe-ai:typesafe-ai", "apple-design"])
+    );
     assert_eq!(
         lines
             .last()

@@ -172,13 +172,25 @@ describe("prepareChatSubmission", () => {
       kind: "send_message",
       turnInput: {
         selectedSkills: ["apple-design"],
-        text: "Use the selected Skills",
+        text: "Use these Skills: apple-design.",
       },
     });
     await expect(prepareChatSubmission(input({
       message: "/compact",
       selectedSkillIds: ["apple-design"],
     }))).rejects.toThrow("Compact cannot include attachments");
+  });
+
+  test.each([false, true])("names all selected Skills in a skill-only input (queued: %s)", async (isRunning) => {
+    const selectedSkillIds = ["typesafe-ai:typesafe-ai", "apple-design"];
+    const prepared = await prepareChatSubmission(input({ isRunning, selectedSkillIds }));
+    if (prepared.kind !== "send_message" && prepared.kind !== "queue_input") throw new Error("Expected a submission.");
+    const turnInput = prepared.kind === "send_message" ? prepared.turnInput : prepared.input.turnInput;
+    expect(turnInput).toEqual({
+      text: "Use these Skills: typesafe-ai:typesafe-ai, apple-design.",
+      selectedSkills: selectedSkillIds,
+    });
+    expect(prepared.visibleText).toBe(turnInput.text);
   });
 });
 
@@ -201,9 +213,9 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
   };
 }
 
-const t = ((key: string) => ({
+const t = ((key: string, options?: { skills?: string }) => ({
   "composer.attachedFilesPrompt": "Review attached files",
-  "composer.skill.attachedPrompt": "Use the selected Skills",
+  "composer.skill.attachedPrompt": `Use these Skills: ${options?.skills}.`,
   "composer.sessionMention.attachedPrompt": "Review attached sessions",
   "composer.sessionMention.emptyTranscript": "Empty transcript",
   "composer.sessionMention.referenceDetail": "Referenced conversation",

@@ -209,6 +209,42 @@ fn turn_started_preserves_client_event_id_for_canonical_reconciliation() {
 }
 
 #[test]
+fn turn_started_preserves_selected_skills_for_live_and_replayed_messages() {
+    use crate::agent::runtime_protocol::{project_timeline_snapshot, AgentRuntimeEventEnvelope};
+
+    for skills in [
+        json!(["typesafe-ai:typesafe-ai", "apple-design"]),
+        json!([]),
+    ] {
+        let context = AgentTurnContext::from_spec(
+            json!({
+                "turnId": "turn-skills",
+                "sessionId": "session-skills",
+                "metadata": { "selectedSkills": skills },
+                "messages": [{ "role": "user", "content": "这是什么" }]
+            }),
+            json!({}),
+        );
+        let mut state = super::state::AgentTurnState::new(&context, None).unwrap();
+        state.emit_turn_started(&context).unwrap();
+        let live_events = state.runtime_events();
+        let replayed_events: Vec<AgentRuntimeEventEnvelope> =
+            serde_json::from_str(&serde_json::to_string(&live_events).unwrap()).unwrap();
+        for events in [&live_events, &replayed_events] {
+            let snapshot =
+                project_timeline_snapshot("session-skills", "turn-skills", events).unwrap();
+            let data = serde_json::to_value(&snapshot.items[0].data).unwrap();
+            assert_eq!(data["content"], "这是什么");
+            if skills.as_array().unwrap().is_empty() {
+                assert!(data.get("selectedSkills").is_none());
+            } else {
+                assert_eq!(data["selectedSkills"], skills);
+            }
+        }
+    }
+}
+
+#[test]
 fn agent_chat_request_trims_old_messages_to_context_window() {
     let context = AgentTurnContext::from_spec(
         json!({

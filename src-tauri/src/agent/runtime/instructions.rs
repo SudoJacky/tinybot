@@ -168,7 +168,7 @@ impl InstructionComposer {
                 .to_string(),
             false,
             Vec::new(),
-            false,
+            None,
         );
         if let Some(content) = input.developer.clone() {
             push_instruction_source(
@@ -182,7 +182,7 @@ impl InstructionComposer {
                 content,
                 false,
                 Vec::new(),
-                false,
+                None,
             );
         }
         push_instruction_source(
@@ -196,7 +196,7 @@ impl InstructionComposer {
             system_content,
             false,
             Vec::new(),
-            false,
+            None,
         );
 
         for file in profiles {
@@ -217,7 +217,7 @@ impl InstructionComposer {
                 file.content,
                 file.truncated,
                 file.warnings,
-                false,
+                None,
             );
         }
         for (depth, file) in projects.into_iter().enumerate() {
@@ -232,7 +232,7 @@ impl InstructionComposer {
                 file.content,
                 file.truncated,
                 file.warnings,
-                true,
+                None,
             );
         }
 
@@ -253,7 +253,7 @@ impl InstructionComposer {
                 ),
                 false,
                 Vec::new(),
-                false,
+                None,
             );
         }
 
@@ -270,7 +270,7 @@ impl InstructionComposer {
                 render_workspace_skill_catalog(&workspace_skills),
                 false,
                 Vec::new(),
-                false,
+                None,
             );
         }
         if !plugin_skills.is_empty() {
@@ -285,13 +285,14 @@ impl InstructionComposer {
                 render_plugin_skill_catalog(&plugin_skills),
                 false,
                 Vec::new(),
-                false,
+                None,
             );
         }
         let mut activated = Vec::new();
         for selected in &selected_skills {
             if let Some(skill) = plugin_skills.iter().find(|skill| skill.name == *selected) {
                 activated.push((
+                    selected.clone(),
                     skill.path.clone(),
                     skill.root.clone(),
                     skill.content.clone(),
@@ -302,6 +303,7 @@ impl InstructionComposer {
                 .find(|skill| skill.name == *selected)
             {
                 activated.push((
+                    selected.clone(),
                     skill.path.clone(),
                     skill.root.clone(),
                     skill.content.clone(),
@@ -313,7 +315,7 @@ impl InstructionComposer {
                 ));
             }
         }
-        for (index, (path, root, content, warning)) in activated.into_iter().enumerate() {
+        for (index, (name, path, root, content, warning)) in activated.into_iter().enumerate() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
@@ -325,7 +327,7 @@ impl InstructionComposer {
                 content,
                 false,
                 vec![warning],
-                false,
+                Some(&name),
             );
         }
 
@@ -341,7 +343,7 @@ impl InstructionComposer {
                 content,
                 false,
                 Vec::new(),
-                false,
+                None,
             );
         }
         if let Some(content) = input.agent_role.clone() {
@@ -356,7 +358,7 @@ impl InstructionComposer {
                 content,
                 false,
                 Vec::new(),
-                false,
+                None,
             );
         }
         push_instruction_source(
@@ -374,7 +376,7 @@ impl InstructionComposer {
             ),
             false,
             Vec::new(),
-            false,
+            None,
         );
 
         let rendered_prompt = messages
@@ -474,10 +476,27 @@ fn push_instruction_source(
     content: String,
     truncated: bool,
     validation_warnings: Vec<String>,
-    wrap_project_source: bool,
+    selected_skill_name: Option<&str>,
 ) {
     let source_index = sources.len();
-    let model_content = if wrap_project_source && !content.trim().is_empty() {
+    let model_content = if let Some(name) = selected_skill_name {
+        format!(
+            "# Selected Skill: `{name}`\n\n\
+             The user explicitly selected this skill for the current turn. \
+             Apply its instructions to the user's request while respecting the user's \
+             explicit constraints. The full SKILL.md content is already loaded below.\n\n\
+             Skill file: `{}`\n\
+             Resolve relative resource paths from the skill directory: `{}`.\n\n\
+             <SKILL_INSTRUCTIONS>\n{}\n</SKILL_INSTRUCTIONS>",
+            path.display(),
+            scope_root.display(),
+            content.trim_end()
+        )
+    } else if matches!(
+        kind,
+        InstructionSourceKind::ProjectAgents | InstructionSourceKind::ProjectOverride
+    ) && !content.trim().is_empty()
+    {
         format!(
             "# Project instructions from `{}`\n\n<INSTRUCTIONS>\n{}\n</INSTRUCTIONS>",
             path.display(),
@@ -592,6 +611,72 @@ mod tests {
                 .display()
                 .to_string()
         );
+    }
+
+    #[test]
+    fn selected_skills_are_explicit_in_both_provider_requests() {
+        use crate::agent::runtime::provider::{
+            agent_chat_completion_request, agent_responses_request,
+        };
+        use crate::agent::runtime::AgentTurnContext;
+        use serde_json::json;
+
+        let (mut input, mut loaded) = inputs();
+        loaded.workspace_skills.push(InstructionSkill {
+            name: "workspace-review".into(),
+            description: "Workspace review guidance".into(),
+            path: input
+                .working_directory
+                .join(".agents/skills/workspace-review/SKILL.md"),
+            root: input
+                .working_directory
+                .join(".agents/skills/workspace-review"),
+            content: "Review workspace changes.".into(),
+        });
+        input.selected_skills.push("workspace-review".into());
+        for selected in [true, false] {
+            if !selected {
+                input.selected_skills.clear();
+            }
+            let composed = InstructionComposer
+                .compose(&input.working_directory, &input, loaded.clone())
+                .unwrap();
+            for skill in loaded.plugin_skills.iter().chain(&loaded.workspace_skills) {
+                let source = composed.sources.iter().find(|source| {
+                    source.kind == InstructionSourceKind::SelectedSkill
+                        && source.identifier == skill.path.display().to_string()
+                });
+                assert_eq!(source.is_some(), selected);
+                if let Some(source) = source {
+                    assert_eq!(source.content_hash, content_hash(&skill.content));
+                }
+            }
+            let mut context = AgentTurnContext::from_spec(
+                json!({"messages": [{"role": "user", "content": "Use the selected skills."}]}),
+                json!({}),
+            );
+            context.instructions = Some(composed);
+            let chat = agent_chat_completion_request(&context).unwrap();
+            let responses = agent_responses_request(&context).unwrap();
+            for message in [&chat["messages"][0], &responses["input"][0]] {
+                let wire = message.to_string();
+                for skill in loaded.plugin_skills.iter().chain(&loaded.workspace_skills) {
+                    assert_eq!(
+                        wire.contains(&format!("# Selected Skill: `{}`", skill.name)),
+                        selected
+                    );
+                    assert_eq!(wire.contains(&skill.content), selected);
+                }
+                assert_eq!(
+                    wire.contains("explicitly selected this skill for the current turn"),
+                    selected
+                );
+                assert_eq!(
+                    wire.contains("full SKILL.md content is already loaded below"),
+                    selected
+                );
+            }
+        }
     }
 
     #[test]

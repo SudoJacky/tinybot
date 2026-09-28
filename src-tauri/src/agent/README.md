@@ -1,5 +1,5 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:9cb393cac5a0be289e4ea470651cfde820077a1e88a8412181de80c6047f5b8b -->
+<!-- tinybot-module-fingerprint: sha256:eb1352a34e882e1d6263f5fffe69fdfc69d83253adc5e6ae768bf2c89f71015c -->
 
 Title generation and Graph routing use distinct token-usage purposes while
 preserving trusted originating Thread/Turn and Team identities when present.

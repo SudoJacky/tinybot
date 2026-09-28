@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:0e7d228ef5568604aa38bfd8e21a42247726e3f3b1e9b833ce50aa77bb06b554 -->
+<!-- tinybot-module-fingerprint: sha256:6b79ca75190872451badd2cb29a3d1e7207d4093ba1436c33efa5d90c54b4d67 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -70,6 +70,24 @@ popover surface and item states while retaining their richer row layouts.
 
 Route orchestration and domain-specific state stay in `react-workbench` and
 `app-core`; shared UI receives data and actions through explicit props.
+
+`LiquidToggle` is the shared on/off switch for Settings, Plugins, and MCP. It
+accepts native checkbox props (including controlled `checked`/`onChange`, labels,
+and disabled state), or owns its value when only `defaultChecked` is supplied.
+`speed` and `stretch` range from 0 to 100 and default to 50 and 36. Its
+velocity-driven spring motion is adapted from Bencho's MIT Liquid Toggle, with
+the original notice retained in the source and distributed in
+`public/assets/licenses/bencho.txt`. Native label and Space activation
+remain intact; `role="switch"` also supports Enter. Keyboard activation and
+reduced motion settle immediately, including a live preference change. The
+animation follows confirmed props and never commits an asynchronous setting.
+
+`LiquidSegmentedControl` presents short, stable single-choice sets in a capsule.
+It uses controlled native radios with independent group names, arrow-key navigation,
+disabled options, and a visible focus ring. Its active pill and `LiquidToggle`
+share `useLiquidMotion`: a spring with velocity-driven stretch, immediate keyboard
+selection, and live reduced-motion handling. Percentage travel tracks equal-width
+segments across resizing and font changes without measuring the layout.
 
 `useModalDialog` is the shared seam for modal focus, keyboard navigation,
 background dismissal, focus restoration, and body scroll locking. Route-owned

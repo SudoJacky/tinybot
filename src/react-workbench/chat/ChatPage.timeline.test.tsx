@@ -944,7 +944,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Work performed: thought ×1 · file read ×1/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed: Completed · thought ×1 · file read ×1/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText("Verification passed.")).toBeTruthy();
     const orderedItems = document.querySelectorAll(".react-execution-timeline__item");

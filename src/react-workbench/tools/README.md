@@ -1,7 +1,12 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:7875adbe830d67449d32e060f512d76f54ecf9a1f63872d12653e6ede3505406 -->
+<!-- tinybot-module-fingerprint: sha256:bede82af4e0e6ef91ec4fa1de34e52431e7c591951f211d00eb678151abc042a -->
 
 MCP form inputs use the panel background token, with existing border, focus, and validation feedback.
+
+Plugin and MCP enable controls use the shared `LiquidToggle`, retaining switch
+semantics, keyboard activation, accessible names, and pending/invalid disabling.
+The spring thumb follows the store-confirmed state; persistence errors remain
+visible in the route instead of becoming an optimistic local toggle.
 
 `tools` owns the lazy Tools and Plugins route, including separate Plugins,
 Skills, MCP, and callable Tools views plus catalog, lifecycle, migration,

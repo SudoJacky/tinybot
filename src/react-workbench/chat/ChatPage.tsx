@@ -1,4 +1,5 @@
 import type { ComposerSkillOption } from "../../components/ui/composerContracts";
+import { skillDisplayLabel } from "./MessageSkills";
 import { useChatSessions } from "./useChatSessions";
 import type { ChatSessionChange } from "./chatSessionApplication";
 import { SidecarResources, initialSidecarLayout, type SidecarResourcesHandle, type SidecarLayout } from "../sidecar/SidecarResources";
@@ -204,11 +205,7 @@ function buildComposerSkillOptions(
   return skills.map((skill) => ({
     description: skill.description,
     id: skill.source === "workspace" ? skill.name : skill.id,
-    label: skill.name
-      .split(/[-_.]+/u)
-      .filter(Boolean)
-      .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
-      .join(" "),
+    label: skillDisplayLabel(skill.name),
     sourceLabel: skill.source === "workspace"
       ? t("composer.skill.workspace")
       : skill.source.replace(/^plugin:/u, ""),

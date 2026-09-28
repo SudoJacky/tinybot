@@ -6,7 +6,7 @@ src-tauri/src/agent/runtime_protocol_tests.rs
 src-tauri/src/desktop_commands/runtime.rs
 src-tauri/src/desktop_commands/runtime_tests.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:db8fec478c26c2f23796d627b97b8008f6a8b75ab3c6458633c8d097b2b2575d -->
+<!-- tinybot-doc-fingerprint: sha256:13804adb9a4a36eeb175e6e193d7273940f952ac43062d195afb811e0d934c39 -->
 
 This document covers native Agent turn execution and provider-facing behavior.
 It is part of the [Rust backend API reference](rust-backend-api.md), which

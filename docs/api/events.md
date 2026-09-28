@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b29e3b645f4cb922e58418f47237f5fffd511a5e31eedcc8c0a73cf4e5d98130 -->
+<!-- tinybot-doc-fingerprint: sha256:d42119adcac9c8f40649c7840f9a7f6f96a77b1cfb241fb4b10a568f612994e6 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -41,6 +41,11 @@ notice when the HTTP request settles. Tauri sends the event payload directly,
 with `traceContext.threadId` and `traceContext.turnId` for routing. The UI
 keeps the Turn running and removes the notice on completion or cancellation.
 These statuses neither persist as response Items nor become model-visible history.
+
+`agent.turn.started.payload.userMessage` optionally includes `selectedSkills`,
+an array of Skill activation IDs. Canonical `user_message` Items retain this
+field so Chat can render the selected Skills alongside the unmodified text.
+Older messages may omit it.
 
 The desktop shell also emits:
 

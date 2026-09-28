@@ -738,7 +738,7 @@ describe("desktop native app services", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("worker_thread_update_metadata", expect.anything());
   });
 
-  test("projects native file references as optimistic attachment metadata", async () => {
+  test("preserves selected Skills alongside optimistic file attachments", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
     const events: ChatEvent[] = [];
@@ -755,6 +755,7 @@ describe("desktop native app services", () => {
           referenceKind: "file",
         }],
         text: "Review this file",
+        selectedSkills: ["typesafe-ai:typesafe-ai"],
       },
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
@@ -768,6 +769,7 @@ describe("desktop native app services", () => {
           title: "notes.md",
         })],
         text: "Review this file",
+        selectedSkills: ["typesafe-ai:typesafe-ai"],
       }),
       type: "message-sent",
     }));

@@ -1,0 +1,96 @@
+.react-tool-call-chip > .react-timeline-activity__header {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 34px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface-soft) 65%, var(--color-panel));
+  padding: 6px 10px;
+  gap: 8px;
+}
+
+.react-tool-call-chip > button.react-timeline-activity__header:hover,
+.react-tool-call-chip[data-open="true"] > .react-timeline-activity__header {
+  background: var(--color-surface-card);
+}
+
+.react-tool-call-chip > .react-timeline-activity__header > * {
+  position: relative;
+}
+
+.react-tool-call-chip .react-timeline-activity__heading {
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+}
+
+.react-tool-call-chip .react-timeline-activity__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.react-tool-call-chip__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-body);
+  font-weight: 500;
+}
+
+.react-tool-call-chip__name:has(+ .react-tool-call-chip__argument) { flex: none; }
+
+.react-tool-call-chip__argument {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-muted);
+}
+
+.react-tool-call-chip .react-timeline-activity__meta { flex: none; }
+.react-tool-call-chip__duration { font-variant-numeric: tabular-nums; }
+.react-tool-call-chip .react-tool-activity__status { font-size: 11px; }
+.react-tool-call-chip .react-timeline-activity__icon { overflow: hidden; }
+.react-tool-call-chip__glyph { display: inline-grid; place-items: center; width: 16px; height: 16px; }
+.react-tool-call-chip .react-tool-activity__details { padding-top: 6px; }
+
+.react-tool-activity[data-status="completed"] .react-tool-call-chip__glyph { color: var(--color-success); }
+.react-tool-activity[data-status="running"] .react-tool-call-chip__glyph,
+.react-tool-call-chip .react-tool-activity__status[data-status="active"] { color: var(--color-primary-active); }
+.react-tool-activity[data-status="blocked"] .react-tool-call-chip__glyph { color: var(--color-warning); }
+.react-tool-activity[data-status="failed"] .react-tool-call-chip__glyph { color: var(--color-error); }
+.react-tool-activity[data-status="failed"] > .react-tool-call-chip > .react-timeline-activity__header {
+  border-color: color-mix(in srgb, var(--color-error) 24%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-error) 6%, var(--color-panel));
+}
+
+/* An indeterminate sweep signals activity; it never implies a completion percentage. */
+.react-tool-activity[data-status="running"] > .react-tool-call-chip > .react-timeline-activity__header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent);
+  pointer-events: none;
+  animation: react-tool-call-sweep 1800ms ease-in-out infinite;
+}
+
+@keyframes react-tool-call-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(325%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-tool-call-chip > .react-timeline-activity__header { transition: none; }
+
+  .react-tool-activity[data-status="running"] > .react-tool-call-chip > .react-timeline-activity__header::before {
+    width: 100%;
+    background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+    animation: none;
+  }
+}

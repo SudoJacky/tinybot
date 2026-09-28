@@ -1,0 +1,71 @@
+.liquid-toggle {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  width: 38px;
+  height: 32px;
+  vertical-align: middle;
+}
+
+.liquid-toggle > input.liquid-toggle__input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.liquid-toggle__track {
+  position: relative;
+  display: block;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
+  box-shadow: inset 0 0 0 1px rgb(20 20 19 / 8%);
+  pointer-events: none;
+  transition: background-color 160ms ease-out;
+}
+
+.liquid-toggle[data-checked="true"] > .liquid-toggle__track {
+  background: var(--color-primary);
+}
+
+.liquid-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+}
+
+.liquid-toggle__input:focus-visible + .liquid-toggle__track {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.liquid-toggle[data-disabled="true"] {
+  opacity: 0.5;
+}
+
+.liquid-toggle > input:disabled {
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-toggle__track { transition: none; }
+  .liquid-toggle__thumb { transform: none !important; }
+  .liquid-toggle[data-checked="true"] .liquid-toggle__thumb { transform: translateX(16px) !important; }
+}
