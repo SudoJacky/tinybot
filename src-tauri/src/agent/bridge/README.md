@@ -1,9 +1,12 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:c70d94595df7eece80d57e136a1dff5ec84d3e72daf3c45772b28f0be87b46c1 -->
+<!-- tinybot-module-fingerprint: sha256:827988eba83bac3ebce316b041c12abac8caf90fe32a052c434856489a186ceb -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
 so session aliases and detached descendants share correct attribution.
+
+Form cancellation persists the pending tool observation, so reopening the Thread
+and starting another Turn retains complete provider call/result pairs.
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete

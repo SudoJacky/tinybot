@@ -3,6 +3,120 @@ use crate::threads::rollout::format::SessionApiMode;
 use crate::threads::rollout::store::{ThreadLogItem, ThreadLogLine, ThreadMeta};
 use serde_json::json;
 
+fn cancelled_form_lines(mode: SessionApiMode) -> Vec<ThreadLogLine> {
+    let timestamp = "2026-09-27T12:10:22Z";
+    let mut meta = meta_line("thread-form", None, timestamp);
+    if let ThreadLogItem::SessionMeta(meta) = &mut meta.item {
+        meta.api_mode = Some(mode);
+    }
+    vec![
+        meta,
+        response_line(
+            timestamp,
+            json!({
+                "type": if mode == SessionApiMode::Responses { "function_call" } else { "custom_tool_call" },
+                "call_id": "form-call", "name": "request_user_input",
+                "arguments": "{}", "input": "{}", "turnId": "turn-form",
+            }),
+        ),
+        event_line(
+            timestamp,
+            "thread_item",
+            json!({
+                "item": {"turnId": "turn-form", "kind": {"type": "event", "payload": {
+                    "eventName": "agent.form.resolution",
+                    "payload": {"action": "cancel", "formId": "user-input:form-call"}
+                }}}
+            }),
+        ),
+        response_line(
+            timestamp,
+            json!({
+                "type": "message", "role": "user", "content": "hello", "turnId": "turn-next",
+            }),
+        ),
+    ]
+}
+
+#[test]
+fn cancelled_form_replay_restores_only_the_missing_observation_in_both_protocols() {
+    for mode in [SessionApiMode::ChatCompletions, SessionApiMode::Responses] {
+        let lines = cancelled_form_lines(mode);
+        let original = serde_json::to_value(&lines).unwrap();
+        for replay in [
+            reconstruct_rollout(&lines).unwrap(),
+            reconstruct_transcript(&lines).unwrap(),
+        ] {
+            assert_eq!(replay.messages.len(), 3);
+            assert_eq!(replay.messages[1]["tool_call_id"], "form-call");
+            assert_eq!(
+                replay.messages[1]["content"],
+                "User input request was cancelled."
+            );
+            assert_eq!(replay.messages[2]["content"], "hello");
+            assert_eq!(replay.response_items[1]["call_id"], "form-call");
+            assert_eq!(replay.response_items[1]["status"], "error");
+        }
+        assert_eq!(serde_json::to_value(&lines).unwrap(), original);
+    }
+}
+
+#[test]
+fn cancelled_form_replay_preserves_real_results_before_or_after_resolution() {
+    for mode in [SessionApiMode::ChatCompletions, SessionApiMode::Responses] {
+        for position in [2, 3] {
+            let mut lines = cancelled_form_lines(mode);
+            let output = json!({
+                "type": if mode == SessionApiMode::Responses { "function_call_output" } else { "custom_tool_call_output" },
+                "call_id": "form-call", "output": "recorded cancellation", "status": "error",
+                "id": "tool-output:form-call",
+                "turnId": "turn-form",
+            });
+            lines.insert(
+                position,
+                response_line("2026-09-27T12:10:22Z", output.clone()),
+            );
+            let replay = reconstruct_rollout(&lines).unwrap();
+            let results: Vec<_> = replay
+                .messages
+                .iter()
+                .filter(|item| item["role"] == "tool")
+                .collect();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0]["content"], "recorded cancellation");
+            assert_eq!(replay.response_items[1], output);
+        }
+    }
+}
+
+#[test]
+fn cancelled_form_replay_does_not_repair_unrelated_missing_results() {
+    for (pointer, value) in [
+        ("/item/turnId", "other-turn"),
+        ("/item/kind/payload/payload/action", "submit"),
+        ("/item/kind/payload/payload/formId", "user-input:other-call"),
+        ("/item/kind/payload/eventName", "agent.cancelled"),
+    ] {
+        let mut lines = cancelled_form_lines(SessionApiMode::Responses);
+        let mut event = match &lines[2].item {
+            ThreadLogItem::EventMsg(event) => event.payload().clone(),
+            _ => unreachable!(),
+        };
+        *event.pointer_mut(pointer).unwrap() = json!(value);
+        lines[2] = event_line("2026-09-27T12:10:22Z", "thread_item", event);
+        assert_eq!(reconstruct_rollout(&lines).unwrap().messages.len(), 2);
+    }
+    let mut lines = cancelled_form_lines(SessionApiMode::Responses);
+    lines[1] = response_line(
+        "2026-09-27T12:09:01Z",
+        json!({
+            "type": "function_call", "call_id": "form-call", "name": "exec_command",
+            "arguments": "{}", "turnId": "turn-form",
+        }),
+    );
+    assert_eq!(reconstruct_rollout(&lines).unwrap().messages.len(), 2);
+}
+
 #[test]
 fn replay_projects_messages_and_latest_token_count() {
     let replay = reconstruct_rollout(&[

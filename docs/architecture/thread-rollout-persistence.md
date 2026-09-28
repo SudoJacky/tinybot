@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:d6e0ec4cdcc9d77d05f201e9ed26eb113e4972b2601d23beee8c66368f8fd5ee -->
+<!-- tinybot-doc-fingerprint: sha256:e42fb8b99cd8a4694729de319f34bb18345d4fe03c414f2f188fd6b0f44f9739 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -58,6 +58,12 @@ MemoryThreadStore projection               v
 The process-local Thread index and `MemoryThreadStore` are derived projections.
 They improve lookup and typed access but cannot become alternate durable write
 paths.
+
+For older Rollouts that omitted a cancelled form's tool result, context replay
+derives the cancellation observation from the matching `agent.form.resolution`
+record and `request_user_input` call in the same Turn. Existing results take
+precedence. This compatibility projection preserves original log bytes and does
+not infer results for unrelated or unresolved tool calls.
 
 Generated first-Turn titles follow the same authority boundary. The in-memory
 compare-and-set and Rollout metadata snapshot are committed within one

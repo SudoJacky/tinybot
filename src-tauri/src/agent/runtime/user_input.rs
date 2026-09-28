@@ -209,25 +209,27 @@ pub(super) fn prepare_user_input_continuation(
     let iteration = checkpoint
         .iteration
         .ok_or_else(|| "invalid user input checkpoint: iteration is missing".to_string())?;
+    let mut messages = checkpoint.messages.clone();
+    prepare_continuation_tool_observation(&mut messages, &tool_call, false)
+        .map_err(|error| format!("invalid user input checkpoint: {error}"))?;
     if matches!(action, AgentFormAction::Cancel) {
+        context.messages = messages;
+        let result = cancelled_user_input_result(
+            services, context, checkpoint, tool_call, form_id, iteration,
+        )?;
         services
             .checkpoints
             .clear_for_turn(&context.session_id, &context.turn_id);
-        return Ok(Some(UserInputContinuationOutcome::Finished(
-            cancelled_user_input_result(services, context, checkpoint, form_id, iteration)?,
-        )));
+        return Ok(Some(UserInputContinuationOutcome::Finished(result)));
     }
 
     let values = validate_submitted_values(&payload.form, values)?;
-    let mut messages = checkpoint.messages.clone();
     let raw_result = serde_json::json!({
         "formId": form_id,
         "status": "submitted",
         "values": values,
     });
     let result = NativeAgentToolResult::generic_success(&tool_call, raw_result);
-    prepare_continuation_tool_observation(&mut messages, &tool_call, false)
-        .map_err(|error| format!("invalid user input checkpoint: {error}"))?;
     let restored_completed_results = checkpoint.completed_tool_results.clone();
     let pending_hook_context = payload.pending_hook_context.clone();
     context.messages = messages;
@@ -252,11 +254,13 @@ fn cancelled_user_input_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     checkpoint: super::AgentCheckpoint,
+    tool_call: NativeAgentToolCall,
     form_id: String,
     iteration: i64,
 ) -> Result<AgentTurnResult, AgentError> {
     let message = "User input request was cancelled.";
     let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())?;
+    state.completed_tool_results = checkpoint.completed_tool_results.clone();
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
     state.transition_phase(
         AgentRuntimePhase::AwaitingForm,
@@ -264,6 +268,10 @@ fn cancelled_user_input_result(
         AgentEventKind::FormResolution.wire_name(),
     )?;
     state.emit_thread_command_acknowledgement(context)?;
+    // Persist the observation before consuming the form checkpoint, just as a
+    // submitted answer closes its provider tool call before the next request.
+    let result = NativeAgentToolResult::generic_error(&tool_call, message.to_string());
+    commit_tool_observation(context, &mut state, iteration, tool_call, result)?;
     let mut resolution = serde_json::json!({
         "iteration": iteration,
         "formId": form_id,
@@ -290,6 +298,7 @@ fn cancelled_user_input_result(
     let runtime_events = state.runtime_events();
     Ok(AgentTurnResult {
         tools_used: state.tools_used.clone(),
+        completed_tool_results: Some(state.completed_tool_results.clone()),
         error: Some(AgentResultError::Message(message.to_string())),
         restored_checkpoint: Some(checkpoint),
         continuation: Some(AgentContinuationInput::Form {
