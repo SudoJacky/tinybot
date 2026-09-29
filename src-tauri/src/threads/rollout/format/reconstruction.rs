@@ -414,12 +414,10 @@ fn response_item_message_projection(item: &ResponseItem) -> Option<Value> {
             let output = field_any(item, &["output", "content"])
                 .cloned()
                 .unwrap_or(Value::Null);
-            let output = if output.is_object() {
-                Value::String(output.to_string())
-            } else if output.is_null() {
-                Value::String(String::new())
-            } else {
-                output
+            let output = match output {
+                Value::String(_) | Value::Array(_) => output,
+                Value::Null => Value::String(String::new()),
+                _ => Value::String(output.to_string()),
             };
             Some(json!({
                 "role": "tool",

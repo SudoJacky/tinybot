@@ -4,6 +4,80 @@ use crate::threads::rollout::store::{ThreadLogItem, ThreadLogLine, ThreadMeta};
 use serde_json::json;
 
 #[test]
+fn model_replay_refusal_can_hydrate_typed_history() {
+    let timestamp = "2026-09-29T00:00:00Z";
+    let content = json!([
+        {"type": "output_text", "text": "Explanation: "},
+        {"type": "refusal", "refusal": "I cannot help with that request."}
+    ]);
+    let replay = reconstruct_rollout(&[
+        meta_line("source-thread", None, timestamp),
+        response_line(
+            timestamp,
+            json!({
+                "type": "message", "role": "assistant", "id": "refusal-message",
+                "turnId": "refusal-turn", "content": content,
+            }),
+        ),
+    ])
+    .unwrap();
+    let history = crate::agent::runtime::AgentItemHistory::from_legacy_messages(&replay.messages)
+        .expect("supported provider refusals must remain usable on the next Turn");
+    let messages = history.to_legacy_messages().unwrap();
+    assert_eq!(
+        messages[0]["content"],
+        json!([
+            {"type": "text", "text": "Explanation: "},
+            {"type": "text", "text": "I cannot help with that request."}
+        ])
+    );
+    assert_eq!(messages[0]["id"], "refusal-message");
+    assert_eq!(messages[0]["turnId"], "refusal-turn");
+    assert_eq!(messages[0]["threadId"], "source-thread");
+    assert_eq!(replay.response_items[0]["content"], content);
+}
+
+#[test]
+fn model_replay_tool_outputs_can_hydrate_typed_history() {
+    let timestamp = "2026-09-29T00:00:00Z";
+    for output_type in ["function_call_output", "custom_tool_call_output"] {
+        for (output, expected) in [
+            (json!(42), json!("42")),
+            (json!(1.5), json!("1.5")),
+            (json!(true), json!("true")),
+            (json!(false), json!("false")),
+            (json!({"count": 42}), json!("{\"count\":42}")),
+            (Value::Null, json!("")),
+            (json!("done"), json!("done")),
+            (
+                json!([{"type": "text", "text": "done"}]),
+                json!([{"type": "text", "text": "done"}]),
+            ),
+        ] {
+            let replay = reconstruct_rollout(&[
+                meta_line("source-thread", None, timestamp),
+                response_line(
+                    timestamp,
+                    json!({
+                        "type": output_type, "id": "output-1", "call_id": "call-1",
+                        "turnId": "tool-turn", "output": output,
+                    }),
+                ),
+            ])
+            .unwrap();
+            let history =
+                crate::agent::runtime::AgentItemHistory::from_legacy_messages(&replay.messages)
+                    .expect("valid tool outputs must remain usable on the next Turn");
+            let messages = history.to_legacy_messages().unwrap();
+            assert_eq!(messages[0]["content"], expected, "{output_type}: {output}");
+            assert_eq!(messages[0]["tool_call_id"], "call-1");
+            assert_eq!(messages[0]["id"], "output-1");
+            assert_eq!(replay.response_items[0]["output"], output);
+        }
+    }
+}
+
+#[test]
 fn fork_replay_preserves_original_location_in_both_representations() {
     let timestamp = "2026-09-29T00:00:00Z";
     let item =

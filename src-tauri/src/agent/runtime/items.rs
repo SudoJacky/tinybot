@@ -666,6 +666,13 @@ impl AgentContentPart {
                     .ok_or_else(|| format!("{part_type} content part requires text"))?
                     .to_string(),
             }),
+            "refusal" => Ok(Self::Text {
+                text: object
+                    .get("refusal")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "refusal content part requires refusal text".to_string())?
+                    .to_string(),
+            }),
             "image_url" | "input_image" => {
                 let image = object
                     .get("image_url")
@@ -917,6 +924,20 @@ fn optional_string_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_refusal_content_fails_explicitly() {
+        for part in [
+            serde_json::json!({"type": "refusal"}),
+            serde_json::json!({"type": "refusal", "refusal": false}),
+        ] {
+            let error = AgentItemHistory::from_legacy_messages(&[serde_json::json!({
+                "role": "assistant", "content": [part]
+            })])
+            .unwrap_err();
+            assert!(error.contains("refusal content part requires refusal text"));
+        }
+    }
 
     #[test]
     fn checkpoint_history_preserves_origins_parts_references_and_tool_errors() {

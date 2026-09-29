@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:f4111bcb5fcd4eb5554dd97a5e2ab9c44d3813cb2c95c80563ef200e7f12c248 -->
+<!-- tinybot-module-fingerprint: sha256:68ee26952a5d1ea585b57e3633dc7b34c96b44366c62ddda40e55ab6b23558a9 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -51,7 +51,9 @@ Input, execution context, in-memory checkpoints, and result messages share
 `AgentItemHistory`. Internal history serialization preserves local Thread/Turn/message
 identity, original Rollout ordinal, provider item IDs, content parts, references,
 client event IDs, and tool errors. Provider adapters strip local bookkeeping at
-the request boundary. Explicit native Responses history is authoritative; wire
+the request boundary. Typed history normalizes supported Responses refusal parts
+to text and rejects malformed refusal payloads; native replay retains the original
+provider content. Explicit native Responses history is authoritative; wire
 decoding never infers an extra current user from a second history array.
 Both representations share the Web snapshot target-retention policy.
 Context compaction checkpoints carry
