@@ -8,7 +8,6 @@ pub(super) static PLUGIN: OpenAiProvider = OpenAiProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "openai",
     display_name: "OpenAI",
-    aliases: &["gpt", "chatgpt"],
     categories: &["built_in"],
     default_api_base: Some("https://api.openai.com/v1"),
     api_key_env_vars: &["OPENAI_API_KEY"],

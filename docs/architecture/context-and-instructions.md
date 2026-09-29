@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:6ce7dbcc8f1671a25cbec1b12f4d3b4264307ea0623e71ab740dce8449f58222 -->
+<!-- tinybot-doc-fingerprint: sha256:2b087de0807d55dd8cb220ee460d58a4c3707bb6d38d211b1e1c36831afc4488 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -193,8 +193,13 @@ be dispatched, including composed workspace instructions, Responses replay
 items, expanded references and images, provider-visible tools, and output
 schemas. The same assembled value is reused for dispatch. Window resolution is model-specific: an
 explicit Turn value wins, followed by the active Provider Profile's model
-override, Tinybot's known-model catalog, the legacy unknown-model fallback,
-and finally the 128K runtime default. When no strategy is configured, the
+override, the selected provider's model defaults, the legacy unknown-model fallback,
+and finally the 128K default. The provider-owned `ResolvedModel` supplies both
+window limits and input capabilities; matching names on another provider do not
+inherit those defaults. Built-in defaults require the exact registered Provider
+ID in both runtime and settings; alternate Provider names remain independent
+custom configurations. Frontend model settings import the same built-in JSON
+definitions that Rust embeds, avoiding a second capability table. When no strategy is configured, the
 strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit
 `discard` remains available and keeps the newest messages that fit without
@@ -233,6 +238,9 @@ Exact configuration names and defaults belong in the
 - Project instructions share a bounded byte budget and record truncation and
   invalid UTF-8 warnings in provenance.
 - Compaction failure is explicit and does not silently fall back to discard.
+- Compaction uses the selected model's request compatibility and the shared
+  terminal-response validator. Truncated or filtered summaries cannot replace
+  history; reported usage is still retained in the invocation ledger.
 
 ## Source modules and verification
 

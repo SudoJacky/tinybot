@@ -1,9 +1,13 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:65fbf6208d78a5c32a9942c4bb82ebdad20b7b7fab739fa6fea181fc5d7c10d2 -->
+<!-- tinybot-module-fingerprint: sha256:a35f11056925db0a53316f2c3bd8e7024b1a3f8bc8fede4e86509842c10149d4 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in
 the system browser; failures are logged and shown as a transient error notice.
+Model additions, discovery refreshes, and context-window controls pass the
+selected provider ID to the shared model-capability resolver. Settings and the
+native request validator use the same built-in definitions; Profile overrides
+remain explicit when a custom provider reuses a known model ID.
 
 Visual on/off switches use the shared `LiquidToggle` in App, Appearance, Labs,
 configuration fields, and Provider configuration. Routes retain their existing

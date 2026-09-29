@@ -13,7 +13,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:bfaafe4dc665c9df06d7325eac188b3a45349b6a614e4d0b06b01c1ffcab1e10 -->
+<!-- tinybot-doc-fingerprint: sha256:79a28617316b3f9ff73062345fabfa579b291ffd64930e7482ead50e18e80aa8 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -50,6 +50,7 @@ Provider adapter encodes visible tool definitions
     |
     v
 Model tool-call batch
+    |-- require successful provider termination before decoding or dispatch
     |-- resolve provider name
     |-- reject any disallowed call before batch execution
     |-- prepare arguments or return one error result per call ID

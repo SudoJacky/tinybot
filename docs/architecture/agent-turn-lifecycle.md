@@ -22,7 +22,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:98d6f5efc1127416a25cb5b178bcd4ccd896087e55a1e1fe82534d3071942d23 -->
+<!-- tinybot-doc-fingerprint: sha256:e2d977b5ada4993d848e62650e6b7b3aeeff80fda2645f7a6d1147148a89c10b -->
 
 A Turn begins with an ordered batch of user input and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -180,12 +180,16 @@ For each provider iteration, the runtime:
 1. Restores any continuation and prepares typed `AgentItem` history.
 2. Builds the bounded request context and records provenance.
 3. Encodes and estimates the final provider request, then dispatches that same value.
-4. Decodes assistant text, reasoning metadata, optional provider usage, and tool
-   calls. Chat Completions and Responses usage pass through one shared mapper,
+4. Validates explicit provider termination, then decodes assistant text, reasoning
+   metadata, optional provider usage, and tool calls. Truncation and filtering
+   terminate with `provider_output_limit` and `provider_content_filter`; raw
+   reasons remain in errors. Partial responses cannot execute tools or become
+   final answers. Chat Completions and Responses usage pass through one shared mapper,
    including nested cache and reasoning detail counters; missing usage remains
    absent instead of becoming an all-zero provider count.
    The provider boundary records a stable invocation and atomically updates the
-   shared usage ledger. Owned provider/tool tasks carry application attribution;
+   shared usage ledger, including reported usage on failed terminal responses.
+   Owned provider/tool tasks carry application attribution;
    the bridge resolves canonical Thread and Team ancestry before execution.
    Retries get distinct invocation IDs. Replay never increments global totals.
 5. Records the complete tool batch before the next provider request.

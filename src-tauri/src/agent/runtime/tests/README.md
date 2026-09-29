@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:97e569748a006ddff063cf31f01e53749fff3089ffe3bad1ab4a960f1a289fb7 -->
+<!-- tinybot-module-fingerprint: sha256:cbcc0c7a7b3907f11185683c9b27ed7b5bed0a0cb0873ec49501fb753abb1dec -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -15,7 +15,7 @@ Context coverage includes compaction and trimming budgets, estimates of the
 fully assembled provider request (including Responses-native replay), and
 shared Chat Completions/Responses normalization of nested cache and reasoning
 usage details. It distinguishes missing usage from an explicit zero and also
-verifies known-model context defaults, the legacy unknown-model fallback, and
+verifies provider/model context defaults, the legacy unknown-model fallback, and
 Provider Profile per-model overrides.
 Selection coverage verifies that Turn-start user messages retain Skill IDs
 through canonical event projection and serialization without changing the text.
@@ -43,6 +43,9 @@ parallel child Turns, and parent cancellation are tested in
 Lifecycle coverage verifies prompt, before-tool, and after-tool hook stages and
 confirms that normalized before-tool replacements reach dispatch. It also
 checks that provider reasoning has matching live and reloaded canonical items.
+Local HTTP fixtures verify that truncated Chat tool calls fail with
+`provider_output_limit` before dispatch in both streaming and non-streaming
+Turns. Typed failure coverage also preserves the content-filter stop reason.
 Timing coverage uses an asynchronous streaming provider to verify first-token
 and decode intervals survive serialization, and asserts usage is recorded before
 a tool suspends the Turn for input.

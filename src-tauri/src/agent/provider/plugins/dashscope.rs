@@ -8,7 +8,6 @@ pub(super) static PLUGIN: DashScopeProvider = DashScopeProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "dashscope",
     display_name: "DashScope",
-    aliases: &["dash scope", "model studio", "qwen"],
     categories: &["built_in"],
     default_api_base: Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
     api_key_env_vars: &["DASHSCOPE_API_KEY"],

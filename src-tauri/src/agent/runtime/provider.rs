@@ -63,12 +63,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
                     cancellation,
                 )
                 .await
-                .map_err(|error| {
-                    NativeAgentProviderFailure::new(
-                        map_provider_failure_kind(error.kind()),
-                        error.message(),
-                    )
-                })?;
+                .map_err(NativeAgentProviderFailure::from)?;
             emit_completion_phase(&completion, adapter, observer);
             provider_response_from_completion(context, adapter, completion)
                 .map_err(NativeAgentProviderFailure::provider)
@@ -241,6 +236,12 @@ fn provider_response_from_completion(
     })
 }
 
+impl From<crate::agent::provider::NativeProviderFailure> for NativeAgentProviderFailure {
+    fn from(error: crate::agent::provider::NativeProviderFailure) -> Self {
+        Self::new(map_provider_failure_kind(error.kind()), error.message())
+    }
+}
+
 fn map_provider_failure_kind(
     kind: crate::agent::provider::NativeProviderFailureKind,
 ) -> NativeAgentProviderFailureKind {
@@ -256,6 +257,12 @@ fn map_provider_failure_kind(
         }
         crate::agent::provider::NativeProviderFailureKind::Transport => {
             NativeAgentProviderFailureKind::Transport
+        }
+        crate::agent::provider::NativeProviderFailureKind::OutputLimit => {
+            NativeAgentProviderFailureKind::OutputLimit
+        }
+        crate::agent::provider::NativeProviderFailureKind::ContentFilter => {
+            NativeAgentProviderFailureKind::ContentFilter
         }
         crate::agent::provider::NativeProviderFailureKind::Provider => {
             NativeAgentProviderFailureKind::Provider

@@ -1,4 +1,7 @@
-use super::{ProviderPlugin, ProviderRequestContext, CHAT_COMPLETIONS_ONLY};
+use super::{
+    ChatCompletionsCompat, ChatMaxTokensField, ProviderPlugin, ProviderRequestContext,
+    CHAT_COMPLETIONS_ONLY,
+};
 use crate::agent::provider::{NativeProviderApiMode, NativeProviderCatalogEntry};
 use serde_json::Value;
 
@@ -9,7 +12,6 @@ pub(super) static PLUGIN: ZaiProvider = ZaiProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "zai",
     display_name: "Z.ai",
-    aliases: &["z.ai", "zhipu", "bigmodel"],
     categories: &["built_in"],
     default_api_base: Some("https://open.bigmodel.cn/api/paas/v4"),
     api_key_env_vars: &["ZAI_API_KEY"],
@@ -25,6 +27,14 @@ static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
 impl ProviderPlugin for ZaiProvider {
     fn catalog_entry(&self) -> &'static NativeProviderCatalogEntry {
         &CATALOG_ENTRY
+    }
+
+    fn chat_compat(&self, _model: &str) -> ChatCompletionsCompat {
+        ChatCompletionsCompat {
+            max_tokens_field: ChatMaxTokensField::MaxTokens,
+            supports_stream_usage: false,
+            supports_parallel_tool_calls: false,
+        }
     }
 
     fn adapt_request(
@@ -45,16 +55,6 @@ impl ProviderPlugin for ZaiProvider {
                     context.provider_id
                 ));
             }
-        }
-        if request.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true) {
-            return Err(format!(
-                "provider `{}` does not declare support for `parallel_tool_calls`",
-                context.provider_id
-            ));
-        }
-        request.remove("stream_options");
-        if let Some(max_tokens) = request.remove("max_completion_tokens") {
-            request.insert("max_tokens".to_string(), max_tokens);
         }
         Ok(())
     }

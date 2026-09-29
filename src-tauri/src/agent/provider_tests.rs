@@ -62,6 +62,131 @@ fn streaming_chat_does_not_fabricate_missing_usage() {
     .expect("streaming content should aggregate");
 
     assert!(completion.get("usage").is_none());
+    assert!(completion["choices"][0]["finish_reason"].is_null());
+}
+
+#[test]
+fn streamed_finish_reason_survives_trailing_usage_chunks() {
+    let body = aggregate_stream_chunks(&[
+        json!({"choices": [{"delta": {"content": "partial"}, "finish_reason": "length"}]}),
+        json!({"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}}),
+    ]).unwrap();
+    assert_eq!(body["choices"][0]["finish_reason"], "length");
+    assert_eq!(body["usage"]["total_tokens"], 5);
+    assert!(aggregate_stream_chunks(&[
+        json!({"choices": [{"delta": {}, "finish_reason": "length"}]}),
+        json!({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
+    ])
+    .unwrap_err()
+    .contains("conflicting finish_reason"));
+}
+
+#[tokio::test]
+async fn incomplete_provider_outputs_fail_and_keep_usage_in_both_protocols() {
+    use crate::token_usage::{DailyTokenUsageStore, UsageScope};
+    use std::sync::atomic::AtomicUsize;
+
+    for responses in [false, true] {
+        for streaming in [false, true] {
+            for filtered in [false, true] {
+                let raw_reason = if filtered {
+                    "content_filter"
+                } else if responses {
+                    "max_output_tokens"
+                } else {
+                    "length"
+                };
+                let usage = json!({"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5});
+                let response = if responses {
+                    json!({"status": "incomplete", "model": "test-model",
+                        "incomplete_details": {"reason": raw_reason}, "output": [], "usage": usage})
+                } else {
+                    json!({"model": "test-model", "choices": [{"finish_reason": raw_reason,
+                        "message": {"role": "assistant", "content": "partial"}}], "usage": usage})
+                };
+                let (content_type, wire) = if !streaming {
+                    ("application/json", response.to_string())
+                } else if responses {
+                    (
+                        "text/event-stream",
+                        format!(
+                            "data: {}\n\n",
+                            json!({
+                                "type": "response.incomplete", "response": response
+                            })
+                        ),
+                    )
+                } else {
+                    (
+                        "text/event-stream",
+                        format!(
+                            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                            json!({"model": "test-model", "choices": [{"index": 0,
+                            "delta": {"content": "partial"}, "finish_reason": raw_reason}]}),
+                            json!({"choices": [], "usage": usage})
+                        ),
+                    )
+                };
+                let calls = Arc::new(AtomicUsize::new(0));
+                let server_calls = calls.clone();
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let api_base = format!("http://{}", listener.local_addr().unwrap());
+                let app = axum::Router::new().fallback(axum::routing::post(move || {
+                    server_calls.fetch_add(1, Ordering::SeqCst);
+                    let wire = wire.clone();
+                    async move { ([("content-type", content_type)], wire) }
+                }));
+                let server = tokio::spawn(async move {
+                    axum::serve(listener, app).await.unwrap();
+                });
+                let root = std::env::temp_dir().join(
+                    crate::protocol::request_id::next_worker_request_correlation()
+                        .id("provider-outcome-usage"),
+                );
+                let store = DailyTokenUsageStore::from_data_root(&root);
+                let scope = UsageScope {
+                    store: Some(store.clone()),
+                    origin: Default::default(),
+                };
+                let config = json!({
+                    "agents": {"defaults": {"provider": "openai"}},
+                    "providers": {"openai": {"api_base": api_base, "api_key": "test", "request_timeout_ms": 10000}}
+                });
+                let error = scope.run(async {
+                    let mut observer = |_| {};
+                    if responses {
+                        complete_responses_for_agent_with_observer_async(&config,
+                            &json!({"model": "test-model", "input": "hello", "stream": streaming}),
+                            &mut observer, None).await
+                    } else {
+                        complete_chat_for_agent_with_observer_async(&config,
+                            &json!({"model": "test-model", "messages": [{"role": "user", "content": "hello"}], "stream": streaming}),
+                            &mut observer, None).await
+                    }
+                }).await.unwrap_err();
+                server.abort();
+                assert_eq!(
+                    error.kind(),
+                    if filtered {
+                        NativeProviderFailureKind::ContentFilter
+                    } else {
+                        NativeProviderFailureKind::OutputLimit
+                    }
+                );
+                assert!(error.message().contains(raw_reason));
+                assert_eq!(
+                    calls.load(Ordering::SeqCst),
+                    1,
+                    "terminal model failures must not retry"
+                );
+                let calls = store.details(None, None).unwrap().invocations;
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].status, "failed");
+                assert_eq!(calls[0].usage.as_ref().unwrap().total_tokens, 5);
+                std::fs::remove_dir_all(&root).unwrap();
+            }
+        }
+    }
 }
 
 #[test]
@@ -96,6 +221,11 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         provider_ids,
         vec!["openai", "deepseek", "dashscope", "zai", "ollama"]
     );
+    assert!(body["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry.get("aliases").is_none()));
     let deepseek = body["providers"]
         .as_array()
         .unwrap()
@@ -209,6 +339,119 @@ fn explicit_auto_turn_provider_is_not_treated_as_an_omitted_provider() {
 }
 
 #[test]
+fn built_in_providers_require_their_exact_ids() {
+    for provider_id in [
+        "zhipu",
+        "bigmodel",
+        "z.ai",
+        "ZAI",
+        "_zai_",
+        "gpt",
+        "chatgpt",
+        "OPENAI",
+        "deep seek",
+        "DeepSeek",
+        "dash scope",
+        "model studio",
+        "qwen",
+        "Ollama",
+    ] {
+        assert!(
+            resolve_provider_profile(&json!({}), Some(provider_id), None).is_none(),
+            "{provider_id} must not implicitly select a built-in provider"
+        );
+    }
+}
+
+#[test]
+fn custom_provider_ids_preserve_identity_and_do_not_inherit_built_in_policies() {
+    for provider_id in ["zhipu", "bigmodel", "z.ai", "ZAI", "My-Gateway"] {
+        let mut config = json!({
+            "agents": {"defaults": {"activeProfile": "builtin"}},
+            "providers": {"profiles": {
+                "builtin": {"provider": "zai", "apiKey": "builtin-key"},
+                "imported": {
+                    "provider": provider_id,
+                    "apiBase": "https://custom.example.test/v1",
+                    "apiKey": "custom-key",
+                    "models": ["glm-5.3-flash"]
+                }
+            }}
+        });
+        let builtin = resolve_provider_profile(&config, None, None).unwrap();
+        let custom = resolve_provider_profile(&config, Some(provider_id), None).unwrap();
+        assert_eq!(custom.provider_id, provider_id);
+        assert!(custom.is_custom);
+        assert_eq!(
+            custom.api_base.as_deref(),
+            Some("https://custom.example.test/v1")
+        );
+        assert_eq!(custom.api_key.as_deref(), Some("custom-key"));
+        assert_eq!(
+            custom.context_window_tokens_for_model("glm-5.3-flash"),
+            None
+        );
+        assert!(!custom.supports_input_modality("glm-5.3-flash", "image"));
+        custom
+            .require_api_mode(NativeProviderApiMode::Responses)
+            .unwrap();
+        let mut request = json!({"max_completion_tokens": 128, "parallel_tool_calls": true,
+            "stream_options": {"include_usage": true}, "temperature": 1.5});
+        let original_request = request.clone();
+        adapt_provider_request(
+            &custom,
+            "glm-5.3-flash",
+            NativeProviderApiMode::ChatCompletions,
+            &mut request,
+        )
+        .expect("custom providers must not apply Z.ai request restrictions");
+        assert_eq!(request, original_request);
+
+        assert_eq!(
+            resolve_provider_profile(&config, None, Some("imported")),
+            Some(custom.clone())
+        );
+        config["agents"]["defaults"]["activeProfile"] = json!("imported");
+        assert_eq!(resolve_provider_profile(&config, None, None), Some(custom));
+        config["providers"]["profiles"]["imported"]["modelContextWindows"] =
+            json!([{"model": "glm-5.3-flash", "contextWindowTokens": 64000}]);
+        config["providers"]["profiles"]["imported"]["modelCapabilities"] =
+            json!([{"model": "glm-5.3-flash", "inputModalities": ["image"]}]);
+        let configured = resolve_provider_profile(&config, None, None).unwrap();
+        assert_eq!(
+            configured.context_window_tokens_for_model("glm-5.3-flash"),
+            Some(64000)
+        );
+        assert!(configured.supports_input_modality("glm-5.3-flash", "image"));
+        assert_eq!(
+            resolve_provider_profile(&config, Some("zai"), None),
+            Some(builtin.clone())
+        );
+        assert_eq!(
+            builtin.context_window_tokens_for_model("glm-5.3-flash"),
+            Some(1_000_000)
+        );
+        assert!(builtin.supports_input_modality("glm-5.3-flash", "image"));
+    }
+}
+
+#[test]
+fn custom_provider_without_an_endpoint_fails_configuration_validation() {
+    let profile = resolve_provider_profile(
+        &json!({"providers": {"profiles": {"imported": {"provider": "zhipu"}}}}),
+        None,
+        Some("imported"),
+    )
+    .unwrap();
+    assert!(profile.is_custom);
+    assert!(profile.api_base.is_none());
+    assert!(profile.api_key.is_none());
+    assert!(validate_provider_configuration(&profile)
+        .unwrap_err()
+        .contains("provider 'zhipu' requires api_base"));
+}
+
+#[test]
 fn resolves_model_image_input_defaults_and_profile_overrides() {
     let built_in = resolve_provider_profile(
         &json!({
@@ -224,8 +467,8 @@ fn resolves_model_image_input_defaults_and_profile_overrides() {
     .unwrap();
     assert!(built_in.supports_input_modality("glm-5.3-flash", "image"));
     assert!(!built_in.supports_input_modality("glm-5.3", "image"));
-    assert!(built_in.supports_input_modality("deepseek-v4-flash-vision-exp", "image"));
-    assert!(built_in.supports_input_modality("deepseek-flash", "image"));
+    assert!(!built_in.supports_input_modality("deepseek-v4-flash-vision-exp", "image"));
+    assert!(!built_in.supports_input_modality("deepseek-flash", "image"));
     assert!(!built_in.supports_input_modality("deepseek-v4-pro", "image"));
 
     let overridden = resolve_provider_profile(
@@ -852,6 +1095,30 @@ fn responses_stream_requires_completed_event() {
     .expect_err("partial Responses stream must not look complete");
 
     assert!(error.contains("response.completed"));
+}
+
+#[test]
+fn responses_stream_preserves_failed_response_and_rejects_terminal_replacement() {
+    let failed = json!({"status": "failed", "error": {"code": "server_error", "message": "provider unavailable"}});
+    let completion =
+        aggregate_response_events(&[json!({"type": "response.failed", "response": failed})])
+            .unwrap();
+    let outcome = super::outcome::ProviderCompletionOutcome::from_response(
+        NativeProviderApiMode::Responses,
+        &completion,
+    )
+    .unwrap();
+    let error = outcome
+        .require_complete(NativeProviderApiMode::Responses)
+        .unwrap_err();
+    assert!(error.message().contains("server_error"));
+    assert!(error.message().contains("provider unavailable"));
+    assert!(aggregate_response_events(&[
+        json!({"type": "response.failed", "response": failed}),
+        json!({"type": "response.completed", "response": {"status": "completed", "output": []}}),
+    ])
+    .unwrap_err()
+    .contains("multiple terminal events"));
 }
 
 #[test]

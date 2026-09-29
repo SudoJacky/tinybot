@@ -8,11 +8,19 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:68ee26952a5d1ea585b57e3633dc7b34c96b44366c62ddda40e55ab6b23558a9 -->
+<!-- tinybot-module-fingerprint: sha256:29d56f75c6e44a128117c0abe81241819b775d57b01d2503458ca5871a52cde6 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
 origin. Accounting remains at the shared provider boundary, not event replay.
+
+Provider terminal validation rejects truncated or filtered output before the
+runtime can accept a final answer or execute tools. These failures retain
+`provider_output_limit` or `provider_content_filter` through Turn results and
+events. Auxiliary text and compaction requests share the same validation;
+compaction also applies the selected model's request compatibility. Context
+windows and input capabilities come from the provider-owned `ResolvedModel`,
+with Profile and Turn overrides rather than independent runtime model lists.
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed

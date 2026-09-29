@@ -1,5 +1,5 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:eb1352a34e882e1d6263f5fffe69fdfc69d83253adc5e6ae768bf2c89f71015c -->
+<!-- tinybot-module-fingerprint: sha256:98225ae03a74bee9b326eddde78602bede5641d88f23a797b21c99ffb5bb2d06 -->
 
 Title generation and Graph routing use distinct token-usage purposes while
 preserving trusted originating Thread/Turn and Team identities when present.
@@ -22,8 +22,12 @@ The built-in Ollama Provider uses the local OpenAI-compatible endpoint without
 requiring an API key; its plugin owns the small Chat Completions field mapping
 while shared model discovery, streaming, and response decoding remain in the
 common Provider runtime.
+Model capabilities and compatibility resolve within the selected Profile.
+Shared terminal validation rejects partial provider output before final answers,
+tool execution, title generation, routing, or compaction can consume it.
 Provider selection requires an explicit Provider or active Profile; model names
-never select a Provider implicitly.
+never select a Provider implicitly. Built-in adapters require their exact
+registered IDs; provider aliases and case/punctuation rewriting are not supported.
 Chat Completions and Responses keep their wire usage payloads intact while the
 crate-level token-usage mapper provides one canonical representation for
 runtime accounting, Rollout token counts, and daily totals.

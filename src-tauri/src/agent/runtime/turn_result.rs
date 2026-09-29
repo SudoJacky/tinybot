@@ -23,6 +23,8 @@ pub enum AgentStopReason {
     ProviderRequestTimeout,
     ProviderStreamIdleTimeout,
     ProviderTransportError,
+    ProviderOutputLimit,
+    ProviderContentFilter,
     ProviderError,
     ContextCompactionCommitFailed,
     ContextCompactionNotNeeded,
@@ -72,6 +74,8 @@ impl AgentStopReason {
             Self::ProviderRequestTimeout => "provider_request_timeout",
             Self::ProviderStreamIdleTimeout => "provider_stream_idle_timeout",
             Self::ProviderTransportError => "provider_transport_error",
+            Self::ProviderOutputLimit => "provider_output_limit",
+            Self::ProviderContentFilter => "provider_content_filter",
             Self::ProviderError => "provider_error",
             Self::ContextCompactionCommitFailed => "context_compaction_commit_failed",
             Self::ContextCompactionNotNeeded => "context_compaction_not_needed",
@@ -98,6 +102,8 @@ impl AgentStopReason {
             | Self::ProviderRequestTimeout
             | Self::ProviderStreamIdleTimeout
             | Self::ProviderTransportError
+            | Self::ProviderOutputLimit
+            | Self::ProviderContentFilter
             | Self::ProviderError
             | Self::ContextCompactionCommitFailed
             | Self::ContextCompactionNotNeeded
@@ -125,6 +131,8 @@ impl AgentStopReason {
             | Self::ProviderRequestTimeout
             | Self::ProviderStreamIdleTimeout
             | Self::ProviderTransportError
+            | Self::ProviderOutputLimit
+            | Self::ProviderContentFilter
             | Self::ProviderError
             | Self::ContextCompactionCommitFailed
             | Self::ContextCompactionNotNeeded
@@ -153,6 +161,7 @@ impl AgentStopReason {
             Self::ProviderRequestTimeout => AgentRuntimePhase::Failed,
             Self::ProviderStreamIdleTimeout => AgentRuntimePhase::Failed,
             Self::ProviderTransportError => AgentRuntimePhase::Failed,
+            Self::ProviderOutputLimit | Self::ProviderContentFilter => AgentRuntimePhase::Failed,
             Self::ProviderError => AgentRuntimePhase::Failed,
             Self::ContextCompactionCommitFailed => AgentRuntimePhase::Failed,
             Self::ContextCompactionNotNeeded => AgentRuntimePhase::Failed,

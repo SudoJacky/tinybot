@@ -120,7 +120,7 @@ fn resolve_provider_env_secret(provider_id: &str) -> Option<ProviderResolveSecre
 }
 
 fn provider_api_key_env_vars(provider_id: &str) -> &'static [&'static str] {
-    match provider_id.trim().to_ascii_lowercase().as_str() {
+    match provider_id {
         "openai" => &["OPENAI_API_KEY"],
         "deepseek" => &["DEEPSEEK_API_KEY"],
         "dashscope" => &["DASHSCOPE_API_KEY"],
@@ -128,13 +128,7 @@ fn provider_api_key_env_vars(provider_id: &str) -> &'static [&'static str] {
         "lm_studio" | "lm-studio" | "lmstudio" => &["LM_API_KEY"],
         "siliconflow" => &["SILICONFLOW_API_KEY"],
         "moonshot" => &["MOONSHOT_API_KEY", "KIMI_API_KEY"],
-        "zhipu" => &[
-            "ZHIPUAI_API_KEY",
-            "ZHIPU_API_KEY",
-            "GLM_API_KEY",
-            "ZAI_API_KEY",
-            "Z_AI_API_KEY",
-        ],
+        "zai" => &["ZAI_API_KEY"],
         "vercel" => &["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"],
         "opencode" => &["OPENCODE_ZEN_API_KEY"],
         "opencode_go" | "opencode-go" => &["OPENCODE_GO_API_KEY"],

@@ -1,3 +1,5 @@
+import modelDefaults from "../../../src-tauri/src/agent/provider/model-defaults.json";
+
 export type ProviderModelDiscovery =
   | { status: "openai-compatible"; endpoint: "/models" }
   | { status: "static"; endpoint: null };
@@ -126,23 +128,11 @@ export type ProviderModelFetchResult = {
 
 type JsonRecord = Record<string, unknown>;
 
-export const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 128_000;
-
-const BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS: Record<string, number> = {
-  "deepseek-flash": 1_000_000,
-  "deepseek-v4-flash": 1_000_000,
-  "deepseek-v4-flash-vision-exp": 1_000_000,
-  "deepseek-v4-pro": 1_000_000,
-  "glm-5.3": 1_000_000,
-  "glm-5.3-flash": 1_000_000,
-};
-
-const BUILT_IN_IMAGE_INPUT_MODELS = new Set([
-  "deepseek-flash",
-  "deepseek-v4-flash",
-  "deepseek-v4-flash-vision-exp",
-  "glm-5.3-flash",
-]);
+export const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = modelDefaults.fallbackContextWindowTokens;
+const BUILT_IN_MODEL_DEFAULTS: Record<string, Record<string, {
+  contextWindowTokens: number;
+  inputModalities: string[];
+}>> = modelDefaults.providers;
 
 export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
   {
@@ -343,7 +333,7 @@ export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonR
     profile.modelContextWindows = uniqueModelContextWindows(input.modelContextWindows);
   }
   if (input.modelCapabilities !== undefined) {
-    profile.modelCapabilities = uniqueModelCapabilities(input.modelCapabilities);
+    profile.modelCapabilities = uniqueModelCapabilities(input.providerId, input.modelCapabilities);
   }
   if (input.setAgentDefault && !defaultModel) {
     throw new Error(`Cannot set ${input.providerId} as the default provider without a default model.`);
@@ -361,18 +351,19 @@ export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonR
 }
 
 export function automaticModelContextWindow(
+  providerId: string,
   model: string,
   fallbackTokens = DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
 ): { known: boolean; tokens: number } {
-  const tokens = BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS[model.trim().toLowerCase()];
+  const tokens = BUILT_IN_MODEL_DEFAULTS[providerId]?.[model.trim().toLowerCase()]?.contextWindowTokens;
   return tokens
     ? { known: true, tokens }
     : { known: false, tokens: fallbackTokens };
 }
 
-export function automaticModelCapabilities(model: string): { supportsImageInput: boolean } {
+export function automaticModelCapabilities(providerId: string, model: string): { supportsImageInput: boolean } {
   return {
-    supportsImageInput: BUILT_IN_IMAGE_INPUT_MODELS.has(model.trim().toLowerCase()),
+    supportsImageInput: BUILT_IN_MODEL_DEFAULTS[providerId]?.[model.trim().toLowerCase()]?.inputModalities.includes("image") ?? false,
   };
 }
 
@@ -451,7 +442,7 @@ function buildProviderCard(
     ...manualModels
       .filter((model) => !preset.defaultModels.includes(model))
       .map((model) => ({ id: model, label: model, source: "user" as const })),
-  ].map((model) => withModelConfiguration(model, enabledModels, modelCapabilities));
+  ].map((model) => withModelConfiguration(preset.id, model, enabledModels, modelCapabilities));
   const enabledModelItems = models.filter((model) => model.enabled);
   const configuredDefaultModel = stringOrNull(pick(profile, "defaultModel", "default_model"))
     ?? (activeProfileId === profileId ? agentDefaultModel : null)
@@ -500,7 +491,7 @@ function buildCustomProviderCard(
   const modelIds = parseModelList(profile.models);
   const enabledModels = parseEnabledModels(profile, modelIds);
   const modelCapabilities = parseModelCapabilities(profile);
-  const models = modelIds.map((model) => withModelConfiguration({
+  const models = modelIds.map((model) => withModelConfiguration(providerId, {
     id: model,
     label: model,
     source: "user" as const,
@@ -644,6 +635,7 @@ function parseModelCapabilities(profile: JsonRecord): Map<string, { supportsImag
 }
 
 function withModelConfiguration<T extends { id: string; label: string; source: ProviderModelSource }>(
+  providerId: string,
   model: T,
   enabledModels: Set<string>,
   configuredCapabilities: Map<string, { supportsImageInput: boolean }>,
@@ -653,7 +645,7 @@ function withModelConfiguration<T extends { id: string; label: string; source: P
     ...model,
     enabled: enabledModels.has(model.id),
     supportsImageInput: configuredCapabilities.get(normalizedModel)?.supportsImageInput
-      ?? automaticModelCapabilities(normalizedModel).supportsImageInput,
+      ?? automaticModelCapabilities(providerId, normalizedModel).supportsImageInput,
   };
 }
 
@@ -673,6 +665,7 @@ function uniqueModelContextWindows(
 }
 
 function uniqueModelCapabilities(
+  providerId: string,
   entries: Array<{ model: string; inputModalities: string[] }>,
 ): Array<{ model: string; inputModalities: string[] }> {
   const capabilities = new Map<string, string[]>();
@@ -683,7 +676,7 @@ function uniqueModelCapabilities(
     }
     const inputModalities = uniqueStrings(entry.inputModalities.map((modality) => modality.toLowerCase()))
       .filter((modality) => modality === "image");
-    const automatic = automaticModelCapabilities(model).supportsImageInput;
+    const automatic = automaticModelCapabilities(providerId, model).supportsImageInput;
     if (inputModalities.includes("image") !== automatic) {
       capabilities.set(model, inputModalities);
     } else {

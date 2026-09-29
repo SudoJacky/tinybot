@@ -1,5 +1,5 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:07f5d606c3502578db8e702bd064cc184a78ff8ed489cec4d13bd6e2a47d25f8 -->
+<!-- tinybot-module-fingerprint: sha256:b268230b5af0905b0911b07953ff13d02b0a2c3f7a894c2a01a4e28c79c6cd81 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 
@@ -23,6 +23,11 @@ Provider Profile `enabledModels`, `modelContextWindows`, and
 `modelCapabilities` are canonical camelCase configuration. The store accepts
 their snake_case aliases on input, and the registry exposes each per-model
 collection as profile-scoped JSON.
+
+Built-in Provider identity is case-sensitive and uses the registered ID. The
+Worker secret resolver follows the same rule for built-in environment credentials:
+Z.ai uses `zai` and `ZAI_API_KEY`; `zhipu` is a custom ID and does not inherit that
+secret. Explicit Profile credentials take precedence and stay Profile-scoped.
 
 Long-term Memory may optionally set `memory.activeProfile` and `memory.model`
 as one Provider/model override. Removing both fields restores the global Agent

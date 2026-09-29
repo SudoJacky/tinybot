@@ -12,6 +12,52 @@ import {
 } from "./providerModelsSettings";
 
 describe("provider models settings", () => {
+  test.each(["zhipu", "bigmodel", "z.ai", "ZAI"])("keeps custom provider %s separate from the built-in Z.ai profile", (providerId) => {
+    const settings = buildProviderModelsSettings({ providers: { profiles: {
+      builtin: { provider: "zai", models: ["glm-5.3-flash"] },
+      imported: { provider: providerId, apiBase: "https://custom.example.test/v1", models: ["glm-5.3-flash"] },
+    } } });
+    expect(settings.providers.find((provider) => provider.id === "zai")).toMatchObject({
+      builtIn: true, profileId: "builtin",
+      models: expect.arrayContaining([expect.objectContaining({ id: "glm-5.3-flash", supportsImageInput: true })]),
+    });
+    expect(settings.providers.find((provider) => provider.id === providerId)).toMatchObject({
+      builtIn: false, profileId: "imported",
+      models: [{ id: "glm-5.3-flash", supportsImageInput: false }],
+    });
+    expect(automaticModelContextWindow(providerId, "glm-5.3-flash"))
+      .toEqual({ known: false, tokens: 128_000 });
+    expect(buildProviderModelsPatch({
+      providerId, profileId: "imported", models: ["glm-5.3-flash"],
+      modelContextWindows: [{ model: "glm-5.3-flash", contextWindowTokens: 64_000 }],
+      modelCapabilities: [{ model: "glm-5.3-flash", inputModalities: ["image"] }],
+    })).toEqual({ providers: { profiles: { imported: {
+      provider: providerId, models: ["glm-5.3-flash"],
+      modelContextWindows: [{ model: "glm-5.3-flash", contextWindowTokens: 64_000 }],
+      modelCapabilities: [{ model: "glm-5.3-flash", inputModalities: ["image"] }],
+    } } } });
+  });
+
+  test("custom providers do not inherit same-named model capabilities and keep explicit image overrides", () => {
+    expect(automaticModelCapabilities("proxy", "deepseek-flash")).toEqual({ supportsImageInput: false });
+    expect(automaticModelContextWindow("proxy", "deepseek-flash", 64_000))
+      .toEqual({ known: false, tokens: 64_000 });
+    const config = {
+      providers: { profiles: { proxy: { provider: "proxy", models: ["deepseek-flash"] } } },
+    };
+    const provider = buildProviderModelsSettings(config).providers.find((item) => item.id === "proxy");
+    expect(provider?.models[0].supportsImageInput).toBe(false);
+    const patch = buildProviderModelsPatch({
+      providerId: "proxy", profileId: "proxy", models: ["deepseek-flash"],
+      modelCapabilities: [{ model: "deepseek-flash", inputModalities: ["image"] }],
+    });
+    expect(patch).toMatchObject({ providers: { profiles: { proxy: {
+      modelCapabilities: [{ model: "deepseek-flash", inputModalities: ["image"] }],
+    } } } });
+    const enabled = buildProviderModelsSettings(patch).providers.find((item) => item.id === "proxy");
+    expect(enabled?.models[0].supportsImageInput).toBe(true);
+  });
+
   test("builds built-in provider cards from backend config", () => {
     const settings = buildProviderModelsSettings({
       revision: "hash:1",
@@ -354,24 +400,24 @@ describe("provider models settings", () => {
   });
 
   test("resolves known model windows and persists per-model overrides", () => {
-    expect(automaticModelContextWindow("deepseek-flash")).toEqual({ known: true, tokens: 1_000_000 });
-    expect(automaticModelContextWindow("deepseek-v4-flash-vision-exp")).toEqual({
+    expect(automaticModelContextWindow("deepseek", "deepseek-flash")).toEqual({ known: true, tokens: 1_000_000 });
+    expect(automaticModelContextWindow("deepseek", "deepseek-v4-flash-vision-exp")).toEqual({
       known: true,
       tokens: 1_000_000,
     });
-    expect(automaticModelContextWindow("glm-5.3")).toEqual({
+    expect(automaticModelContextWindow("zai", "glm-5.3")).toEqual({
       known: true,
       tokens: 1_000_000,
     });
-    expect(automaticModelContextWindow("glm-5.3-flash")).toEqual({
+    expect(automaticModelContextWindow("zai", "glm-5.3-flash")).toEqual({
       known: true,
       tokens: 1_000_000,
     });
-    expect(automaticModelContextWindow("custom-small-model")).toEqual({
+    expect(automaticModelContextWindow("custom", "custom-small-model")).toEqual({
       known: false,
       tokens: 128_000,
     });
-    expect(automaticModelContextWindow("custom-small-model", 64_000)).toEqual({
+    expect(automaticModelContextWindow("custom", "custom-small-model", 64_000)).toEqual({
       known: false,
       tokens: 64_000,
     });
@@ -420,11 +466,11 @@ describe("provider models settings", () => {
   });
 
   test("resolves image defaults and persists model enablement and capability overrides", () => {
-    expect(automaticModelCapabilities("deepseek-flash")).toEqual({ supportsImageInput: true });
-    expect(automaticModelCapabilities("deepseek-v4-pro")).toEqual({ supportsImageInput: false });
-    expect(automaticModelCapabilities("glm-5.3-flash")).toEqual({ supportsImageInput: true });
-    expect(automaticModelCapabilities("deepseek-v4-flash-vision-exp")).toEqual({ supportsImageInput: true });
-    expect(automaticModelCapabilities("glm-5.3")).toEqual({ supportsImageInput: false });
+    expect(automaticModelCapabilities("deepseek", "deepseek-flash")).toEqual({ supportsImageInput: true });
+    expect(automaticModelCapabilities("deepseek", "deepseek-v4-pro")).toEqual({ supportsImageInput: false });
+    expect(automaticModelCapabilities("zai", "glm-5.3-flash")).toEqual({ supportsImageInput: true });
+    expect(automaticModelCapabilities("deepseek", "deepseek-v4-flash-vision-exp")).toEqual({ supportsImageInput: true });
+    expect(automaticModelCapabilities("zai", "glm-5.3")).toEqual({ supportsImageInput: false });
 
     const settings = buildProviderModelsSettings({
       providers: {

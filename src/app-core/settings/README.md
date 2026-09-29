@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:2efda364150a2076ff1e01e819c2de48204868bc8dea6bbc7f847243f0c8af73 -->
+<!-- tinybot-module-fingerprint: sha256:d53836677a3952ef29a9f1dc000517a5b3673aaf52964ab509394b929df1829f -->
 
 `tokenUsage.ts` defines the v3 snapshot, purpose/source groups and paginated
 invocation contracts. Nullable usage distinguishes unavailable counts from zero;
@@ -30,9 +30,13 @@ flags are absent; explicit disabled values remain disabled in the settings form.
 `experiments.actionFusion` patch. Action Fusion defaults to disabled; malformed
 flag values are errors rather than implicit false values.
 
-Agent context-window defaults must remain aligned with the Rust runtime.
+Agent context-window and image-input defaults come from the shared provider-owned
+`src-tauri/src/agent/provider/model-defaults.json` table embedded into Rust.
+Lookup requires both provider and model; custom providers do not inherit a
+built-in capability merely by reusing its model name. Explicit image overrides
+remain stored even when a different provider's same-named model supports images.
 Provider model settings persist `modelContextWindows` per profile and model;
-known models use their automatic capability while unknown models display the
+known provider/model pairs use their automatic capability while unknown pairs display the
 configured legacy fallback or 128K default. The former global window value
 remains read-only compatibility data for unknown models. Missing or cleared
 strategy values resolve to `compact`.
@@ -71,6 +75,11 @@ Provider model settings keep the discovered `models` catalog separate from
 persist image-input overrides through `modelCapabilities`; the known defaults
 for `glm-5.3-flash`, `deepseek-flash`, and the legacy Flash aliases stay aligned with the
 Rust provider resolver.
+
+Built-in Provider IDs are matched exactly. Alternate names and casing such as
+`zhipu` and `ZAI` stay separate custom Providers, with their own model settings.
+Saving their context or modality overrides patches only the selected Profile;
+it does not update the built-in catalog or a different Profile.
 
 The default light appearance uses a near-white canvas, cooler navigation chrome,
 and graphite emphasis. Loading the unchanged previous default palette upgrades
