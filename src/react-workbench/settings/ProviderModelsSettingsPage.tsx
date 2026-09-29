@@ -969,7 +969,7 @@ function ProviderModelsDialog({
       label: id,
       source: "user",
       enabled: true,
-      supportsImageInput: automaticModelCapabilities(id).supportsImageInput,
+      supportsImageInput: automaticModelCapabilities(provider.id, id).supportsImageInput,
     }]);
     setNewModel("");
     if (!defaultModel) {
@@ -1015,7 +1015,7 @@ function ProviderModelsDialog({
       if (mode === "auto") {
         delete next[model];
       } else if (!Object.prototype.hasOwnProperty.call(next, model)) {
-        next[model] = String(automaticModelContextWindow(model, fallbackContextWindowTokens).tokens);
+        next[model] = String(automaticModelContextWindow(provider.id, model, fallbackContextWindowTokens).tokens);
       }
       return next;
     });
@@ -1042,7 +1042,7 @@ function ProviderModelsDialog({
         return;
       }
       if (result.models.length) {
-        setModels((currentModels) => mergeFetchedModels(currentModels, result.models));
+        setModels((currentModels) => mergeFetchedModels(provider.id, currentModels, result.models));
         if (!defaultModel) {
           setDefaultModel(currentEnabledModelId(models));
         }
@@ -1147,6 +1147,7 @@ function ProviderModelsDialog({
                   <ImageIcon aria-hidden="true" size={16} strokeWidth={1.8} />
                 </button>
                 <ModelContextWindowControl
+                  providerId={provider.id}
                   fallbackContextWindowTokens={fallbackContextWindowTokens}
                   invalid={invalidContextWindowModels.has(model.id)}
                   model={model.id}
@@ -1207,6 +1208,7 @@ function ProviderModelsDialog({
 }
 
 function ModelContextWindowControl({
+  providerId,
   fallbackContextWindowTokens,
   invalid,
   model,
@@ -1214,6 +1216,7 @@ function ModelContextWindowControl({
   onTokensChange,
   overrideValue,
 }: {
+  providerId: string;
   fallbackContextWindowTokens: number;
   invalid: boolean;
   model: string;
@@ -1222,7 +1225,7 @@ function ModelContextWindowControl({
   overrideValue?: string;
 }) {
   const { t } = useTranslation("settings");
-  const automatic = automaticModelContextWindow(model, fallbackContextWindowTokens);
+  const automatic = automaticModelContextWindow(providerId, model, fallbackContextWindowTokens);
   const custom = overrideValue !== undefined;
   return (
     <div className="react-provider-model-context">
@@ -1271,7 +1274,7 @@ function formatContextWindowTokens(tokens: number): string {
   return tokens.toLocaleString();
 }
 
-function mergeFetchedModels(currentModels: ProviderModelItem[], fetchedModelIds: string[]): ProviderModelItem[] {
+function mergeFetchedModels(providerId: string, currentModels: ProviderModelItem[], fetchedModelIds: string[]): ProviderModelItem[] {
   const next = [...currentModels];
   const seen = new Set(next.map((model) => model.id));
   for (const modelId of fetchedModelIds) {
@@ -1285,7 +1288,7 @@ function mergeFetchedModels(currentModels: ProviderModelItem[], fetchedModelIds:
       label: id,
       source: "live",
       enabled: false,
-      supportsImageInput: automaticModelCapabilities(id).supportsImageInput,
+      supportsImageInput: automaticModelCapabilities(providerId, id).supportsImageInput,
     });
   }
   return next;

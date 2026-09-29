@@ -857,12 +857,19 @@ async fn compact_messages_once_async(
     messages: &[Value],
     merge: bool,
 ) -> Result<String, NativeAgentProviderFailure> {
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": context.model,
         "stream": false,
         "max_completion_tokens": effective_compact_summary_max_tokens(context),
         "messages": compaction_summary_prompt_messages(messages, merge),
     });
+    super::provider_adapter::apply_provider_request_adaptation(
+        &context.settings,
+        &context.config_snapshot,
+        crate::agent::provider::NativeProviderApiMode::ChatCompletions,
+        &mut body,
+    )
+    .map_err(NativeAgentProviderFailure::provider)?;
     let provider_config = agent_provider_config(context);
     let cancellation = context.cancellation.clone().map(|cancellation| {
         Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
@@ -879,28 +886,7 @@ async fn compact_messages_once_async(
                 ),
             )
             .await
-            .map_err(|error| {
-                NativeAgentProviderFailure::new(
-                    match error.kind() {
-                        crate::agent::provider::NativeProviderFailureKind::Cancelled => {
-                            super::NativeAgentProviderFailureKind::Cancelled
-                        }
-                        crate::agent::provider::NativeProviderFailureKind::RequestTimeout => {
-                            super::NativeAgentProviderFailureKind::RequestTimeout
-                        }
-                        crate::agent::provider::NativeProviderFailureKind::StreamIdleTimeout => {
-                            super::NativeAgentProviderFailureKind::StreamIdleTimeout
-                        }
-                        crate::agent::provider::NativeProviderFailureKind::Transport => {
-                            super::NativeAgentProviderFailureKind::Transport
-                        }
-                        crate::agent::provider::NativeProviderFailureKind::Provider => {
-                            super::NativeAgentProviderFailureKind::Provider
-                        }
-                    },
-                    error.message(),
-                )
-            })?;
+            .map_err(NativeAgentProviderFailure::from)?;
     chat_completion_content(&completion).map_err(NativeAgentProviderFailure::provider)
 }
 
@@ -946,4 +932,52 @@ fn estimate_message_tokens(message: &Value) -> i64 {
         .saturating_add(APPROX_BYTES_PER_TOKEN.saturating_sub(1)))
         / APPROX_BYTES_PER_TOKEN;
     i64::try_from(tokens.max(1)).unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn compaction_applies_model_compatibility_and_rejects_truncated_summaries() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
+        let app = axum::Router::new().fallback(axum::routing::post(
+            move |axum::Json(body): axum::Json<Value>| {
+                let request_tx = request_tx.clone();
+                async move {
+                    request_tx.send(body).unwrap();
+                    axum::Json(json!({"model": "glm-5.3", "choices": [{
+                        "message": {"role": "assistant", "content": "partial summary"},
+                        "finish_reason": "length"
+                    }]}))
+                }
+            },
+        ));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let context = AgentTurnContext::from_spec(
+            json!({"provider": "zai", "model": "glm-5.3"}),
+            json!({"providers": {"zai": {"api_base": api_base, "api_key": "test", "request_timeout_ms": 10000}}}),
+        );
+        let result = compact_messages_once_async(
+            &context,
+            &[json!({"role": "user", "content": "earlier work"})],
+            false,
+        )
+        .await;
+        server.abort();
+        assert_eq!(
+            result.unwrap_err().kind(),
+            super::super::NativeAgentProviderFailureKind::OutputLimit
+        );
+        let request = request_rx.try_recv().unwrap();
+        assert!(request["max_tokens"]
+            .as_u64()
+            .is_some_and(|tokens| tokens > 0));
+        assert!(request.get("max_completion_tokens").is_none());
+    }
 }

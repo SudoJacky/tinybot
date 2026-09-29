@@ -1547,16 +1547,17 @@ fn rust_provider_dispatches_the_request_used_for_the_final_estimate() {
 }
 
 #[test]
-fn context_window_uses_whitelisted_model_default_when_unconfigured() {
-    for model in [
-        "deepseek-flash",
-        "deepseek-v4-flash",
-        "deepseek-v4-flash-vision-exp",
-        "deepseek-v4-pro",
-        "glm-5.3",
-        "glm-5.3-flash",
+fn context_window_uses_provider_model_defaults() {
+    for (provider, model) in [
+        ("deepseek", "deepseek-flash"),
+        ("deepseek", "deepseek-v4-flash"),
+        ("deepseek", "deepseek-v4-flash-vision-exp"),
+        ("deepseek", "deepseek-v4-pro"),
+        ("zai", "glm-5.3"),
+        ("zai", "glm-5.3-flash"),
     ] {
-        let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
+        let context =
+            AgentTurnContext::from_spec(json!({ "model": model, "provider": provider }), json!({}));
 
         let usage = enrich_usage_with_context_window(&context, None, 10, 0);
 
@@ -1576,7 +1577,7 @@ fn context_window_keeps_generic_default_for_unlisted_models() {
 #[test]
 fn legacy_global_context_window_is_only_an_unknown_model_fallback() {
     let context = AgentTurnContext::from_spec(
-        json!({ "model": "deepseek-v4-pro" }),
+        json!({ "model": "deepseek-v4-pro", "provider": "deepseek" }),
         json!({
             "agents": {
                 "defaults": {

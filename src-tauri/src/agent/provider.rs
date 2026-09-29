@@ -1,5 +1,7 @@
 mod catalog;
 mod completion;
+mod model;
+mod outcome;
 mod plugins;
 mod retry;
 mod streaming;
@@ -18,6 +20,7 @@ pub use completion::{
     complete_chat_for_agent_with_observer_async, complete_responses_for_agent_with_observer_async,
     NativeProviderFailure, NativeProviderFailureKind,
 };
+pub(crate) use model::{resolve_model_context_window, ResolvedModel};
 pub(crate) use plugins::adapt_provider_request;
 pub use streaming::NativeProviderStreamEvent;
 

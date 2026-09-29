@@ -37,7 +37,7 @@ impl StreamingChatCompletion {
 
 #[derive(Default)]
 pub(super) struct StreamingResponsesCompletion {
-    completed_response: Option<Value>,
+    terminal_response: Option<Value>,
 }
 
 impl StreamingResponsesCompletion {
@@ -92,13 +92,26 @@ impl StreamingResponsesCompletion {
                     }
                 }
             }
-            "response.completed" => {
-                self.completed_response =
-                    Some(event.get("response").cloned().ok_or_else(|| {
-                        "Responses API response.completed event requires response".to_string()
-                    })?);
+            "response.completed" | "response.failed" | "response.incomplete" => {
+                if self.terminal_response.is_some() {
+                    return Err(
+                        "Responses API stream returned multiple terminal events".to_string()
+                    );
+                }
+                let response = event
+                    .get("response")
+                    .ok_or_else(|| format!("Responses API {event_type} event requires response"))?;
+                let status = event_type
+                    .strip_prefix("response.")
+                    .expect("terminal event prefix");
+                if response.get("status").and_then(Value::as_str) != Some(status) {
+                    return Err(format!(
+                        "Responses API {event_type} event has conflicting response.status"
+                    ));
+                }
+                self.terminal_response = Some(response.clone());
             }
-            "response.failed" | "response.incomplete" | "error" => {
+            "error" => {
                 return Err(format!(
                     "Responses API stream returned terminal event `{event_type}`: {event}"
                 ));
@@ -109,8 +122,9 @@ impl StreamingResponsesCompletion {
     }
 
     pub(super) fn finish(self) -> Result<Value, String> {
-        self.completed_response
-            .ok_or_else(|| "Responses API stream ended before response.completed".to_string())
+        self.terminal_response.ok_or_else(|| {
+            "Responses API stream ended before a terminal response.completed, response.incomplete, or response.failed event".to_string()
+        })
     }
 }
 
@@ -118,6 +132,7 @@ struct ParsedStreamChunk<'a> {
     provider_error: Option<&'a Value>,
     model: Option<&'a str>,
     usage: Option<&'a Value>,
+    finish_reason: Option<&'a str>,
     phase: Option<&'a str>,
     content_delta: Option<&'a str>,
     reasoning_delta: Option<&'a str>,
@@ -129,6 +144,9 @@ fn parse_stream_chunk(chunk: &Value) -> ParsedStreamChunk<'_> {
         provider_error: chunk.get("error"),
         model: chunk.get("model").and_then(Value::as_str),
         usage: chunk.get("usage").filter(|value| !value.is_null()),
+        finish_reason: chunk
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str),
         phase: stream_message_phase(chunk),
         content_delta: stream_content_delta(chunk),
         reasoning_delta: stream_reasoning_delta(chunk),
@@ -145,6 +163,7 @@ struct StreamingCompletionState {
     reasoning_content: String,
     model: Option<String>,
     usage: Option<Value>,
+    finish_reason: Option<String>,
     tool_calls: BTreeMap<usize, StreamingToolCallParts>,
 }
 
@@ -157,6 +176,18 @@ fn reduce_stream_chunk(
     }
     if let Some(usage) = chunk.usage {
         state.usage = Some(usage.clone());
+    }
+    if let Some(reason) = chunk.finish_reason {
+        if state
+            .finish_reason
+            .as_deref()
+            .is_some_and(|previous| previous != reason)
+        {
+            return Err(
+                "streaming chat completion returned conflicting finish_reason values".to_string(),
+            );
+        }
+        state.finish_reason = Some(reason.to_string());
     }
     if state.model.is_none() {
         state.model = chunk.model.map(str::to_string);
@@ -234,6 +265,7 @@ fn streaming_completion_body(state: StreamingCompletionState) -> Value {
     if state.tool_calls.is_empty() {
         let content = state.content;
         let mut completion = chat_completion_body(&model, &content);
+        completion["choices"][0]["finish_reason"] = serde_json::json!(state.finish_reason);
         if !state.reasoning_content.is_empty() {
             completion["choices"][0]["message"]["reasoning_content"] =
                 Value::String(state.reasoning_content);
@@ -276,7 +308,7 @@ fn streaming_completion_body(state: StreamingCompletionState) -> Value {
         "choices": [{
             "index": 0,
             "message": message,
-            "finish_reason": "tool_calls",
+            "finish_reason": state.finish_reason,
         }]
     });
     if let Some(usage) = state.usage {

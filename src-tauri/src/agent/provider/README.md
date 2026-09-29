@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:6fb90d087a3761de9240e835877bbb363d3e5f23337e8a945e8a1d6dfb286354 -->
+<!-- tinybot-module-fingerprint: sha256:0e81198ad84b6555735a85d6d5bb97142498862c6ed91b94ca15448cc2b4b565 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -22,9 +22,22 @@ their existing selection.
   keeps effort out of provider requests. Profile `modelContextWindows` entries
   are normalized into positive per-model context-window overrides. Profile
   `modelCapabilities` entries override built-in input modalities per model;
-  `glm-5.3-flash`, `deepseek-flash`, and the legacy Flash aliases accept images by default.
+  `glm-5.3-flash` on Z.ai, and `deepseek-flash` and the legacy Flash aliases on
+  DeepSeek accept images by default. Matching model names on other providers
+  need explicit Profile capabilities.
   Built-in providers declare their supported protocol modes; Z.ai is Chat
   Completions only and uses a static GLM model list.
+- `model.rs` resolves one credential-free `ResolvedModel` from a selected Profile
+  and its provider's model defaults. Context budgeting, input validation,
+  optional capabilities, reasoning policy, and Chat compatibility consume this
+  description. Context priority is Turn override, Profile model override,
+  provider/model default, legacy Agent default, then 128,000 tokens. Endpoints
+  and credentials remain Profile-scoped. Compatibility declares the maximum
+  token field, streaming usage support, and parallel-tool support; genuinely
+  vendor-specific validation stays in the plugin hook.
+  `model-defaults.json` is the single built-in window/modality table, embedded
+  into Rust and imported by the frontend settings model. Adding a definition
+  updates runtime validation, model selectors, and settings defaults together.
 - `completion.rs` performs provider requests. Provider selection requires an
   explicit request override or an active profile; it never infers a Provider
   from the model, and the retired `auto` Provider ID is rejected. API base URLs
@@ -37,6 +50,13 @@ their existing selection.
   (or requested model when absent). Storage failures increment
   `provider.tokenUsage.persistence.failed`, emit diagnostics, and fail the call
   explicitly; a completed provider request is never silently left unaccounted.
+- `outcome.rs` owns terminal-response validation for streaming and non-streaming
+  calls in both protocols. Chat `finish_reason` and Responses `status` /
+  `incomplete_details.reason` must explicitly confirm success or tool use.
+  Truncation, content filtering, unknown/missing termination, and inconsistent
+  tool termination fail before decoding or dispatch. Raw reasons remain in
+  errors; normalized finish metrics and provider/model/protocol diagnostics
+  expose failures. A failed terminal response retains any reported token usage.
 - `retry.rs` owns the observable HTTP retry budget, replacing the SDK's hidden
   default executor. It permits three additional attempts on connection errors,
   HTTP 5xx, and parseable HTTP 429 rate-limit errors; insufficient quota is
@@ -51,6 +71,10 @@ their existing selection.
   accepts both summary deltas and provider-compatible textual reasoning deltas.
   Non-empty tool names and argument deltas also notify the runtime's timing
   observer in both protocols; empty chunks and metadata do not mark first output.
+  Chat aggregation retains the actual finish reason across trailing usage
+  chunks; it never derives success from the presence or absence of tools.
+  Responses retains completed, incomplete, and failed terminal response bodies
+  for the shared outcome validator and usage recorder.
 
 `validate_provider_configuration` reuses client construction to validate API
 mode, endpoint presence, and required credentials without issuing a request.

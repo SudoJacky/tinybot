@@ -1,7 +1,8 @@
 use super::catalog::{
     catalog_entry_by_id, configured_model, resolve_provider_profile, string_field,
-    NativeProviderProfile,
+    NativeProviderApiMode, NativeProviderProfile,
 };
+use super::outcome::ProviderCompletionOutcome;
 use super::streaming::{
     chat_completion_body, responses_body, NativeProviderStreamEvent, StreamingChatCompletion,
     StreamingResponsesCompletion,
@@ -20,6 +21,8 @@ pub enum NativeProviderFailureKind {
     RequestTimeout,
     StreamIdleTimeout,
     Transport,
+    OutputLimit,
+    ContentFilter,
     Provider,
 }
 
@@ -30,7 +33,7 @@ pub struct NativeProviderFailure {
 }
 
 impl NativeProviderFailure {
-    fn new(kind: NativeProviderFailureKind, message: impl Into<String>) -> Self {
+    pub(super) fn new(kind: NativeProviderFailureKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -104,6 +107,7 @@ pub async fn complete_chat_for_agent_with_observer_async(
     recorded_completion(
         config,
         body,
+        NativeProviderApiMode::ChatCompletions,
         native_chat_completion_with_observer_async(config, body, Some(observer), cancellation),
     )
     .await
@@ -118,6 +122,7 @@ pub async fn complete_responses_for_agent_with_observer_async(
     recorded_completion(
         config,
         body,
+        NativeProviderApiMode::Responses,
         native_responses_with_observer_async(config, body, Some(observer), cancellation),
     )
     .await
@@ -126,37 +131,72 @@ pub async fn complete_responses_for_agent_with_observer_async(
 async fn recorded_completion(
     config: &Value,
     body: &Value,
+    protocol: NativeProviderApiMode,
     future: impl Future<Output = Result<Value, NativeChatError>>,
 ) -> Result<Value, NativeProviderFailure> {
     let model = string_field(body, "model").unwrap_or_else(|| configured_model(config));
     let provider = resolve_chat_provider_profile(config, &model)
         .map(|p| p.provider_id)
         .unwrap_or_else(|| "unknown".into());
-    let call = crate::token_usage::ProviderUsageCall::begin(provider, model).map_err(|e| {
-        observe_token_usage_persistence_failure(config, body, "provider", &e);
-        NativeProviderFailure::new(
-            NativeProviderFailureKind::Provider,
-            format!("Cannot record provider invocation: {e}"),
-        )
-    })?;
-    let result = call
+    let call = crate::token_usage::ProviderUsageCall::begin(provider.clone(), model.clone())
+        .map_err(|e| {
+            observe_token_usage_persistence_failure(config, body, "provider", &e);
+            NativeProviderFailure::new(
+                NativeProviderFailureKind::Provider,
+                format!("Cannot record provider invocation: {e}"),
+            )
+        })?;
+    let response = call
         .clone()
         .run(future)
         .await
         .map_err(NativeProviderFailure::from_chat_error);
+    let result = match &response {
+        Ok(response) => validate_completion(&provider, &model, protocol, response),
+        Err(error) => Err(error.clone()),
+    };
     let status = match &result {
         Ok(_) => "completed",
         Err(e) if e.kind() == NativeProviderFailureKind::Cancelled => "cancelled",
         Err(_) => "failed",
     };
-    if let Err(error) = call.finish(status, result.as_ref().ok()) {
+    // A terminal provider failure can still consume tokens. Keep its original
+    // usage even when validation prevents the partial output from being used.
+    if let Err(error) = call.finish(status, response.as_ref().ok()) {
         observe_token_usage_persistence_failure(config, body, "provider", &error);
         return Err(NativeProviderFailure::new(
             NativeProviderFailureKind::Provider,
             format!("Provider request finished but usage persistence failed: {error}"),
         ));
     }
-    result
+    result?;
+    response
+}
+
+fn validate_completion(
+    provider: &str,
+    model: &str,
+    protocol: NativeProviderApiMode,
+    response: &Value,
+) -> Result<(), NativeProviderFailure> {
+    let outcome = ProviderCompletionOutcome::from_response(protocol, response)
+        .map_err(|error| NativeProviderFailure::new(NativeProviderFailureKind::Provider, error));
+    let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+    match outcome {
+        Ok(outcome) => {
+            metrics.increment(&format!("provider.finish.{}", outcome.reason.as_str()));
+            let result = outcome.require_complete(protocol);
+            if let Err(error) = &result {
+                eprintln!("provider_completion_failed provider={provider} model={model} protocol={} error={error}", protocol.as_str());
+            }
+            result
+        }
+        Err(error) => {
+            metrics.increment("provider.finish.invalid");
+            eprintln!("provider_completion_invalid provider={provider} model={model} protocol={} error={error}", protocol.as_str());
+            Err(error)
+        }
+    }
 }
 
 fn observe_token_usage_persistence_failure(

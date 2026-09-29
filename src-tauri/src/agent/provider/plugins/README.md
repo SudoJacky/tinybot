@@ -1,5 +1,5 @@
 # Provider Plugins
-<!-- tinybot-module-fingerprint: sha256:609b2bc12c8051ffd4ab7445a13e4d1865d6427399939dfc88873dc1594e6902 -->
+<!-- tinybot-module-fingerprint: sha256:f312bbdd3724da13202e2f0834627e805d073cbb5eb858222217904efe115712 -->
 
 This module contains the statically registered adapters for built-in
 Providers. A Provider plugin owns vendor-specific catalog metadata, reasoning
@@ -108,7 +108,18 @@ The shared normalizer writes the result to the correct protocol field:
 
 ### 3. Adapt only vendor-specific request fields
 
-The runtime constructs the standard request, applies common settings and tools,
+Declare known context windows and input modalities under the provider ID in
+`../model-defaults.json`. Rust and frontend settings consume this same table. These
+defaults apply only to this provider; explicit Profile model settings take
+precedence. Do not add model-name lists to the runtime or profile parser.
+
+Use `chat_compat` for the token-limit field (`max_completion_tokens` or
+`max_tokens`), streaming usage support, and parallel-tool support. The shared
+adapter applies those declarations, including for compaction requests, without
+changing Responses fields.
+
+The runtime constructs the standard request and applies common settings and tools.
+The provider layer resolves model policies, applies reasoning and Chat compatibility,
 then calls `adapt_request`. Match on `context.protocol` when a transformation
 applies to only Chat Completions or Responses.
 
@@ -134,7 +145,8 @@ static PROVIDER_PLUGINS: [&dyn ProviderPlugin; 6] = [
 ```
 
 Registration makes the manifest available to catalog lookup, alias lookup, and
-model-based Provider inference. Unregistered custom OpenAI-compatible profiles
+explicit Profile resolution. Model names never infer a Provider.
+Unregistered custom OpenAI-compatible profiles
 continue to use the default pass-through request policy.
 
 ### 5. Add focused tests
@@ -170,7 +182,9 @@ preset, update the frontend preset list as a separate product-facing change.
 - Provider IDs, aliases, model prefixes, and environment variables do not
   conflict with an existing plugin.
 - Effort differences live in `reasoning_effort_policy`.
-- Other wire-request differences live in `adapt_request` and are scoped by
+- Model limits and modalities live in `../model-defaults.json`; standard Chat differences
+  live in `chat_compat`.
+- Remaining wire-request differences live in `adapt_request` and are scoped by
   protocol where necessary.
 - Unsupported explicit settings fail with clear errors.
 - Focused request-shape and error-path tests pass.

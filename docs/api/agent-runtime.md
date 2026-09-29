@@ -128,16 +128,27 @@ set to `interrupted`. Provider-initiated cancellation and runtime shutdown remai
 
 ### Provider failure results
 
-Provider failures do not retry automatically and preserve distinct `stopReason` values:
+Terminal model failures do not retry automatically. Provider failures preserve
+distinct `stopReason` values:
 
 - `cancelled`
 - `provider_request_timeout`
 - `provider_stream_idle_timeout`
 - `provider_transport_error`
+- `provider_output_limit`
+- `provider_content_filter`
 - `provider_error`
 
 Timeout, transport, and provider failures emit `agent.error` with the same `stopReason`. A provider
 cancellation follows the normal `agent.cancelled` path.
+Chat `length` and Responses `max_output_tokens` produce `provider_output_limit`;
+`content_filter` produces `provider_content_filter`. Neither partial text nor
+tool calls from these responses can complete the Turn or execute tools. The
+error retains the raw provider reason, and any reported usage is recorded in
+the invocation ledger with failed status. Missing, unknown, or inconsistent
+terminal metadata produces `provider_error` instead of an inferred success.
+The same checks protect auxiliary text and compaction requests. HTTP retry
+policy remains owned by the shared transport.
 
 ### Native agent turn specification
 

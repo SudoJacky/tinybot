@@ -7,6 +7,7 @@ mod zai;
 use super::catalog::{
     normalize_provider_id, NativeProviderApiMode, NativeProviderCatalogEntry, NativeProviderProfile,
 };
+use super::model::{ChatCompletionsCompat, ChatMaxTokensField};
 use serde_json::Value;
 
 pub(super) const OPENAI_API_MODES: &[&str] = &["chat_completions", "responses"];
@@ -14,6 +15,10 @@ pub(super) const CHAT_COMPLETIONS_ONLY: &[&str] = &["chat_completions"];
 
 pub(super) trait ProviderPlugin: Sync {
     fn catalog_entry(&self) -> &'static NativeProviderCatalogEntry;
+
+    fn chat_compat(&self, _model: &str) -> ChatCompletionsCompat {
+        ChatCompletionsCompat::default()
+    }
 
     fn reasoning_effort_policy(&self, _model: &str) -> ReasoningEffortPolicy {
         ReasoningEffortPolicy::PassThrough
@@ -86,14 +91,16 @@ pub(crate) fn adapt_provider_request(
     request: &mut Value,
 ) -> Result<(), String> {
     let plugin = provider_plugin_by_id(&profile.provider_id);
-    let effort_policy = if profile.supports_reasoning_effort {
-        plugin
-            .map(|plugin| plugin.reasoning_effort_policy(model))
-            .unwrap_or(ReasoningEffortPolicy::PassThrough)
-    } else {
-        ReasoningEffortPolicy::Omit
-    };
-    normalize_reasoning_effort(&profile.provider_id, protocol, request, effort_policy)?;
+    let model = profile.resolve_model(model);
+    normalize_reasoning_effort(
+        &profile.provider_id,
+        protocol,
+        request,
+        model.reasoning_effort_policy,
+    )?;
+    if protocol == NativeProviderApiMode::ChatCompletions {
+        apply_chat_compat(&profile.provider_id, request, model.chat_compat)?;
+    }
 
     if let Some(plugin) = plugin {
         plugin.adapt_request(
@@ -103,6 +110,38 @@ pub(crate) fn adapt_provider_request(
             },
             request,
         )?;
+    }
+    Ok(())
+}
+
+fn apply_chat_compat(
+    provider_id: &str,
+    request: &mut Value,
+    compat: ChatCompletionsCompat,
+) -> Result<(), String> {
+    let request = request
+        .as_object_mut()
+        .ok_or_else(|| "provider request must be a JSON object".to_string())?;
+    if !compat.supports_parallel_tool_calls
+        && request.get("parallel_tool_calls").and_then(Value::as_bool) == Some(true)
+    {
+        return Err(format!(
+            "provider `{provider_id}` does not declare support for `parallel_tool_calls`"
+        ));
+    }
+    if !compat.supports_stream_usage {
+        request.remove("stream_options");
+    }
+    if matches!(compat.max_tokens_field, ChatMaxTokensField::MaxTokens) {
+        if request.contains_key("max_completion_tokens") && request.contains_key("max_tokens") {
+            return Err(
+                "provider request cannot contain both max_completion_tokens and max_tokens"
+                    .to_string(),
+            );
+        }
+        if let Some(max_tokens) = request.remove("max_completion_tokens") {
+            request.insert("max_tokens".to_string(), max_tokens);
+        }
     }
     Ok(())
 }

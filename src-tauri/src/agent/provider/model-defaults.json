@@ -1,0 +1,15 @@
+{
+  "fallbackContextWindowTokens": 128000,
+  "providers": {
+    "deepseek": {
+      "deepseek-flash": { "contextWindowTokens": 1000000, "inputModalities": ["text", "image"] },
+      "deepseek-v4-flash": { "contextWindowTokens": 1000000, "inputModalities": ["text", "image"] },
+      "deepseek-v4-flash-vision-exp": { "contextWindowTokens": 1000000, "inputModalities": ["text", "image"] },
+      "deepseek-v4-pro": { "contextWindowTokens": 1000000, "inputModalities": ["text"] }
+    },
+    "zai": {
+      "glm-5.3": { "contextWindowTokens": 1000000, "inputModalities": ["text"] },
+      "glm-5.3-flash": { "contextWindowTokens": 1000000, "inputModalities": ["text", "image"] }
+    }
+  }
+}

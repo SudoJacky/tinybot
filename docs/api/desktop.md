@@ -23,12 +23,13 @@ src-tauri/src/desktop_commands/plugins.rs
 src-tauri/src/desktop_commands/runtime.rs
 src-tauri/src/runtime/lifecycle.rs
 src-tauri/src/agent/provider/completion.rs
+src-tauri/src/agent/provider/model-defaults.json
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:1becffb19979396ad93413e124f8215efb55d97ebd21c0451d11734bb139047f -->
+<!-- tinybot-doc-fingerprint: sha256:7f96c88f9a3ee0469b9069f230c87872e88f9c1f60e2282795baafad62c0e19b -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -694,8 +695,10 @@ Context windows are model-specific. A provider profile can store explicit overri
 ```
 
 The runtime prefers a turn override, then the active profile's model override, then Tinybot's
-known-model default. `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
-`deepseek-v4-pro`, plus `glm-5.3` and `glm-5.3-flash`, default to `1000000`;
+provider/model default. On DeepSeek, `deepseek-flash`, `deepseek-v4-flash`,
+`deepseek-v4-flash-vision-exp`, and `deepseek-v4-pro` default to `1000000`;
+on Z.ai, `glm-5.3` and `glm-5.3-flash` use the same limit.
+These defaults do not transfer to another provider with a matching model ID;
 unknown models use the legacy `agents.defaults.contextWindowTokens` value when present and
 otherwise fall back to `128000`.
 The settings UI edits these values per model instead of applying one global window to every model.
@@ -717,8 +720,10 @@ Image input is a model capability rather than an API-mode capability. Profiles c
 }
 ```
 
-Missing capability entries use Tinybot's known-model defaults. `glm-5.3-flash` and
-`deepseek-v4-flash-vision-exp` support image input by default; unknown models default to text-only
+Missing capability entries use Tinybot's provider/model defaults. `glm-5.3-flash`
+on Z.ai and `deepseek-flash`, `deepseek-v4-flash`, and
+`deepseek-v4-flash-vision-exp` on DeepSeek support image input by default;
+unknown provider/model pairs default to text-only
 until enabled explicitly. The runtime enforces the resolved model capability before either Chat
 Completions or Responses requests are constructed.
 Each profile defaults to Chat Completions. Set `apiMode` to `responses` (or enable **Use Responses

@@ -18,7 +18,7 @@ src/react-workbench/shell/README.md
 src/react-workbench/teams/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d0d2acd15398469e66fac0840246bea6b0519adc26256fc233acd972f700bec7 -->
+<!-- tinybot-doc-fingerprint: sha256:a256aced394e558e09f08d7a4449dac8e5f451d972952d9c063698e546a4a706 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -133,6 +133,7 @@ Desktop Commands / Desktop Host
 | `workspace_registry` | The application workspace catalog, portable canonical paths, display names, and atomic `workspaces.json` persistence | Thread history, project membership, or filesystem folder lifecycle |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
+| `agent::provider` | Profile-scoped model capabilities, protocol transport, terminal validation, and invocation usage | Tool dispatch or canonical conversation history |
 | `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact definition-and-script trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
 | `config` | Schema migration, validated application settings, secret-safe projections, and atomic persistence | Provider inference or renderer-owned defaults |
 | `threads::domain` | Typed Thread, Turn, and Item behavior | Canonical durable storage |

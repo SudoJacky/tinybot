@@ -230,6 +230,8 @@ pub enum NativeAgentProviderFailureKind {
     RequestTimeout,
     StreamIdleTimeout,
     Transport,
+    OutputLimit,
+    ContentFilter,
     Provider,
 }
 
@@ -240,6 +242,8 @@ impl NativeAgentProviderFailureKind {
             Self::RequestTimeout => AgentStopReason::ProviderRequestTimeout,
             Self::StreamIdleTimeout => AgentStopReason::ProviderStreamIdleTimeout,
             Self::Transport => AgentStopReason::ProviderTransportError,
+            Self::OutputLimit => AgentStopReason::ProviderOutputLimit,
+            Self::ContentFilter => AgentStopReason::ProviderContentFilter,
             Self::Provider => AgentStopReason::ProviderError,
         }
     }

@@ -8,12 +8,6 @@ use super::plugins::{provider_plugin_by_id, registered_provider_plugins, OPENAI_
 
 const DEFAULT_AGENT_MODEL: &str = "deepseek-flash";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
-const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &[
-    "deepseek-flash",
-    "deepseek-v4-flash",
-    "deepseek-v4-flash-vision-exp",
-    "glm-5.3-flash",
-];
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,23 +63,15 @@ impl NativeProviderProfile {
     }
 
     pub fn context_window_tokens_for_model(&self, model: &str) -> Option<i64> {
-        self.model_context_windows
-            .get(&model.trim().to_ascii_lowercase())
-            .copied()
+        self.resolve_model(model).context_window_tokens
     }
 
     pub fn supports_input_modality(&self, model: &str, modality: &str) -> bool {
-        let model = model.trim().to_ascii_lowercase();
-        let modality = modality.trim().to_ascii_lowercase();
-        self.model_input_modalities
-            .get(&model)
-            .map(|modalities| modalities.contains(&modality))
-            .unwrap_or_else(|| {
-                modality == "image"
-                    && BUILT_IN_IMAGE_INPUT_MODELS
-                        .iter()
-                        .any(|candidate| candidate.eq_ignore_ascii_case(&model))
-            })
+        self.resolve_model(model).supports_input_modality(modality)
+    }
+
+    pub(crate) fn resolve_model(&self, model: &str) -> super::ResolvedModel {
+        super::ResolvedModel::for_profile(self, model)
     }
 
     pub fn require_api_mode(&self, api_mode: NativeProviderApiMode) -> Result<(), String> {

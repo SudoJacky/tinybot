@@ -1301,6 +1301,14 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
                 "provider_transport_error",
             ),
             (NativeAgentProviderFailureKind::Provider, "provider_error"),
+            (
+                NativeAgentProviderFailureKind::OutputLimit,
+                "provider_output_limit",
+            ),
+            (
+                NativeAgentProviderFailureKind::ContentFilter,
+                "provider_content_filter",
+            ),
         ];
         for (index, (kind, expected_stop_reason)) in cases.into_iter().enumerate() {
             let turn_id = format!("turn-async-provider-failure-{index}");
@@ -1326,6 +1334,60 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
             assert_eq!(result["stopReason"], expected_stop_reason);
         }
     });
+}
+
+#[tokio::test]
+async fn truncated_tool_calls_fail_the_turn_before_dispatch() {
+    for streaming in [false, true] {
+        let tool = json!({"id": "call-truncated", "index": 0, "type": "function",
+            "function": {"name": "exec_command", "arguments": "{\"cmd\":\"echo never\"}"}});
+        let (content_type, wire) = if streaming {
+            (
+                "text/event-stream",
+                format!(
+                    "data: {}\n\ndata: [DONE]\n\n",
+                    json!({
+                        "model": "test-model", "choices": [{"index": 0,
+                            "delta": {"content": "partial", "tool_calls": [tool]}, "finish_reason": "length"}]
+                    })
+                ),
+            )
+        } else {
+            (
+                "application/json",
+                json!({"model": "test-model", "choices": [{
+                "message": {"role": "assistant", "content": "partial", "tool_calls": [tool]},
+                "finish_reason": "length"}]})
+                .to_string(),
+            )
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let app = axum::Router::new().fallback(axum::routing::post(move || {
+            let wire = wire.clone();
+            async move { ([("content-type", content_type)], wire) }
+        }));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(RustNativeAgentProvider),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+        let result = run_native_agent_turn_with_config_async(&services,
+            json!({"turnId": format!("turn-truncated-{streaming}"), "sessionId": format!("session-truncated-{streaming}"),
+                "provider": "openai", "model": "test-model", "stream": streaming, "maxIterations": 1,
+                "messages": [{"role": "user", "content": "hello"}]}),
+            json!({"providers": {"openai": {"api_base": api_base, "api_key": "test", "request_timeout_ms": 10000}}}),
+        ).await.unwrap();
+        server.abort();
+        assert_eq!(result["stopReason"], "provider_output_limit");
+        assert_eq!(result["finalContent"], "");
+        assert_eq!(result["toolsUsed"], json!([]));
+        assert!(result["error"].as_str().unwrap().contains("length"));
+    }
 }
 
 #[test]

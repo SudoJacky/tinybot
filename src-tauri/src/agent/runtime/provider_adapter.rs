@@ -415,7 +415,9 @@ pub(super) fn require_provider_capability(
     capability: &str,
 ) -> Result<(), String> {
     let profile = resolve_provider_profile(settings, config_snapshot)?;
-    require_profile_capability(&profile, capability)
+    profile
+        .resolve_model(&settings.model)
+        .require_capability(capability)
 }
 
 pub(super) fn apply_provider_request_adaptation(
@@ -455,40 +457,4 @@ fn resolve_provider_profile(
         let provider = settings.provider.as_deref().unwrap_or("active profile");
         format!("provider `{provider}` is not configured")
     })
-}
-
-fn require_profile_capability(
-    profile: &crate::agent::provider::NativeProviderProfile,
-    capability: &str,
-) -> Result<(), String> {
-    let supported = capability_enabled(&profile.capabilities, capability);
-    if supported {
-        Ok(())
-    } else {
-        Err(format!(
-            "provider `{}` does not declare support for `{capability}`",
-            profile.provider_id
-        ))
-    }
-}
-
-fn capability_enabled(capabilities: &Value, capability: &str) -> bool {
-    let camel = match capability {
-        "service_tier" => "serviceTier",
-        "structured_output" => "structuredOutput",
-        other => other,
-    };
-    match capabilities {
-        Value::Object(values) => values
-            .get(capability)
-            .or_else(|| values.get(camel))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        Value::Array(values) => values.iter().any(|value| {
-            value
-                .as_str()
-                .is_some_and(|value| value == capability || value == camel)
-        }),
-        _ => false,
-    }
 }

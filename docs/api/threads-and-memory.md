@@ -17,7 +17,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:191358ab048062e4a582194ef1ccdc09bc4f5297bd9190ea7469a131f61611d7 -->
+<!-- tinybot-doc-fingerprint: sha256:7a9b539ba7b5589ac80ab0116db7374a03c1f8460325b1c09f7ff0e5b93e56e3 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 
@@ -168,7 +168,9 @@ untrusted-evidence block. This includes image references carrying page evidence
 in `sourceText`. Optional `userAnnotation` is serialized separately in the
 user annotation requests section as an explicit user-authored instruction.
 Image references are also validated and converted into provider-native image
-content separately. The stored and
+content separately. Image support comes from the selected Profile's resolved
+provider/model capabilities; model names on unrelated providers do not inherit
+built-in image support. The stored and
 user-visible message content remains unchanged. Provider
 injection accepts at most 16 such references and 64 KiB of serialized reference
 data per message. Exceeding either limit fails the provider request visibly
