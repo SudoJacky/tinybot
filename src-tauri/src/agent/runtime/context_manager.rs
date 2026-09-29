@@ -95,10 +95,9 @@ fn project_superseded_web_targets(items: &mut [AgentItem]) {
         .filter(|call| crate::tools::web::is_web_tool(&call.name))
         .map(|call| call.id.clone())
         .collect::<HashSet<_>>();
-    let mut retained_targets = false;
-    for item in items.iter_mut().rev() {
+    let results = items.iter_mut().filter_map(|item| {
         let AgentItem::ToolResult(result) = item else {
-            continue;
+            return None;
         };
         let is_web_result = result
             .name
@@ -106,29 +105,31 @@ fn project_superseded_web_targets(items: &mut [AgentItem]) {
             .is_some_and(crate::tools::web::is_web_tool)
             || web_call_ids.contains(result.tool_call_id.as_str());
         if !is_web_result {
-            continue;
+            return None;
         }
         let AgentMessageContent::Text(content) = &mut result.content else {
-            continue;
+            return None;
         };
-        if crate::tools::web::project_web_result_history(content, !retained_targets) {
-            retained_targets = true;
-        }
-    }
+        Some(content)
+    });
+    crate::tools::web::project_web_history(results);
 }
 
 fn validate_tool_pairs(items: &[AgentItem]) -> Result<(), String> {
-    let mut calls = HashMap::<String, &str>::new();
+    let mut calls = HashMap::new();
     let mut outputs = HashSet::<String>::new();
 
     for item in items {
         match item {
             AgentItem::AssistantMessage(message) => {
                 for call in &message.tool_calls {
-                    if calls.insert(call.id.clone(), call.name.as_str()).is_some() {
+                    if calls
+                        .insert(call.id.clone(), (call.name.as_str(), &message.origin))
+                        .is_some()
+                    {
                         return Err(format!(
-                            "duplicate tool call id `{}` in agent context",
-                            call.id
+                            "duplicate tool call id `{}` in agent context; origin={:?}",
+                            call.id, message.origin
                         ));
                     }
                 }
@@ -136,14 +137,14 @@ fn validate_tool_pairs(items: &[AgentItem]) -> Result<(), String> {
             AgentItem::ToolResult(result) => {
                 if !calls.contains_key(&result.tool_call_id) {
                     return Err(format!(
-                        "orphan tool result `{}` in agent context",
-                        result.tool_call_id
+                        "orphan tool result `{}` in agent context; origin={:?}",
+                        result.tool_call_id, result.origin
                     ));
                 }
                 if !outputs.insert(result.tool_call_id.clone()) {
                     return Err(format!(
-                        "duplicate tool result `{}` in agent context",
-                        result.tool_call_id
+                        "duplicate tool result `{}` in agent context; origin={:?}",
+                        result.tool_call_id, result.origin
                     ));
                 }
             }
@@ -161,12 +162,12 @@ fn validate_tool_pairs(items: &[AgentItem]) -> Result<(), String> {
         }
     }
 
-    if let Some((call_id, tool_name)) = calls
+    if let Some((call_id, (tool_name, origin))) = calls
         .iter()
         .find(|(call_id, _)| !outputs.contains(call_id.as_str()))
     {
         return Err(format!(
-            "tool call `{call_id}` (`{tool_name}`) has no result in agent context"
+            "tool call `{call_id}` (`{tool_name}`) has no result in agent context; origin={origin:?}"
         ));
     }
     Ok(())

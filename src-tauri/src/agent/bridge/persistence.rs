@@ -122,7 +122,7 @@ fn materialized_turn_messages(
             }),
         )?);
     }
-    messages.extend(request.user_message.clone());
+    messages.extend(request.user_messages.clone());
     Ok(messages)
 }
 

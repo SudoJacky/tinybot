@@ -40,6 +40,8 @@ impl AgentInstructionRole {
 #[serde(rename_all = "camelCase")]
 pub struct AgentInstructionMessage {
     pub id: Option<String>,
+    #[serde(flatten)]
+    pub origin: AgentMessageOrigin,
     pub role: AgentInstructionRole,
     pub content: AgentMessageContent,
 }
@@ -48,17 +50,23 @@ pub struct AgentInstructionMessage {
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessage {
     pub id: Option<String>,
+    #[serde(flatten)]
+    pub origin: AgentMessageOrigin,
     pub content: AgentMessageContent,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_skills: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentAssistantMessage {
     pub id: Option<String>,
+    #[serde(flatten)]
+    pub origin: AgentMessageOrigin,
     pub content: Option<AgentMessageContent>,
     #[serde(default)]
     pub reasoning: Option<String>,
@@ -84,11 +92,30 @@ pub struct AgentToolCallItem {
 #[serde(rename_all = "camelCase")]
 pub struct AgentToolResultItem {
     pub id: Option<String>,
+    #[serde(flatten)]
+    pub origin: AgentMessageOrigin,
     pub tool_call_id: String,
     pub name: Option<String>,
     pub content: AgentMessageContent,
     #[serde(default)]
     pub is_error: bool,
+}
+
+/// Local history identity is independent of a provider's item `id` and tool call ID.
+/// Keep it through checkpoints and context selection; only adapters strip it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessageOrigin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rollout_ordinal: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_id: Option<String>,
+    #[serde(default, alias = "thread_id", skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, alias = "turn_id", skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, alias = "message_id", skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -360,10 +387,22 @@ impl AgentItem {
             .get("role")
             .and_then(Value::as_str)
             .ok_or_else(|| "agent message role must be a string".to_string())?;
-        let id = message_id(value);
+        let origin = serde_json::from_value::<AgentMessageOrigin>(value.clone())
+            .map_err(|error| format!("invalid agent message origin: {error}"))?;
+        let id = value
+            .get("id")
+            .filter(|id| !id.is_null())
+            .map(|id| {
+                id.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| "agent message id must be a string".to_string())
+            })
+            .transpose()?
+            .or_else(|| origin.message_id.clone());
         match role {
             "system" | "developer" => Ok(Self::Instruction(AgentInstructionMessage {
                 id,
+                origin,
                 role: if role == "system" {
                     AgentInstructionRole::System
                 } else {
@@ -377,16 +416,29 @@ impl AgentItem {
                     &["clientEventId", "client_event_id"],
                     "client event id",
                 )?,
+                selected_skills: object
+                    .get("selectedSkills")
+                    .map(|value| {
+                        serde_json::from_value(value.clone())
+                            .map_err(|error| format!("invalid selectedSkills: {error}"))
+                    })
+                    .transpose()?
+                    .unwrap_or_default(),
                 id,
+                origin,
                 content: required_content(object.get("content"), role)?,
                 references: object
                     .get("references")
-                    .and_then(Value::as_array)
-                    .cloned()
+                    .map(|value| {
+                        serde_json::from_value(value.clone())
+                            .map_err(|error| format!("invalid user references: {error}"))
+                    })
+                    .transpose()?
                     .unwrap_or_default(),
             })),
             "assistant" => Ok(Self::AssistantMessage(AgentAssistantMessage {
                 id,
+                origin,
                 content: optional_content(object.get("content"))?,
                 reasoning: optional_string_field(
                     object,
@@ -402,6 +454,7 @@ impl AgentItem {
             })),
             "tool" => Ok(Self::ToolResult(AgentToolResultItem {
                 id,
+                origin,
                 tool_call_id: object
                     .get("tool_call_id")
                     .or_else(|| object.get("toolCallId"))
@@ -428,7 +481,39 @@ impl AgentItem {
     }
 
     pub fn to_legacy_message(&self) -> Result<Value, String> {
-        self.to_message(false)
+        let mut value = self.to_message(false)?;
+        let (id, origin) = match self {
+            Self::Instruction(message) => (&message.id, &message.origin),
+            Self::UserMessage(message) => {
+                if let Some(client_event_id) = &message.client_event_id {
+                    value["clientEventId"] = client_event_id.clone().into();
+                }
+                if !message.selected_skills.is_empty() {
+                    value["selectedSkills"] = serde_json::json!(message.selected_skills);
+                }
+                (&message.id, &message.origin)
+            }
+            Self::AssistantMessage(message) => (&message.id, &message.origin),
+            Self::ToolResult(message) => {
+                value["is_error"] = message.is_error.into();
+                (&message.id, &message.origin)
+            }
+            _ => unreachable!("to_message rejects non-message items"),
+        };
+        if let Some(id) = id {
+            value["id"] = id.clone().into();
+        }
+        let fields = serde_json::to_value(origin).expect("message origin must serialize");
+        value
+            .as_object_mut()
+            .expect("message must be an object")
+            .extend(
+                fields
+                    .as_object()
+                    .expect("origin must be an object")
+                    .clone(),
+            );
+        Ok(value)
     }
 
     fn to_provider_message(&self) -> Result<Value, String> {
@@ -550,19 +635,6 @@ impl AgentItem {
 }
 
 impl AgentMessageContent {
-    pub fn plain_text(&self) -> String {
-        match self {
-            Self::Text(text) => text.clone(),
-            Self::Parts(parts) => parts
-                .iter()
-                .filter_map(|part| match part {
-                    AgentContentPart::Text { text } => Some(text.as_str()),
-                    AgentContentPart::Image { .. } | AgentContentPart::File { .. } => None,
-                })
-                .collect(),
-        }
-    }
-
     pub fn text(content: impl Into<String>) -> Self {
         Self::Text(content.into())
     }
@@ -587,11 +659,18 @@ impl AgentContentPart {
             .and_then(Value::as_str)
             .ok_or_else(|| "message content part requires type".to_string())?;
         match part_type {
-            "text" | "input_text" => Ok(Self::Text {
+            "text" | "input_text" | "output_text" => Ok(Self::Text {
                 text: object
                     .get("text")
                     .and_then(Value::as_str)
                     .ok_or_else(|| format!("{part_type} content part requires text"))?
+                    .to_string(),
+            }),
+            "refusal" => Ok(Self::Text {
+                text: object
+                    .get("refusal")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "refusal content part requires refusal text".to_string())?
                     .to_string(),
             }),
             "image_url" | "input_image" => {
@@ -600,7 +679,10 @@ impl AgentContentPart {
                     .or_else(|| object.get("url"))
                     .ok_or_else(|| format!("{part_type} content part requires image_url"))?;
                 let (url, detail) = match image {
-                    Value::String(url) => (url.clone(), None),
+                    Value::String(url) => (
+                        url.clone(),
+                        optional_string_field(object, &["detail"], "image detail")?,
+                    ),
                     Value::Object(image) => (
                         image
                             .get("url")
@@ -792,17 +874,6 @@ pub(super) fn parse_tool_call(
     })
 }
 
-fn message_id(value: &Value) -> Option<String> {
-    value
-        .get("messageId")
-        .or_else(|| value.get("message_id"))
-        .or_else(|| value.get("id"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
 fn optional_usage_number(
     object: &serde_json::Map<String, Value>,
     keys: &[&str],
@@ -853,6 +924,77 @@ fn optional_string_field(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_refusal_content_fails_explicitly() {
+        for part in [
+            serde_json::json!({"type": "refusal"}),
+            serde_json::json!({"type": "refusal", "refusal": false}),
+        ] {
+            let error = AgentItemHistory::from_legacy_messages(&[serde_json::json!({
+                "role": "assistant", "content": [part]
+            })])
+            .unwrap_err();
+            assert!(error.contains("refusal content part requires refusal text"));
+        }
+    }
+
+    #[test]
+    fn checkpoint_history_preserves_origins_parts_references_and_tool_errors() {
+        #[derive(Serialize, Deserialize)]
+        struct Checkpoint {
+            #[serde(with = "legacy_history")]
+            messages: AgentItemHistory,
+        }
+        let messages = AgentItemHistory::from_legacy_messages(&[
+            serde_json::json!({
+                "role":"user", "id":"user-1", "messageId":"local-user-1",
+                "threadId":"thread-source", "turnId":"turn-source", "rolloutOrdinal":17,
+                "clientEventId":"client-1", "selectedSkills":["review"], "references":[{"path":"notes.md"}],
+                "content":[{"type":"input_text","text":"inspect"},
+                    {"type":"input_image","image_url":"data:image/png;base64,AA=="}]
+            }),
+            serde_json::json!({
+                "role":"assistant", "id":"provider-item-1", "messageId":"local-call-1",
+                "threadId":"thread-source", "turnId":"turn-source", "rolloutOrdinal":18,
+                "content":null, "tool_calls":[{"id":"call-1", "type":"function",
+                    "function":{"name":"read_file","arguments":"{}"}}]
+            }),
+            serde_json::json!({
+                "role":"tool", "id":"result-1", "turnId":"turn-source", "rolloutOrdinal":19,
+                "tool_call_id":"call-1", "name":"read_file", "content":"denied", "is_error":true
+            }),
+            serde_json::json!({
+                "role":"assistant", "id":"summary:ctx-1", "contextId":"ctx-1",
+                "contextCompaction":true, "content":"summary"
+            }),
+        ])
+        .unwrap();
+        let encoded = serde_json::to_value(Checkpoint {
+            messages: messages.clone(),
+        })
+        .unwrap();
+        assert_eq!(encoded["messages"][0]["clientEventId"], "client-1");
+        assert_eq!(encoded["messages"][0]["selectedSkills"][0], "review");
+        assert_eq!(encoded["messages"][1]["messageId"], "local-call-1");
+        assert_eq!(encoded["messages"][2]["is_error"], true);
+        let restored: Checkpoint = serde_json::from_value(encoded).unwrap();
+        assert_eq!(restored.messages, messages);
+        for message in messages.to_provider_messages().unwrap() {
+            for field in [
+                "id",
+                "messageId",
+                "threadId",
+                "turnId",
+                "rolloutOrdinal",
+                "contextId",
+                "clientEventId",
+                "is_error",
+            ] {
+                assert!(message.get(field).is_none(), "local field leaked: {field}");
+            }
+        }
+    }
 
     #[test]
     fn provider_tool_call_requires_string_arguments() {

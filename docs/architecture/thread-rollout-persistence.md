@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:e65bb4cd4dbf226e8542f9f129be9a16654ee44fd3fbf1828c03afe2dd98e236 -->
+<!-- tinybot-doc-fingerprint: sha256:f487649335edd427c6a499ac3e40d04a30dfa814cfc312ee66d10c77a1d8785d -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -58,6 +58,16 @@ MemoryThreadStore projection               v
 The process-local Thread index and `MemoryThreadStore` are derived projections.
 They improve lookup and typed access but cannot become alternate durable write
 paths.
+
+Attached Agent Turns normalize new input once and persist the full ordered batch
+before loading model context. The bridge does not merge client history or deduplicate
+by text. Reusing an input identity with different content or origin is an error.
+`get_agent_context` returns the complete effective Rollout history; runtime token
+budgeting owns context selection and tool-pair integrity. Model reconstruction keeps
+content parts, while transcript reconstruction derives display text. Internal
+checkpoints retain local message/Turn/Thread identity, original Rollout ordinal,
+provider item IDs and tool errors. Forks preserve the original record locations;
+provider adapters remove those local fields only when encoding a request.
 
 For older Rollouts that omitted a cancelled form's tool result, context replay
 derives the cancellation observation from the matching `agent.form.resolution`

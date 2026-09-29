@@ -1,5 +1,5 @@
 # Worker Thread
-<!-- tinybot-module-fingerprint: sha256:4cf597162c150314021af1ae3ed8d0b4cc80e5c7bede6fb30d4ca8dff42396f2 -->
+<!-- tinybot-module-fingerprint: sha256:cbf50b30adf4e436f8677d47336f115662b5e1f51e9597edcf1c27d2e1e786d8 -->
 
 `threads::domain` is Tinybot's typed conversation domain. It defines Thread
 records, Turns, Items, lifecycle operations, active-Turn projections, and the
@@ -56,6 +56,11 @@ WorkspaceThreadStore operation
 pending interactions, and activity must remain reconstructable from the
 canonical Rollout. `WorkspaceThreadStore` coordinates the in-memory service and
 Rollout store under one operation boundary.
+
+Native Agent flows start the domain lifecycle with null input because the Agent
+Turn persistence path admits the complete user-message batch. This creates the
+Turn-start item without a duplicate user message. Direct domain callers with
+non-null input still append their user message and Turn-start item together.
 
 ## Internal layout
 

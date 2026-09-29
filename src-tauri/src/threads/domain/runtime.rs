@@ -50,19 +50,19 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         let turn_id = request.turn_id.unwrap_or_else(generate_turn_id);
         let live = self.live_thread(thread_id.clone());
         live.update_metadata(request.metadata)?;
-        let append = live.append_many_with_client_event_id(
-            vec![
-                user_message_item(&thread_id, &turn_id, request.input),
-                turn_started_item(
-                    &thread_id,
-                    &turn_id,
-                    request.model.as_deref(),
-                    request.provider.as_deref(),
-                    request.trace_context.as_ref(),
-                ),
-            ],
-            request.client_event_id.as_deref(),
-        )?;
+        let mut items = Vec::new();
+        if !request.input.is_null() {
+            items.push(user_message_item(&thread_id, &turn_id, request.input));
+        }
+        items.push(turn_started_item(
+            &thread_id,
+            &turn_id,
+            request.model.as_deref(),
+            request.provider.as_deref(),
+            request.trace_context.as_ref(),
+        ));
+        let append =
+            live.append_many_with_client_event_id(items, request.client_event_id.as_deref())?;
         let snapshot = live.snapshot(None, None)?;
         let turn = turn_from_snapshot(&snapshot.turns, &turn_id);
         Ok(ThreadTurnRuntimeResult {

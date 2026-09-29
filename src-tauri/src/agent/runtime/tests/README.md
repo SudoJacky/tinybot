@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:afea0f2700962c2399a891aa2f98fdf571f21992646bee22ece8bdb8e360f2af -->
+<!-- tinybot-module-fingerprint: sha256:97e569748a006ddff063cf31f01e53749fff3089ffe3bad1ab4a960f1a289fb7 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -22,6 +22,10 @@ through canonical event projection and serialization without changing the text.
 Responses replay cases verify that compaction events and checkpoints, as well
 as trimming events, report the replacement request estimate rather than the
 discarded native history. Ordinary request preparation retains native replay.
+Standalone Responses fixtures supply the complete native history explicitly,
+including repeated user Turns; the runtime does not infer another user message
+from a parallel message array. Runtime result assertions retain stable assistant
+message identity for later checkpoint and Rollout reconstruction.
 Compaction fixtures allow room for the structured handoff prompt while still
 exercising multi-request summaries, unsplittable-unit failures, and durable
 checkpoint installation. Fixture model output validates runtime behavior;

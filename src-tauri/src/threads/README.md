@@ -1,5 +1,5 @@
 # Threads
-<!-- tinybot-module-fingerprint: sha256:51960cb53827128fdeff064d14deec447c1ac7a64d09dcf6922820073b1f2397 -->
+<!-- tinybot-module-fingerprint: sha256:c49a5fed1127ad6a6c0309bd9811c97cda0326f609d59ba29d6567ef86f1cc88 -->
 
 `threads` owns conversation state and its durable rollout representation.
 
@@ -7,6 +7,9 @@
 records, history, runtime events, and checkpoints. Internal callers and the RPC
 adapter share lifecycle locking, canonical writes, projection synchronization,
 and failure recovery. RPC envelopes are only needed at transport boundaries.
+Its `agent_history` operation loads the complete canonical model context;
+message-count limits belong to query surfaces, while the runtime owns token
+budgeting and selection of complete tool-call/result units.
 
 The domain layer exposes thread operations, while `rollout/` handles persisted
 event lines and reconstruction. This module also contains time helpers, turn

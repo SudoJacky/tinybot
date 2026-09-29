@@ -102,35 +102,23 @@ impl AgentTurnInput {
         settings.validate()?;
         let continuation = optional(&[metadata], &["agentContinuation", "continuation"])?;
         let mut messages = initial_messages(spec)?;
-        if let Some(message) =
-            super::continuations::queued_user_continuation_message(continuation.as_ref())
-        {
-            messages.push(message);
+        let queued_message =
+            super::continuations::queued_user_continuation_message(continuation.as_ref());
+        if let Some(message) = &queued_message {
+            messages.push(message.clone());
         }
         let api_mode = string(&[spec, metadata], &["apiMode", "api_mode"])?;
         let response_items = optional::<Vec<Value>>(&[spec], &["responseItems", "response_items"])?;
-        let mut responses_input_items =
-            (api_mode.as_deref() == Some("responses")).then(|| response_items.unwrap_or_default());
-        if let Some(items) = responses_input_items.as_mut() {
-            let has_current_user = items.iter().any(|item| {
-                item.get("role").and_then(Value::as_str) == Some("user")
-                    && item
-                        .get("turnId")
-                        .or_else(|| item.get("turn_id"))
-                        .and_then(Value::as_str)
-                        == Some(trace_context.turn_id.as_str())
-            });
-            if !has_current_user {
-                if let Some(user) = messages
-                    .iter()
-                    .rev()
-                    .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
-                {
-                    let mut user = user.clone();
-                    user["turnId"] = Value::String(trace_context.turn_id.clone());
-                    items.push(user);
-                }
-            }
+        // Explicit native history is authoritative. Without it, adapters encode all
+        // typed messages. Only an explicit continuation adds a new input here.
+        let mut responses_input_items = if api_mode.as_deref() == Some("responses") {
+            response_items
+        } else {
+            None
+        };
+        if let (Some(items), Some(mut queued)) = (&mut responses_input_items, queued_message) {
+            queued["turnId"] = trace_context.turn_id.clone().into();
+            items.push(queued);
         }
         let compaction = optional::<ContextCompactionRequest>(
             &[spec],
@@ -247,20 +235,15 @@ fn initial_messages(spec: &Value) -> Result<Vec<Value>, String> {
         }
     }
     let input = object_field(spec, "input")?;
-    let Some(content) = optional::<String>(&[input], &["content"])? else {
+    let Some(content) = input.get("content") else {
         return Ok(Vec::new());
     };
-    if content.trim().is_empty() {
+    if content.as_str().is_some_and(|text| text.trim().is_empty()) {
         return Ok(Vec::new());
     }
     let role = string(&[input], &["role"])?.unwrap_or_else(|| "user".to_string());
-    let mut message = serde_json::json!({ "role": role, "content": content });
-    if let Some(id) = optional::<String>(&[input], &["clientEventId", "client_event_id"])? {
-        message["clientEventId"] = Value::String(id);
-    }
-    if let Some(references) = optional::<Vec<Value>>(&[input], &["references"])? {
-        message["references"] = Value::Array(references);
-    }
+    let mut message = input.clone();
+    message["role"] = role.into();
     Ok(vec![message])
 }
 
@@ -268,6 +251,24 @@ fn initial_messages(spec: &Value) -> Result<Vec<Value>, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn direct_input_keeps_identity_and_structured_content() {
+        let input = AgentTurnInput::from_wire(
+            &json!({"input":{
+                "id":"input-1", "messageId":"input-1", "clientEventId":"client-1",
+                "content":[{"type":"input_text","text":"look"},
+                    {"type":"input_image","image_url":"data:image/png;base64,AA==", "detail":"low"}]
+            }}),
+            &json!({}),
+        )
+        .unwrap();
+        let messages = input.messages.to_legacy_messages().unwrap();
+        assert_eq!(messages[0]["id"], "input-1");
+        assert_eq!(messages[0]["messageId"], "input-1");
+        assert_eq!(messages[0]["clientEventId"], "client-1");
+        assert_eq!(messages[0]["content"][1]["image_url"]["detail"], "low");
+    }
 
     #[test]
     fn aliases_and_precedence_produce_one_execution_identity_and_settings() {

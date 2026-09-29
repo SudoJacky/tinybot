@@ -1341,7 +1341,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let runtime_events = self.state.runtime_events();
         let final_message = serde_json::json!({
             "role": "assistant",
-            "content": final_content
+            "content": final_content,
+            "id": attempt.assistant_message_id,
+            "messageId": attempt.assistant_message_id,
+            "turnId": self.context.turn_id,
+            "threadId": self.context.thread_id,
         });
         let context_checkpoint = self
             .state

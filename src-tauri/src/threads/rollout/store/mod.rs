@@ -832,10 +832,18 @@ impl WorkerThreadLogRpc {
             .into_iter()
             .filter_map(|index| {
                 let line = &source_lines[index];
-                fork_inherits_rollout_item(&line.item, include_checkpoints).then(|| ThreadLogLine {
-                    timestamp: line.timestamp.clone(),
-                    ordinal: None,
-                    item: forked_rollout_item(&line.item, fork_session_id, &fork.thread_id),
+                fork_inherits_rollout_item(&line.item, include_checkpoints).then(|| {
+                    let source_item = match &line.item {
+                        ThreadLogItem::ResponseItem(item) => ThreadLogItem::ResponseItem(
+                            item.with_history_origin(source_thread_id, line.ordinal),
+                        ),
+                        item => item.clone(),
+                    };
+                    ThreadLogLine {
+                        timestamp: line.timestamp.clone(),
+                        ordinal: None,
+                        item: forked_rollout_item(&source_item, fork_session_id, &fork.thread_id),
+                    }
                 })
             })
             .collect::<Vec<_>>();
@@ -1015,6 +1023,22 @@ impl WorkerThreadLogRpc {
         thread_id: &str,
         limit: usize,
     ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
+        self.load_thread_context(thread_id, Some(limit))
+    }
+
+    /// Runtime history is complete; token budgeting owns context selection.
+    pub(crate) fn get_agent_context(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
+        self.load_thread_context(thread_id, None)
+    }
+
+    fn load_thread_context(
+        &self,
+        thread_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.ensure_state_index()?;
         let Some(record) = self.find_live_record(thread_id)? else {
@@ -1066,7 +1090,7 @@ impl WorkerThreadLogRpc {
     fn get_thread_context_from_canonical_rollout(
         &self,
         path: &Path,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
         let canonical = self.canonical_thread_state(path)?;
         let lines = read_thread_lines(path)?;

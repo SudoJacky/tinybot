@@ -1,5 +1,5 @@
 # Agent Web Tools
-<!-- tinybot-module-fingerprint: sha256:e4dc2e0e592784756e2a071e53efc2406c7e395de418bbde73db4e16715c36d8 -->
+<!-- tinybot-module-fingerprint: sha256:f51afbe9f11243b757693a5e681ffa35980b92ebc5e16a93d27ac3dffd280707 -->
 
 This module contains the network and browser tools exposed to the Agent.
 

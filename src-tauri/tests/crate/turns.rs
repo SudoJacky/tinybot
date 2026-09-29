@@ -649,8 +649,14 @@ fn worker_run_agent_hydrates_thread_history_before_provider_call() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(messages.len(), 3);
-    assert_eq!(messages[0]["content"], "a");
-    assert_eq!(messages[1]["content"], "agent replied a");
+    assert_eq!(
+        messages[0]["content"],
+        serde_json::json!([{"type":"text", "text":"a"}])
+    );
+    assert_eq!(
+        messages[1]["content"],
+        serde_json::json!([{"type":"text", "text":"agent replied a"}])
+    );
     assert_eq!(messages[2]["content"], "what did I say before?");
 }
 
@@ -752,8 +758,14 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(calls.len(), 2);
-    assert_eq!(first_messages[0]["content"], "remember alpha");
-    assert_eq!(first_messages[1]["content"], "alpha stored");
+    assert_eq!(
+        first_messages[0]["content"],
+        serde_json::json!([{"type":"text", "text":"remember alpha"}])
+    );
+    assert_eq!(
+        first_messages[1]["content"],
+        serde_json::json!([{"type":"text", "text":"alpha stored"}])
+    );
     assert_eq!(first_messages[2]["content"], "read README and combine");
     assert!(second_messages.iter().any(|message| {
         message["role"] == "assistant"
@@ -873,9 +885,15 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
     );
     assert_eq!(recall_messages.len(), 5);
     assert_eq!(recall_messages[0]["content"], "I said apple");
-    assert_eq!(recall_messages[1]["content"], "stored apple");
+    assert_eq!(
+        recall_messages[1]["content"],
+        serde_json::json!([{"type":"text", "text":"stored apple"}])
+    );
     assert_eq!(recall_messages[2]["content"], "I said banana");
-    assert_eq!(recall_messages[3]["content"], "stored banana");
+    assert_eq!(
+        recall_messages[3]["content"],
+        serde_json::json!([{"type":"text", "text":"stored banana"}])
+    );
     assert_eq!(recall_messages[4]["content"], "What did I say earlier?");
     assert_eq!(history["messages"].as_array().unwrap().len(), 6);
 }
@@ -1047,6 +1065,14 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
         fixture.thread_store.clone(),
     )));
     let session_id = "session-context-commit-integration";
+    fixture.seed_thread_messages(
+        session_id,
+        "previous-turn",
+        vec![
+            serde_json::json!({"role":"user", "content":"old context ".repeat(200)}),
+            serde_json::json!({"role":"assistant", "content":"old answer ".repeat(200)}),
+        ],
+    );
     let config = serde_json::json!({
         "agents": { "defaults": {
             "provider": "fixture",
@@ -1068,8 +1094,6 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
             "turnId": "turn-session-context-commit",
             "sessionId": session_id,
             "messages": [
-                { "role": "user", "content": "old context ".repeat(200) },
-                { "role": "assistant", "content": "old answer ".repeat(200) },
                 { "role": "user", "content": "current question" }
             ]
         }),

@@ -505,13 +505,12 @@ fn normalize_thread_turn_messages(
     let content = input
         .get("content")
         .or_else(|| input.get("text"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
+        .cloned()
         .unwrap_or_else(|| {
             if input.is_string() {
-                input.as_str().unwrap_or_default().to_string()
+                input.clone()
             } else {
-                input.to_string()
+                serde_json::Value::String(input.to_string())
             }
         });
     let mut message = if input.is_object() {
@@ -526,7 +525,7 @@ fn normalize_thread_turn_messages(
         "role".to_string(),
         serde_json::Value::String("user".to_string()),
     );
-    object.insert("content".to_string(), serde_json::Value::String(content));
+    object.insert("content".to_string(), content);
     object.remove("text");
     let messages = serde_json::json!([message]);
     validate_turn_messages(&messages)?;
@@ -573,21 +572,12 @@ fn start_native_agent_thread_turn(
     thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<(), AgentError> {
-    let mut input = native_agent_current_user_message(spec)
-        .unwrap_or_else(|| serde_json::json!({ "role": "user", "content": "" }));
-    let message_id = input
-        .get("id")
-        .or_else(|| input.get("messageId"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::Value::String(format!("user:{turn_id}")));
-    input["id"] = message_id.clone();
-    input["messageId"] = message_id;
+    // Input is admitted once by persist_native_agent_turn_start, in request order.
     thread_store
         .start_agent_thread_turn(StartThreadTurnRequest {
             thread_id: thread_id.into(),
             client_event_id: Some(format!("native-agent-thread-start:{turn_id}")),
             turn_id: Some(turn_id.into()),
-            input,
             model: Some(native_agent_model(spec, &config_snapshot)),
             provider: native_agent_provider(spec, &config_snapshot),
             trace_context: Some(trace_context.clone()),

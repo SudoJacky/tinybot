@@ -189,9 +189,12 @@ pub(super) async fn execute_tool_calls_for_iteration(
         iteration,
         AgentEventKind::ToolCallDelta.wire_name(),
     )?;
+    let mut batch = assistant_tool_calls_message(&final_content, &tool_calls);
+    batch["turnId"] = context.turn_id.clone().into();
+    batch["threadId"] = serde_json::json!(context.thread_id);
     state
         .history
-        .record_message(assistant_tool_calls_message(&final_content, &tool_calls))
+        .record_message(batch)
         .expect("runtime-generated assistant tool call message must be valid");
 
     for tool_call in &tool_calls {
@@ -835,7 +838,9 @@ async fn execute_tool_batch(
                 state.emit(TerminalEvent::Done(
                     serde_json::json!({"iteration":iteration,"stopReason":"final_response"}),
                 ))?;
-                let message = serde_json::json!({"role":"assistant","content":content});
+                let message = serde_json::json!({"role":"assistant","content":content,
+                    "id":message_id, "messageId":message_id, "turnId":context.turn_id,
+                    "threadId":context.thread_id});
                 return Ok(NativeAgentToolExecutionOutcome::Finished(AgentTurnResult {
                     final_content: content,
                     messages: super::AgentItemHistory::from_legacy_messages(&[message.clone()])?,

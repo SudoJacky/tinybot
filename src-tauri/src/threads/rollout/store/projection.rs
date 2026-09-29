@@ -21,14 +21,14 @@ pub struct ThreadHistoryProjection {
 fn history_from_replay(
     thread_id: &str,
     replay: ThreadReplay,
-    limit: usize,
+    limit: Option<usize>,
 ) -> ThreadHistoryProjection {
     let mut messages = replay.messages;
     let mut response_items = replay.response_items;
-    if limit == 0 {
+    if limit == Some(0) {
         messages.clear();
         response_items.clear();
-    } else if messages.len() > limit {
+    } else if let Some(limit) = limit.filter(|limit| messages.len() > *limit) {
         let start = messages.len() - limit;
         messages = messages.split_off(start);
     }
@@ -55,32 +55,28 @@ pub(super) fn thread_history_from_replay(
 ) -> ThreadHistoryProjection {
     replay.messages.retain(is_visible_thread_message);
     replay.response_items.clear();
-    history_from_replay(thread_id, replay, limit)
+    history_from_replay(thread_id, replay, Some(limit))
 }
 
 pub(super) fn thread_agent_context_from_replay(
     thread_id: &str,
     mut replay: ThreadReplay,
-    limit: usize,
+    limit: Option<usize>,
 ) -> ThreadHistoryProjection {
-    replay
-        .messages
-        .retain(|message| !is_materialized_instruction(message));
+    replay.messages.retain(|message| !is_instruction(message));
     if replay.api_mode != SessionApiMode::Responses {
         replay.response_items.clear();
     } else {
-        replay
-            .response_items
-            .retain(|item| !is_materialized_instruction(item));
+        replay.response_items.retain(|item| !is_instruction(item));
     }
     history_from_replay(thread_id, replay, limit)
 }
 
-fn is_materialized_instruction(item: &Value) -> bool {
+fn is_instruction(item: &Value) -> bool {
     matches!(
         item.get("role").and_then(Value::as_str),
         Some("system" | "developer")
-    ) && item.get("contentHash").is_some()
+    )
 }
 
 fn is_visible_thread_message(message: &Value) -> bool {
@@ -170,14 +166,24 @@ mod tests {
             "contentHash": "hash-old",
         });
         let user = serde_json::json!({ "role": "user", "content": "hello" });
+        let checkpoint_instruction =
+            serde_json::json!({"role":"developer", "content":"previous turn only"});
         let replay = ThreadReplay {
-            messages: vec![materialized_instruction.clone(), user.clone()],
-            response_items: vec![materialized_instruction, user.clone()],
+            messages: vec![
+                materialized_instruction.clone(),
+                checkpoint_instruction.clone(),
+                user.clone(),
+            ],
+            response_items: vec![
+                materialized_instruction,
+                checkpoint_instruction,
+                user.clone(),
+            ],
             api_mode: SessionApiMode::Responses,
             ..ThreadReplay::default()
         };
 
-        let context = thread_agent_context_from_replay("thread-1", replay, 50);
+        let context = thread_agent_context_from_replay("thread-1", replay, None);
 
         assert_eq!(context.messages, vec![user.clone()]);
         assert_eq!(context.response_items, vec![user]);

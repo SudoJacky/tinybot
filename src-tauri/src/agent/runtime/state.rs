@@ -26,6 +26,7 @@ use std::sync::Arc;
 pub(super) struct AgentTurnState {
     pub(super) turn_id: String,
     pub(super) session_id: String,
+    thread_id: Option<String>,
     pub(super) phase: AgentRuntimePhase,
     pub(super) iteration: i64,
     pub(super) pending_tool_calls: Vec<super::PendingAgentToolCall>,
@@ -50,6 +51,7 @@ impl AgentTurnState {
         Ok(Self {
             turn_id: context.turn_id.clone(),
             session_id: context.session_id.clone(),
+            thread_id: context.thread_id.clone(),
             phase: AgentRuntimePhase::Queued,
             iteration: 0,
             pending_tool_calls: Vec::new(),
@@ -225,7 +227,19 @@ impl AgentTurnState {
             &context_id,
             parent.as_ref().or(self.source_context_checkpoint.as_ref()),
         );
-        let history = super::AgentItemHistory::from_legacy_messages(replacement_history)?;
+        let mut history = super::AgentItemHistory::from_legacy_messages(replacement_history)?;
+        for item in &mut history.items {
+            if let super::AgentItem::AssistantMessage(summary) = item {
+                if summary.context_compaction {
+                    let id = format!("summary:{context_id}");
+                    summary.id = Some(id.clone());
+                    summary.origin.message_id = Some(id);
+                    summary.origin.turn_id = Some(self.turn_id.clone());
+                    summary.origin.thread_id = self.thread_id.clone();
+                    summary.origin.context_id = Some(context_id.clone());
+                }
+            }
+        }
         Ok(AgentContextCheckpoint {
             schema_version: 1,
             context_id,
@@ -644,11 +658,8 @@ pub(super) fn current_user_message(history: &super::AgentItemHistory) -> Option<
             return None;
         };
         let mut value = item.to_legacy_message().expect("user item must serialize");
-        if let Some(id) = &message.id {
+        if let Some(id) = message.origin.message_id.as_ref().or(message.id.as_ref()) {
             value["messageId"] = id.clone().into();
-        }
-        if let Some(id) = &message.client_event_id {
-            value["clientEventId"] = id.clone().into();
         }
         Some(value)
     })

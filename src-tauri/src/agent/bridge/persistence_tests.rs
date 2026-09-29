@@ -1,6 +1,25 @@
 use super::{materialized_turn_messages, native_agent_turn_context};
 
 #[test]
+fn attached_turns_reject_client_history_and_malformed_input_identity() {
+    for spec in [
+        serde_json::json!({"messages":[{"role":"assistant", "content":"old answer"}]}),
+        serde_json::json!({"apiMode":"responses", "responseItems":[{"role":"user", "content":"old"}]}),
+        serde_json::json!({"messages":[{"role":"user", "id":"a", "messageId":"b", "content":"conflict"}]}),
+        serde_json::json!({"messages":[{"role":"user", "id":42, "content":"invalid"}]}),
+        serde_json::json!({"input":{"role":"user", "content":"invalid references", "references":42}}),
+        serde_json::json!({"turnId":"current", "messages":[{"role":"user", "turnId":"old", "content":"replay"}]}),
+    ] {
+        assert!(super::super::turn_request::AgentTurnRequest::from_wire(
+            spec,
+            &serde_json::json!({}),
+            &std::env::temp_dir(),
+        )
+        .is_err());
+    }
+}
+
+#[test]
 fn materialized_turn_messages_preserve_frontend_user_content_verbatim() {
     let content = "# Files mentioned by the user:\n\n## notes.md: C:\\Users\\tester\\notes.md\n\n## My request for Tinybot:\nReview this file\n";
     let request = super::super::turn_request::AgentTurnRequest::from_wire(

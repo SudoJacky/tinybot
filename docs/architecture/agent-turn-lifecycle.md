@@ -22,9 +22,9 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:07df7ea35fe6663b10f4413c39615929118bb4f5d63c6b172393f1c672cd7d7d -->
+<!-- tinybot-doc-fingerprint: sha256:98d6f5efc1127416a25cb5b178bcd4ccd896087e55a1e1fe82534d3071942d23 -->
 
-A Turn begins with one user request and contains all provider iterations,
+A Turn begins with an ordered batch of user input and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
 outcome that follow. Resolving a form continues the same Turn identity.
 The form checkpoint preserves effective settings, controls, workspace, instructions,
@@ -79,6 +79,11 @@ instruction composition, history hydration, persistence, or task ownership.
 Identity, settings, continuation, and execution controls are resolved once;
 the execution context retains no raw spec. Invalid field types and malformed
 continuations fail explicitly before a durable Turn is started.
+New user inputs receive stable identities and enter Rollout exactly once before
+hydration. Thread lifecycle startup does not duplicate input persistence. Attached
+Turns reject client copies of assistant/tool history; hydration reads the complete
+canonical context, including the admitted batch, without merging by text. Independent
+runtime execution accepts explicit history, and form resume restores its checkpoint.
 Input and runtime history share typed `AgentItemHistory` through checkpoint storage
 and result publication. Configuration, extension metadata, provider-native items, and
 context checkpoint payloads still have dynamic fields. Runtime checkpoints use

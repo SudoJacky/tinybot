@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:aa95941437b8be9e6ae3410f6d4ee9c56384a15681749226ab965be2a300d72a -->
+<!-- tinybot-module-fingerprint: sha256:81c982e1b0d722158abcb6a9ed757260f0998c4644a4a44b5040c52be3da7bc2 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -29,6 +29,13 @@ Canonical reconstruction produces Thread items, Thread history, model context,
 agent turns, checkpoints, and token usage.
 User-message payloads retain optional `selectedSkills` activation IDs through
 Rollout append and reload; records predating this field remain valid.
+
+Agent Turn-start persistence validates and admits the entire ordered user-message
+batch. Retrying an identical message identity is idempotent; reusing that identity
+with different content or origin is an explicit protocol error before appending
+the batch. `get_agent_context` returns the complete canonical context, including
+already admitted input. The runtime owns token budgeting and complete tool units;
+bounded history queries do not define Agent history.
 
 ## Provider API mode
 

@@ -162,6 +162,15 @@ runtime uses `200`. Explicit turn or settings values still take precedence.
 
 ### Backend tool selection and checkpoints
 
+Attached desktop/Thread Turns treat `messages` as an ordered batch of new user
+input plus current system/developer instructions. Historical assistant/tool
+messages and native `responseItems` are rejected at this boundary. Stable
+`id`/`messageId` values are retained, or assigned from Turn ID and input position.
+The complete input batch is persisted before canonical history is loaded;
+reusing an identity with different content or origin fails explicitly.
+Standalone runtime execution and checkpoint resume have separate explicit
+history paths. Internal history carries local provenance; provider requests do not.
+
 MCP tools explicitly allowlisted by workspace configuration are injected after backend discovery.
 Other extension tools may remain deferred until selected explicitly for the current Turn. Core
 browser tools are model-visible by default. The `subagent.*` lifecycle controls are direct RPC tools,

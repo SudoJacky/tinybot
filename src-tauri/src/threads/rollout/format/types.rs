@@ -299,6 +299,21 @@ impl ResponseItem {
     pub fn as_value(&self) -> &Value {
         &self.raw
     }
+
+    /// Preserve the original location when replaying or copying records to a fork.
+    pub(crate) fn with_history_origin(&self, thread_id: &str, ordinal: Option<u64>) -> Self {
+        let mut item = self.clone();
+        let object = item.raw.as_object_mut().expect("validated response item");
+        if !thread_id.is_empty() {
+            object.entry("threadId").or_insert_with(|| thread_id.into());
+        }
+        if let Some(ordinal) = ordinal {
+            object
+                .entry("rolloutOrdinal")
+                .or_insert_with(|| ordinal.into());
+        }
+        item
+    }
 }
 
 fn validate_response_item(kind: &ResponseItemKind, raw: &Value) -> Result<(), String> {

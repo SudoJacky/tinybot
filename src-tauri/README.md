@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:2d098556d04029c0d44c17cef91b6bfd2f73c6f1e318446829c63202e0b41d4e -->
+<!-- tinybot-module-fingerprint: sha256:1ecbda97ace21d9ca4845ef2ec2fe40224621204c990171b52e83a1e9915430b -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -68,7 +68,8 @@ Use these terms consistently in backend code and documentation:
   their Items, survives process restarts and connection changes, and may carry
   an optional long-lived goal. A goal is metadata on a Thread, not the
   definition of a Thread.
-- **Turn** starts with one user request and includes all agent work that follows
+- **Turn** starts with one user request, which may contain an ordered batch of
+  user messages, and includes all agent work that follows
   until the Turn completes, fails, is interrupted, or waits for typed user
   input. Provider iterations, reasoning, tool calls and results, and form
   continuations all belong to the same Turn.

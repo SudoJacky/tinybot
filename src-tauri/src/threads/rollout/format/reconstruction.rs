@@ -14,6 +14,16 @@ const PRESERVED_MESSAGE_FIELDS: &[&str] = &[
     "message_id",
     "turnId",
     "turn_id",
+    "threadId",
+    "thread_id",
+    "rolloutOrdinal",
+    "contextId",
+    "clientEventId",
+    "client_event_id",
+    "selectedSkills",
+    "is_error",
+    "isError",
+    "contentHash",
     "usage",
     "tokenUsageInfo",
     "token_usage_info",
@@ -91,7 +101,8 @@ fn reconstruct_rollout_with_mode(
         match &line.item {
             RolloutItem::SessionMeta(meta) => apply_meta(&mut replay, meta, &line.timestamp),
             RolloutItem::ResponseItem(item) => {
-                apply_response_item(&mut replay, item, &line.timestamp)
+                let item = item.with_history_origin(&replay.thread_id, line.ordinal);
+                apply_response_item(&mut replay, &item, &line.timestamp)
             }
             RolloutItem::EventMsg(event) => {
                 apply_event(&mut replay, event, &line.timestamp)?;
@@ -114,6 +125,10 @@ fn reconstruct_rollout_with_mode(
         }
     }
     for message in &mut replay.messages {
+        if !apply_context_checkpoints {
+            // Display text is a projection. Model history retains content parts.
+            message["content"] = Value::String(thread_item_content(message));
+        }
         if let Some(object) = message.as_object_mut() {
             object.remove(USER_MESSAGE_EVENT_MARKER);
         }
@@ -317,21 +332,32 @@ fn apply_compaction_metadata(replay: &mut RolloutReconstruction, compacted: &Com
 }
 
 fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, timestamp: &str) {
-    replay.response_items.push(item.as_value().clone());
+    let native_item = item.as_value().clone();
     let Some(item) = response_item_message_projection(item) else {
+        replay.response_items.push(native_item);
         return;
     };
     let role = item
         .get("role")
         .and_then(Value::as_str)
         .unwrap_or("assistant");
-    let content = thread_item_content(&item);
+    let content = item.get("content").cloned().unwrap_or(Value::Null);
     let mut message = json!({
         "role": role,
         "content": content,
         "timestamp": timestamp
     });
     copy_optional_message_fields(&item, &mut message, PRESERVED_MESSAGE_FIELDS);
+    if message.get("threadId").is_none() && !replay.thread_id.is_empty() {
+        message["threadId"] = replay.thread_id.clone().into();
+    }
+    if let Some(candidate) = replay.compaction_overlap_candidate.take() {
+        if same_message_identity(&candidate, &message) {
+            replay.updated_at = timestamp.to_string();
+            return;
+        }
+    }
+    replay.response_items.push(native_item);
     if let Some(plan_id) = message.get("_task_plan_id").and_then(Value::as_str) {
         if let Some(existing) = replay
             .messages
@@ -356,18 +382,12 @@ fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, 
             return;
         }
     }
-    if let Some(candidate) = replay.compaction_overlap_candidate.take() {
-        if same_message_identity(&candidate, &message) {
-            replay.updated_at = timestamp.to_string();
-            return;
-        }
-    }
     replay.messages.push(message);
     replay.updated_at = timestamp.to_string();
 }
 
 fn response_item_message_projection(item: &ResponseItem) -> Option<Value> {
-    match item.kind() {
+    let mut projected = match item.kind() {
         super::ResponseItemKind::Message => Some(item.as_value().clone()),
         super::ResponseItemKind::FunctionCall | super::ResponseItemKind::CustomToolCall => {
             let call_id = field_any(item, &["call_id", "callId", "id"])?.clone();
@@ -394,10 +414,17 @@ fn response_item_message_projection(item: &ResponseItem) -> Option<Value> {
             let output = field_any(item, &["output", "content"])
                 .cloned()
                 .unwrap_or(Value::Null);
+            let output = match output {
+                Value::String(_) | Value::Array(_) => output,
+                Value::Null => Value::String(String::new()),
+                _ => Value::String(output.to_string()),
+            };
             Some(json!({
                 "role": "tool",
                 "content": output,
                 "tool_call_id": call_id,
+                "is_error": item.get("is_error").or_else(|| item.get("isError"))
+                    .and_then(Value::as_bool).unwrap_or(item.get("status").and_then(Value::as_str) == Some("error")),
             }))
         }
         super::ResponseItemKind::Reasoning
@@ -406,7 +433,14 @@ fn response_item_message_projection(item: &ResponseItem) -> Option<Value> {
         | super::ResponseItemKind::ComputerCall
         | super::ResponseItemKind::Other(_)
         | super::ResponseItemKind::Unspecified => None,
+    }?;
+    copy_optional_message_fields(item.as_value(), &mut projected, PRESERVED_MESSAGE_FIELDS);
+    if projected["role"] == "tool" && projected.get("name").is_none() {
+        if let Some(name) = item.get("tool_name") {
+            projected["name"] = name.clone();
+        }
     }
+    Some(projected)
 }
 
 fn apply_event(
@@ -531,12 +565,18 @@ fn apply_compacted(
 
 fn same_message_identity(left: &Value, right: &Value) -> bool {
     left.get("role") == right.get("role")
-        && thread_item_content(left) == thread_item_content(right)
         && match (
-            left.get("messageId").or_else(|| left.get("message_id")),
-            right.get("messageId").or_else(|| right.get("message_id")),
+            field_any(left, &["messageId", "message_id", "id"]),
+            field_any(right, &["messageId", "message_id", "id"]),
         ) {
             (Some(left_id), Some(right_id)) => left_id == right_id,
+            _ => false,
+        }
+        && match (
+            field_any(left, &["turnId", "turn_id"]),
+            field_any(right, &["turnId", "turn_id"]),
+        ) {
+            (Some(left_turn), Some(right_turn)) => left_turn == right_turn,
             _ => true,
         }
 }

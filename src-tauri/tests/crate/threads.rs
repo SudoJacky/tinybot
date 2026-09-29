@@ -294,6 +294,15 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
 #[test]
 fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     let fixture = WorkspaceFixture::new();
+    let seeded_thread_id = "thread-context-commit";
+    fixture.seed_thread_messages(
+        seeded_thread_id,
+        "previous-turn",
+        vec![
+            serde_json::json!({"role":"user", "content":"old context ".repeat(200)}),
+            serde_json::json!({"role":"assistant", "content":"old answer ".repeat(200)}),
+        ],
+    );
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
@@ -315,14 +324,12 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     let result = worker_submit_thread_turn_with_options(
         &shared,
         WorkerSubmitThreadTurnInput {
-            thread_id: None,
+            thread_id: Some(seeded_thread_id.into()),
             input: serde_json::json!({ "content": "current question" }),
             spec: serde_json::json!({
                 "runtime": "rust",
                 "turnId": "turn-thread-context-commit",
                 "messages": [
-                    { "role": "user", "content": "old context ".repeat(200) },
-                    { "role": "assistant", "content": "old answer ".repeat(200) },
                     { "role": "user", "content": "current question" }
                 ]
             }),
