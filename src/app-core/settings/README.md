@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:5b85d5c8e65b0796eb2c4944b63d792d1e727a8f76a86b32c905435635283be1 -->
+<!-- tinybot-module-fingerprint: sha256:d53836677a3952ef29a9f1dc000517a5b3673aaf52964ab509394b929df1829f -->
 
 `tokenUsage.ts` defines the v3 snapshot, purpose/source groups and paginated
 invocation contracts. Nullable usage distinguishes unavailable counts from zero;
@@ -75,6 +75,11 @@ Provider model settings keep the discovered `models` catalog separate from
 persist image-input overrides through `modelCapabilities`; the known defaults
 for `glm-5.3-flash`, `deepseek-flash`, and the legacy Flash aliases stay aligned with the
 Rust provider resolver.
+
+Built-in Provider IDs are matched exactly. Alternate names and casing such as
+`zhipu` and `ZAI` stay separate custom Providers, with their own model settings.
+Saving their context or modality overrides patches only the selected Profile;
+it does not update the built-in catalog or a different Profile.
 
 The default light appearance uses a near-white canvas, cooler navigation chrome,
 and graphite emphasis. Loading the unchanged previous default palette upgrades

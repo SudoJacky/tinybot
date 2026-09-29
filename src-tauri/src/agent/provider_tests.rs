@@ -221,6 +221,11 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         provider_ids,
         vec!["openai", "deepseek", "dashscope", "zai", "ollama"]
     );
+    assert!(body["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry.get("aliases").is_none()));
     let deepseek = body["providers"]
         .as_array()
         .unwrap()
@@ -331,6 +336,119 @@ fn explicit_auto_turn_provider_is_not_treated_as_an_omitted_provider() {
     );
 
     assert!(profile.is_none());
+}
+
+#[test]
+fn built_in_providers_require_their_exact_ids() {
+    for provider_id in [
+        "zhipu",
+        "bigmodel",
+        "z.ai",
+        "ZAI",
+        "_zai_",
+        "gpt",
+        "chatgpt",
+        "OPENAI",
+        "deep seek",
+        "DeepSeek",
+        "dash scope",
+        "model studio",
+        "qwen",
+        "Ollama",
+    ] {
+        assert!(
+            resolve_provider_profile(&json!({}), Some(provider_id), None).is_none(),
+            "{provider_id} must not implicitly select a built-in provider"
+        );
+    }
+}
+
+#[test]
+fn custom_provider_ids_preserve_identity_and_do_not_inherit_built_in_policies() {
+    for provider_id in ["zhipu", "bigmodel", "z.ai", "ZAI", "My-Gateway"] {
+        let mut config = json!({
+            "agents": {"defaults": {"activeProfile": "builtin"}},
+            "providers": {"profiles": {
+                "builtin": {"provider": "zai", "apiKey": "builtin-key"},
+                "imported": {
+                    "provider": provider_id,
+                    "apiBase": "https://custom.example.test/v1",
+                    "apiKey": "custom-key",
+                    "models": ["glm-5.3-flash"]
+                }
+            }}
+        });
+        let builtin = resolve_provider_profile(&config, None, None).unwrap();
+        let custom = resolve_provider_profile(&config, Some(provider_id), None).unwrap();
+        assert_eq!(custom.provider_id, provider_id);
+        assert!(custom.is_custom);
+        assert_eq!(
+            custom.api_base.as_deref(),
+            Some("https://custom.example.test/v1")
+        );
+        assert_eq!(custom.api_key.as_deref(), Some("custom-key"));
+        assert_eq!(
+            custom.context_window_tokens_for_model("glm-5.3-flash"),
+            None
+        );
+        assert!(!custom.supports_input_modality("glm-5.3-flash", "image"));
+        custom
+            .require_api_mode(NativeProviderApiMode::Responses)
+            .unwrap();
+        let mut request = json!({"max_completion_tokens": 128, "parallel_tool_calls": true,
+            "stream_options": {"include_usage": true}, "temperature": 1.5});
+        let original_request = request.clone();
+        adapt_provider_request(
+            &custom,
+            "glm-5.3-flash",
+            NativeProviderApiMode::ChatCompletions,
+            &mut request,
+        )
+        .expect("custom providers must not apply Z.ai request restrictions");
+        assert_eq!(request, original_request);
+
+        assert_eq!(
+            resolve_provider_profile(&config, None, Some("imported")),
+            Some(custom.clone())
+        );
+        config["agents"]["defaults"]["activeProfile"] = json!("imported");
+        assert_eq!(resolve_provider_profile(&config, None, None), Some(custom));
+        config["providers"]["profiles"]["imported"]["modelContextWindows"] =
+            json!([{"model": "glm-5.3-flash", "contextWindowTokens": 64000}]);
+        config["providers"]["profiles"]["imported"]["modelCapabilities"] =
+            json!([{"model": "glm-5.3-flash", "inputModalities": ["image"]}]);
+        let configured = resolve_provider_profile(&config, None, None).unwrap();
+        assert_eq!(
+            configured.context_window_tokens_for_model("glm-5.3-flash"),
+            Some(64000)
+        );
+        assert!(configured.supports_input_modality("glm-5.3-flash", "image"));
+        assert_eq!(
+            resolve_provider_profile(&config, Some("zai"), None),
+            Some(builtin.clone())
+        );
+        assert_eq!(
+            builtin.context_window_tokens_for_model("glm-5.3-flash"),
+            Some(1_000_000)
+        );
+        assert!(builtin.supports_input_modality("glm-5.3-flash", "image"));
+    }
+}
+
+#[test]
+fn custom_provider_without_an_endpoint_fails_configuration_validation() {
+    let profile = resolve_provider_profile(
+        &json!({"providers": {"profiles": {"imported": {"provider": "zhipu"}}}}),
+        None,
+        Some("imported"),
+    )
+    .unwrap();
+    assert!(profile.is_custom);
+    assert!(profile.api_base.is_none());
+    assert!(profile.api_key.is_none());
+    assert!(validate_provider_configuration(&profile)
+        .unwrap_err()
+        .contains("provider 'zhipu' requires api_base"));
 }
 
 #[test]

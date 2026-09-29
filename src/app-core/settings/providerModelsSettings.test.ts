@@ -12,6 +12,32 @@ import {
 } from "./providerModelsSettings";
 
 describe("provider models settings", () => {
+  test.each(["zhipu", "bigmodel", "z.ai", "ZAI"])("keeps custom provider %s separate from the built-in Z.ai profile", (providerId) => {
+    const settings = buildProviderModelsSettings({ providers: { profiles: {
+      builtin: { provider: "zai", models: ["glm-5.3-flash"] },
+      imported: { provider: providerId, apiBase: "https://custom.example.test/v1", models: ["glm-5.3-flash"] },
+    } } });
+    expect(settings.providers.find((provider) => provider.id === "zai")).toMatchObject({
+      builtIn: true, profileId: "builtin",
+      models: expect.arrayContaining([expect.objectContaining({ id: "glm-5.3-flash", supportsImageInput: true })]),
+    });
+    expect(settings.providers.find((provider) => provider.id === providerId)).toMatchObject({
+      builtIn: false, profileId: "imported",
+      models: [{ id: "glm-5.3-flash", supportsImageInput: false }],
+    });
+    expect(automaticModelContextWindow(providerId, "glm-5.3-flash"))
+      .toEqual({ known: false, tokens: 128_000 });
+    expect(buildProviderModelsPatch({
+      providerId, profileId: "imported", models: ["glm-5.3-flash"],
+      modelContextWindows: [{ model: "glm-5.3-flash", contextWindowTokens: 64_000 }],
+      modelCapabilities: [{ model: "glm-5.3-flash", inputModalities: ["image"] }],
+    })).toEqual({ providers: { profiles: { imported: {
+      provider: providerId, models: ["glm-5.3-flash"],
+      modelContextWindows: [{ model: "glm-5.3-flash", contextWindowTokens: 64_000 }],
+      modelCapabilities: [{ model: "glm-5.3-flash", inputModalities: ["image"] }],
+    } } } });
+  });
+
   test("custom providers do not inherit same-named model capabilities and keep explicit image overrides", () => {
     expect(automaticModelCapabilities("proxy", "deepseek-flash")).toEqual({ supportsImageInput: false });
     expect(automaticModelContextWindow("proxy", "deepseek-flash", 64_000))

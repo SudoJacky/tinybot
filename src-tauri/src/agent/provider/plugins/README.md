@@ -1,5 +1,5 @@
 # Provider Plugins
-<!-- tinybot-module-fingerprint: sha256:f312bbdd3724da13202e2f0834627e805d073cbb5eb858222217904efe115712 -->
+<!-- tinybot-module-fingerprint: sha256:213a28e7ce203317908a7337e237ec966030e75171a77bc801986ea0c6293f2d -->
 
 This module contains the statically registered adapters for built-in
 Providers. A Provider plugin owns vendor-specific catalog metadata, reasoning
@@ -45,7 +45,6 @@ pub(super) static PLUGIN: AcmeProvider = AcmeProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "acme",
     display_name: "Acme",
-    aliases: &["acme-ai"],
     categories: &["built_in"],
     default_api_base: Some("https://api.acme.example/v1"),
     api_key_env_vars: &["ACME_API_KEY"],
@@ -84,8 +83,8 @@ impl ProviderPlugin for AcmeProvider {
 ```
 
 Use `CHAT_COMPLETIONS_ONLY` instead of `OPENAI_API_MODES` when Responses is not
-supported. Provider IDs and normalized aliases must be unique across the
-registry.
+supported. Provider IDs must be unique across the registry. Lookup uses the exact
+ID; alternate names, casing, and punctuation never select a built-in adapter.
 
 ### 2. Choose an effort policy
 
@@ -144,7 +143,7 @@ static PROVIDER_PLUGINS: [&dyn ProviderPlugin; 6] = [
 ];
 ```
 
-Registration makes the manifest available to catalog lookup, alias lookup, and
+Registration makes the manifest available to catalog lookup and
 explicit Profile resolution. Model names never infer a Provider.
 Unregistered custom OpenAI-compatible profiles
 continue to use the default pass-through request policy.
@@ -156,7 +155,7 @@ At minimum, cover every non-default policy or request transformation:
 - accepted, rejected, or omitted effort values;
 - Chat Completions and Responses request shapes when both are supported;
 - invalid field combinations and their error messages;
-- manifest lookup through the Provider ID and aliases.
+- manifest lookup through the exact Provider ID and isolation from custom IDs.
 
 Keep tests at the plugin seam by asserting the final request shape or returned
 error. Do not duplicate the shared protocol Adapter test suite in every plugin.
@@ -179,7 +178,7 @@ preset, update the frontend preset list as a separate product-facing change.
 
 - The Provider is OpenAI-compatible at the transport and response levels.
 - The manifest declares only protocols and capabilities the Provider supports.
-- Provider IDs, aliases, model prefixes, and environment variables do not
+- Provider IDs, model prefixes, and environment variables do not
   conflict with an existing plugin.
 - Effort differences live in `reasoning_effort_policy`.
 - Model limits and modalities live in `../model-defaults.json`; standard Chat differences

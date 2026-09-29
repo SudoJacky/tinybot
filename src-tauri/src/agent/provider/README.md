@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:0e81198ad84b6555735a85d6d5bb97142498862c6ed91b94ca15448cc2b4b565 -->
+<!-- tinybot-module-fingerprint: sha256:d1947b2494351aacedde6685f368a2b7426cdf4783600106afe4a94460b37195 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -15,7 +15,13 @@ their existing selection.
   The built-in Ollama adapter uses `http://127.0.0.1:11434/v1` without requiring
   an API key, discovers locally installed models, and maps Chat Completions
   `max_completion_tokens` to Ollama's `max_tokens` field.
-- `catalog.rs` resolves configured providers and models. Live discovery stays
+- `catalog.rs` resolves configured providers and models using exact provider IDs.
+  IDs retain case and punctuation after trimming surrounding whitespace. Only a
+  registered ID selects a built-in adapter; alternate names are custom providers
+  and must supply their own endpoint and model configuration. Profile names and
+  display names do not select adapters. Profile overrides never modify the
+  built-in catalog or another Profile.
+  Live discovery stays
   async end to end, calls the authenticated OpenAI-compatible `GET /models`
   endpoint, and requires only `data[].id` from each provider response. Custom
   providers default `supportsReasoningEffort` to `true`; an explicit `false`

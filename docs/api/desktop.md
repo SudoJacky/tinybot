@@ -670,10 +670,17 @@ Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.rea
 may remain in raw config for read compatibility, but the settings registry does not expose it and the
 agent runtime does not apply it to model requests.
 The built-in provider catalog currently exposes `deepseek`, `dashscope`, `openai`, `zai`, and
-`ollama`.
+`ollama`. Provider IDs are case-sensitive and retain punctuation; only surrounding whitespace
+is trimmed. The catalog does not expose or resolve Provider aliases. Profile IDs and display names
+may be chosen independently and do not select a built-in adapter.
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
 the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
+Existing configurations using an alternate built-in name must explicitly select the registered ID
+to retain its adapter and model defaults. For example, change `provider: "zhipu"` to `provider: "zai"`
+to use built-in Z.ai, or configure `zhipu` as an independent custom Provider. Custom IDs never inherit
+built-in defaults or credentials through name similarity. Their Profile overrides do not modify
+the built-in catalog or other Profiles; a missing custom endpoint fails configuration validation.
 The built-in `ollama` Provider targets the local OpenAI-compatible endpoint at
 `http://127.0.0.1:11434/v1`. It is usable without an API key, has no curated model IDs, and exposes
 downloaded models through live discovery. Chat Completions requests translate Tinybot's

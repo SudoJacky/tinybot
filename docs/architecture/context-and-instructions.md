@@ -14,7 +14,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:417c0ffa2bb95c52ab4559f18a4c999103e852675d758cb9d0b5226001a5aea7 -->
+<!-- tinybot-doc-fingerprint: sha256:2b087de0807d55dd8cb220ee460d58a4c3707bb6d38d211b1e1c36831afc4488 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -196,7 +196,9 @@ explicit Turn value wins, followed by the active Provider Profile's model
 override, the selected provider's model defaults, the legacy unknown-model fallback,
 and finally the 128K default. The provider-owned `ResolvedModel` supplies both
 window limits and input capabilities; matching names on another provider do not
-inherit those defaults. Frontend model settings import the same built-in JSON
+inherit those defaults. Built-in defaults require the exact registered Provider
+ID in both runtime and settings; alternate Provider names remain independent
+custom configurations. Frontend model settings import the same built-in JSON
 definitions that Rust embeds, avoiding a second capability table. When no strategy is configured, the
 strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit

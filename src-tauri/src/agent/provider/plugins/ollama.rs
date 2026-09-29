@@ -11,7 +11,6 @@ pub(super) static PLUGIN: OllamaProvider = OllamaProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "ollama",
     display_name: "Ollama",
-    aliases: &[],
     categories: &["built_in", "local"],
     default_api_base: Some("http://127.0.0.1:11434/v1"),
     api_key_env_vars: &[],

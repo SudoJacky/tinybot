@@ -8,7 +8,6 @@ pub(super) static PLUGIN: DeepSeekProvider = DeepSeekProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "deepseek",
     display_name: "DeepSeek",
-    aliases: &["deep seek"],
     categories: &["built_in"],
     default_api_base: Some("https://api.deepseek.com"),
     api_key_env_vars: &["DEEPSEEK_API_KEY"],

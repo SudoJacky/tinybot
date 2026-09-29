@@ -12,7 +12,6 @@ pub(super) static PLUGIN: ZaiProvider = ZaiProvider;
 static CATALOG_ENTRY: NativeProviderCatalogEntry = NativeProviderCatalogEntry {
     id: "zai",
     display_name: "Z.ai",
-    aliases: &["z.ai", "zhipu", "bigmodel"],
     categories: &["built_in"],
     default_api_base: Some("https://open.bigmodel.cn/api/paas/v4"),
     api_key_env_vars: &["ZAI_API_KEY"],

@@ -109,6 +109,43 @@ fn resolve_secret_uses_rust_owned_provider_env_mapping() {
     );
 }
 
+#[test]
+fn zai_environment_secret_requires_the_canonical_provider_id() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env = EnvVarGuard::set("ZAI_API_KEY", "builtin-zai-key");
+    for provider_id in ["zai", "zhipu", "bigmodel", "ZAI"] {
+        let rpc = WorkerSecretRpc::new(
+            json!({"providers": {"profiles": {"work": {"provider": provider_id}}}}),
+            CapabilityPolicy::new([WorkerCapability::ProviderSecretRead]),
+        );
+        for profile_name in [None, Some("work".to_string())] {
+            let result = rpc
+                .resolve_secret(ProviderResolveSecretParams {
+                    provider_id: provider_id.to_string(),
+                    profile_name,
+                })
+                .unwrap();
+            assert_eq!(
+                result,
+                if provider_id == "zai" {
+                    ProviderResolveSecretResult {
+                        api_key: Some("builtin-zai-key".to_string()),
+                        api_key_source: Some("env:ZAI_API_KEY".to_string()),
+                    }
+                } else {
+                    ProviderResolveSecretResult {
+                        api_key: None,
+                        api_key_source: None,
+                    }
+                },
+                "custom provider {provider_id} must not inherit the built-in secret"
+            );
+        }
+    }
+}
+
 fn params(provider_id: &str) -> ProviderResolveSecretParams {
     ProviderResolveSecretParams {
         provider_id: provider_id.to_string(),

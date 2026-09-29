@@ -14,7 +14,6 @@ const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
 pub struct NativeProviderCatalogEntry {
     pub id: &'static str,
     pub display_name: &'static str,
-    pub aliases: &'static [&'static str],
     pub categories: &'static [&'static str],
     pub default_api_base: Option<&'static str>,
     pub api_key_env_vars: &'static [&'static str],
@@ -159,7 +158,6 @@ pub fn provider_catalog_body(config: &Value) -> Value {
                 "id": entry.id,
                 "displayName": entry.display_name,
                 "display_name": entry.display_name,
-                "aliases": entry.aliases,
                 "categories": entry.categories,
                 "capabilities": entry.capabilities,
                 "defaultApiBase": entry.default_api_base,
@@ -389,19 +387,20 @@ pub fn resolve_provider_profile(
     provider_id: Option<&str>,
     profile_name: Option<&str>,
 ) -> Option<NativeProviderProfile> {
-    let requested_provider_id = provider_id.map(normalize_provider_id);
-    if requested_provider_id.as_deref() == Some("auto") {
+    let requested_provider_id = provider_id.map(str::trim);
+    if requested_provider_id == Some("auto") {
         return None;
     }
-    let requested_provider_id = requested_provider_id.filter(|value| !value.is_empty());
+    let requested_provider_id = requested_provider_id
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let explicit_profile_config =
         profile_name.and_then(|name| provider_profile_config(config, name));
     let active_profile_config =
         active_profile_name(config).and_then(|name| provider_profile_config(config, &name));
     let profile_provider_id = explicit_profile_config
         .or(active_profile_config)
-        .and_then(|profile| string_field(profile, "provider"))
-        .map(|value| normalize_provider_id(&value));
+        .and_then(|profile| string_field(profile, "provider"));
     let default_provider_id = default_provider_id(config);
     let provider_id = requested_provider_id
         .or(profile_provider_id)
@@ -519,7 +518,6 @@ fn default_provider_id(config: &Value) -> Option<String> {
         .get("agents")
         .and_then(|agents| agents.get("defaults"))
         .and_then(|defaults| string_field(defaults, "provider"))
-        .map(|value| normalize_provider_id(&value))
         .filter(|value| !value.is_empty() && value != "auto")
 }
 
@@ -570,7 +568,7 @@ fn provider_config<'a>(
 
 fn profile_matches_provider(profile: &Value, provider_id: &str) -> bool {
     string_field(profile, "provider")
-        .map(|value| normalize_provider_id(&value) == provider_id)
+        .map(|value| value == provider_id)
         .unwrap_or(false)
 }
 
@@ -693,23 +691,6 @@ fn env_first(names: &[&str]) -> Option<String> {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
     })
-}
-
-pub(super) fn normalize_provider_id(value: &str) -> String {
-    value
-        .trim()
-        .to_ascii_lowercase()
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string()
 }
 
 fn join_models_url(api_base: &str) -> String {

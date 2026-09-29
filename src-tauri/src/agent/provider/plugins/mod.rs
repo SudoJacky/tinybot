@@ -4,9 +4,7 @@ mod ollama;
 mod openai;
 mod zai;
 
-use super::catalog::{
-    normalize_provider_id, NativeProviderApiMode, NativeProviderCatalogEntry, NativeProviderProfile,
-};
+use super::catalog::{NativeProviderApiMode, NativeProviderCatalogEntry, NativeProviderProfile};
 use super::model::{ChatCompletionsCompat, ChatMaxTokensField};
 use serde_json::Value;
 
@@ -73,15 +71,7 @@ pub(super) fn registered_provider_plugins() -> impl Iterator<Item = &'static dyn
 }
 
 pub(super) fn provider_plugin_by_id(provider_id: &str) -> Option<&'static dyn ProviderPlugin> {
-    let provider_id = normalize_provider_id(provider_id);
-    registered_provider_plugins().find(|plugin| {
-        let entry = plugin.catalog_entry();
-        entry.id == provider_id
-            || entry
-                .aliases
-                .iter()
-                .any(|alias| normalize_provider_id(alias) == provider_id)
-    })
+    registered_provider_plugins().find(|plugin| plugin.catalog_entry().id == provider_id)
 }
 
 pub(crate) fn adapt_provider_request(
@@ -203,21 +193,17 @@ fn normalize_reasoning_effort(
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
 
     #[test]
-    fn registry_has_unique_provider_ids_and_aliases() {
-        let mut owner_by_id = BTreeMap::new();
+    fn registry_has_unique_provider_ids() {
+        let mut ids = BTreeSet::new();
         for plugin in registered_provider_plugins() {
-            let entry = plugin.catalog_entry();
-            for candidate in std::iter::once(entry.id).chain(entry.aliases.iter().copied()) {
-                let candidate = normalize_provider_id(candidate);
-                assert_eq!(
-                    owner_by_id.insert(candidate.clone(), entry.id),
-                    None,
-                    "provider registry key `{candidate}` is declared more than once"
-                );
-            }
+            let id = plugin.catalog_entry().id;
+            assert!(
+                ids.insert(id),
+                "provider ID `{id}` is declared more than once"
+            );
         }
     }
 
