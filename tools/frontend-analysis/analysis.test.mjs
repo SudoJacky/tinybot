@@ -56,6 +56,13 @@ test("bundle analysis follows initial static imports and enforces regression bud
   assert.ok(bundle.initialFiles.some((file) => file.path.endsWith("shared-abcdefgh.js")));
   assert.ok(!bundle.initialFiles.some((file) => file.path.endsWith("lazy-abcdefgh.js")));
 
+  const ciBundle = analyzeBundle({ rootDir, distDir: path.join(rootDir, "dist"), detailed: false });
+  assert.equal(ciBundle.totals.gzipBytes, bundle.totals.gzipBytes);
+  assert.equal(ciBundle.initial.gzipBytes, bundle.initial.gzipBytes);
+  assert.equal(ciBundle.totals.brotliBytes, null);
+  assert.ok(ciBundle.files.every((file) => file.brotliBytes === null));
+  assert.ok(bundle.files.every((file) => Number.isFinite(file.brotliBytes)));
+
   const baseline = createBaseline(source, bundle, { fingerprints: [] });
   baseline.bundle.initialGzipBytes = 1;
   const comparison = compareBaseline(source, bundle, null, baseline, {
@@ -66,6 +73,9 @@ test("bundle analysis follows initial static imports and enforces regression bud
   });
   assert.equal(comparison.status, "failed");
   assert.equal(comparison.checks.find((check) => check.name === "initial-gzip")?.status, "failed");
+  assert.deepEqual(compareBaseline(source, ciBundle, null, baseline, {
+    bundle: { maxInitialGzipRegressionPercent: 5, maxJavaScriptGzipRegressionPercent: 5 },
+  }), comparison);
 });
 
 test("trace analysis isolates renderer long tasks and timing groups", () => {

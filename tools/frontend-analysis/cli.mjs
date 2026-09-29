@@ -45,27 +45,34 @@ async function execute(selectedCommand, args) {
   resetDirectory(LATEST_DIR, ANALYSIS_DIR);
   ensureDirectory(path.join(LATEST_DIR, "logs"));
   const stages = [];
+  const mayRun = () => selectedCommand !== "ci" || stages.every((stage) => stage.status === "passed");
   let source = null;
   let bundle = null;
   let eslintReport = null;
+  const baseline = selectedCommand === "baseline" ? null : readJsonIfExists(BASELINE_FILE);
+  const compareReports = () => compareBaseline(source, bundle,
+    eslintReport && baseline ? compareEslintFindings(eslintReport, baseline.eslint?.findings ?? []) : null,
+    baseline);
   const runQuality = ["full", "ci", "static", "baseline"].includes(selectedCommand);
   const runTestsAndBuild = ["full", "ci", "baseline"].includes(selectedCommand);
   const runSource = runQuality || selectedCommand === "source";
   const runBundle = runTestsAndBuild || selectedCommand === "bundle";
 
   if (runQuality) {
-    stages.push(await runNodeStage("tooling-tests", ["--experimental-vm-modules", "--test", "tools/frontend-analysis/analysis.test.mjs", "tools/frontend-analysis/performance-analysis.test.mjs", "tools/frontend-analysis/window-entry.test.mjs"], "tooling-tests.log"));
+    stages.push(await runNodeStage("tooling-tests", ["--experimental-vm-modules", "--test", "tools/frontend-analysis/analysis.test.mjs", "tools/frontend-analysis/cli.test.mjs", "tools/frontend-analysis/performance-analysis.test.mjs", "tools/frontend-analysis/window-entry.test.mjs"], "tooling-tests.log"));
+  }
+  if (runQuality && mayRun()) {
     stages.push(await runNodeStage("typecheck", [localBinary("typescript/bin/tsc"), "--noEmit"], "typecheck.log"));
   }
 
-  if (runQuality || selectedCommand === "lint") {
+  if ((runQuality || selectedCommand === "lint") && mayRun()) {
     stages.push(await runAsyncInternalStage("eslint-analysis", async () => {
       eslintReport = await analyzeEslint();
       writeJson(path.join(LATEST_DIR, "eslint.json"), eslintReport);
     }));
   }
 
-  if (runSource) {
+  if (runSource && mayRun()) {
     const result = runInternalStage("source-analysis", () => {
       source = analyzeSource();
       writeJson(path.join(LATEST_DIR, "source.json"), source);
@@ -73,30 +80,34 @@ async function execute(selectedCommand, args) {
     stages.push(result);
   }
 
-  if (runTestsAndBuild) {
+  if (selectedCommand === "ci" && mayRun() && compareReports().status !== "passed") {
+    stages.push({ name: "baseline-budgets", status: "failed", durationMs: 0, log: "baseline-comparison.json" });
+  }
+
+  if (runTestsAndBuild && mayRun()) {
     stages.push(await runNodeStage("vitest", [localBinary("vitest/vitest.mjs"), "run"], "vitest.log"));
   }
 
-  if (runBundle) {
+  if (runBundle && mayRun()) {
     stages.push(await runNodeStage("vite-build", [localBinary("vite/bin/vite.js"), "build"], "vite-build.log", {
-      TINYBOT_ANALYZE_FRONTEND: "1",
+      TINYBOT_ANALYZE_FRONTEND: selectedCommand === "ci" ? "0" : "1",
     }));
     const result = runInternalStage("bundle-analysis", () => {
-      bundle = analyzeBundle({ distDir: DIST_DIR });
+      bundle = analyzeBundle({ distDir: DIST_DIR, detailed: selectedCommand !== "ci" });
       writeJson(path.join(LATEST_DIR, "bundle.json"), bundle);
     }, stages.at(-1).status === "passed");
     stages.push(result);
   }
 
   let comparison = null;
+  if (!mayRun()) {
+    console.error("[frontend-analysis] CI stopped after a failed stage; writing the completed diagnostics.");
+  }
   if (selectedCommand !== "baseline") {
-    const baseline = readJsonIfExists(BASELINE_FILE);
-    const eslintComparison = eslintReport && baseline
-      ? compareEslintFindings(eslintReport, baseline.eslint?.findings ?? [])
-      : null;
-    comparison = compareBaseline(source, bundle, eslintComparison, baseline);
+    comparison = compareReports();
     writeJson(path.join(LATEST_DIR, "baseline-comparison.json"), comparison);
-    if (comparison.status === "failed" || (selectedCommand === "ci" && comparison.status === "missing")) {
+    if ((comparison.status === "failed" || (selectedCommand === "ci" && comparison.status === "missing"))
+      && !stages.some((stage) => stage.name === "baseline-budgets")) {
       stages.push({
         name: "baseline-budgets",
         status: "failed",

@@ -5,10 +5,8 @@ function fail(message) {
   process.exit(1);
 }
 
-const tag = process.argv[2] ?? process.env.GITHUB_REF_NAME;
-if (!tag) {
-  fail("pass a v<semver> tag as the first argument or GITHUB_REF_NAME");
-}
+const npmPackage = JSON.parse(readFileSync("package.json", "utf8"));
+const tag = process.argv[2] ?? `v${npmPackage.version}`;
 
 const tagMatch = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tag);
 if (!tagMatch) {
@@ -17,7 +15,6 @@ if (!tagMatch) {
 
 const expected = tagMatch[1];
 const tauriConfig = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
-const npmPackage = JSON.parse(readFileSync("package.json", "utf8"));
 const cargoManifest = readFileSync("src-tauri/Cargo.toml", "utf8");
 const cargoPackage = /^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m.exec(cargoManifest);
 
