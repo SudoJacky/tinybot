@@ -14,7 +14,10 @@ pub(super) fn assistant_tool_calls_message(
     tool_calls: &[NativeAgentToolCall],
 ) -> Value {
     AgentItem::AssistantMessage(AgentAssistantMessage {
-        id: None,
+        origin: Default::default(),
+        id: tool_calls
+            .first()
+            .map(|call| format!("tool-batch:{}", call.id)),
         content: Some(AgentMessageContent::text(content)),
         reasoning: None,
         tool_calls: tool_calls
@@ -37,7 +40,8 @@ fn tool_observation_message_with_error(
     is_error: bool,
 ) -> Value {
     AgentItem::ToolResult(AgentToolResultItem {
-        id: None,
+        origin: Default::default(),
+        id: Some(format!("tool-output:{}", tool_call.id)),
         tool_call_id: tool_call.id.clone(),
         name: Some(tool_call.name.clone()),
         content: AgentMessageContent::text(content),
@@ -114,8 +118,10 @@ pub(super) fn commit_tool_observation(
     let summary = required_envelope_string(&result.envelope, "summary")?.to_string();
     let observation_content =
         required_envelope_string(&result.envelope, "modelContent")?.to_string();
-    let observation_message =
+    let mut observation_message =
         tool_observation_message_with_error(&tool_call, &observation_content, status != "ok");
+    observation_message["turnId"] = context.turn_id.clone().into();
+    observation_message["threadId"] = serde_json::json!(context.thread_id);
     state
         .history
         .record_message(observation_message)

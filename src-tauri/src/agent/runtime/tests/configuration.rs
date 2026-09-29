@@ -349,7 +349,7 @@ fn builds_internal_responses_api_request_without_changing_chat_defaults() {
 }
 
 #[test]
-fn responses_request_replays_native_items_and_keeps_repeated_user_turns() {
+fn responses_request_replays_explicit_native_history_and_keeps_repeated_user_turns() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
@@ -377,6 +377,12 @@ fn responses_request_replays_native_items_and_keeps_repeated_user_turns() {
                     "status": "completed",
                     "content": [{ "type": "output_text", "text": "answer" }],
                     "turnId": "turn-1"
+                },
+                {
+                    "role": "user",
+                    "content": "first",
+                    "turnId": "turn-2",
+                    "references": [{ "referenceKind": "browser", "title": "Example" }]
                 }
             ],
             "messages": [

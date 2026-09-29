@@ -194,10 +194,7 @@ fn cancelled_form_can_start_a_new_turn_after_reopening_storage() {
             drop(store);
 
             let store = open();
-            let history = store
-                .agent_history("thread-cancel-form", 500)
-                .unwrap()
-                .unwrap();
+            let history = store.agent_history("thread-cancel-form").unwrap().unwrap();
             assert_eq!(serde_json::to_value(history.api_mode).unwrap(), mode);
             let results: Vec<_> = history
                 .messages
@@ -282,6 +279,249 @@ impl Drop for TestWorkspace {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn admitted_input_is_replayed_once_in_order_and_identity_conflicts_fail() {
+    use crate::agent::bridge::turn_request::AgentTurnRequest;
+    use crate::agent::runtime::AgentItem;
+    for mode in ["chat_completions", "responses"] {
+        let workspace = TestWorkspace::new();
+        let open = || {
+            WorkspaceThreadStore::new_with_data_root(
+                workspace.root.clone(),
+                workspace.root.join("thread-data"),
+                default_desktop_capability_policy(),
+            )
+        };
+        let store = open();
+        let mut request = AgentTurnRequest::from_wire(serde_json::json!({
+            "sessionId":"admission-thread", "threadId":"admission-thread", "turnId":"admission-turn", "apiMode":mode,
+            "messages":[
+                {"role":"user", "clientEventId":"client-a", "content":[
+                    {"type":"text", "text":"same"}, {"type":"image_url", "image_url":{"url":"data:image/png;base64,AA=="}}]},
+                {"role":"user", "clientEventId":"client-b", "content":[
+                    {"type":"text", "text":"same"}, {"type":"image_url", "image_url":{"url":"data:image/png;base64,AQ=="}}]}
+            ]
+        }), &serde_json::json!({}), &workspace.root).unwrap();
+        let record = crate::agent::bridge::persistence::native_agent_turn_start_record(
+            &request.input,
+            "admission-thread",
+            "admission-turn",
+        );
+        for _ in 0..2 {
+            store
+                .start_agent_turn(
+                    record.clone(),
+                    Some(request.context.clone()),
+                    request.user_messages.clone(),
+                )
+                .unwrap();
+        }
+        crate::agent::bridge::history::hydrate_native_agent_history_for_runtime(
+            &mut request.input,
+            &store,
+        )
+        .unwrap();
+        let users = request.input.messages.to_legacy_messages().unwrap();
+        assert_eq!(users.len(), 2);
+        assert_eq!(users[0]["id"], "user:admission-turn");
+        assert_eq!(users[1]["id"], "user:admission-turn:1");
+        assert_eq!(users[0]["clientEventId"], "client-a");
+        assert_ne!(users[0]["content"], users[1]["content"]);
+        assert!(users.iter().all(|user| user["rolloutOrdinal"].is_u64()));
+        if let Some(native) = &request.input.responses_input_items {
+            assert_eq!(native.len(), 2);
+            assert_eq!(native[0]["content"], users[0]["content"]);
+            assert_eq!(native[1]["rolloutOrdinal"], users[1]["rolloutOrdinal"]);
+        }
+        let mut conflicting = request.user_messages[0].as_value().clone();
+        conflicting["content"] = "different content".into();
+        let error = store
+            .start_agent_turn(
+                record,
+                Some(request.context.clone()),
+                vec![
+                    crate::threads::rollout::format::ResponseItem::from_value(conflicting).unwrap(),
+                ],
+            )
+            .unwrap_err();
+        assert!(error.message.contains("different content or origin"));
+        assert_eq!(error.details["messageId"], "user:admission-turn");
+        store.flush().unwrap();
+        let reopened = open();
+        let replay = reopened.agent_history("admission-thread").unwrap().unwrap();
+        assert_eq!(replay.messages.len(), 2);
+        let restored =
+            crate::agent::runtime::AgentItemHistory::from_legacy_messages(&replay.messages)
+                .unwrap();
+        assert_eq!(request.input.messages, restored);
+        assert!(
+            matches!(&restored.items[0], AgentItem::UserMessage(user) if user.origin.turn_id.as_deref() == Some("admission-turn"))
+        );
+    }
+}
+
+#[test]
+fn model_history_beyond_500_messages_keeps_tool_pairs_and_native_source_coverage() {
+    use crate::agent::bridge::turn_request::AgentTurnRequest;
+    use crate::threads::rollout::format::ResponseItem;
+    use serde_json::json;
+    struct HistoryProvider;
+    impl BlockingTestProvider for HistoryProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let messages = context.messages.to_legacy_messages()?;
+            assert!(messages
+                .iter()
+                .any(|message| message["tool_call_id"] == "old-call"));
+            assert!(messages
+                .iter()
+                .any(|message| message["tool_calls"][0]["id"] == "old-call"));
+            Ok(NativeAgentProviderResponse {
+                final_content: "done".into(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+                response_items: if context.api_mode.as_deref() == Some("responses") {
+                    vec![
+                        json!({"type":"message", "id":"native-answer", "role":"assistant",
+                        "content":[{"type":"output_text", "text":"done"}], "status":"completed"}),
+                    ]
+                } else {
+                    Vec::new()
+                },
+            })
+        }
+    }
+    for mode in ["chat_completions", "responses"] {
+        let workspace = TestWorkspace::new();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let mut request = AgentTurnRequest::from_wire(json!({
+            "sessionId":"long-thread", "threadId":"long-thread", "turnId":"long-turn", "apiMode":mode,
+            "messages":[{"role":"user", "content":"continue"}]
+        }), &json!({}), &workspace.root).unwrap();
+        let mut history = vec![
+            json!({"role":"user", "id":"first", "content":"start", "turnId":"old-turn"}),
+            json!({"type":"function_call", "id":"native-call", "call_id":"old-call", "name":"read_file", "arguments":"{}", "turnId":"old-turn"}),
+            json!({"type":"function_call_output", "id":"native-result", "call_id":"old-call", "output":"ok", "turnId":"old-turn"}),
+        ];
+        history.extend((0..499).map(|index| json!({"role":"user", "id":format!("old-{index}"), "content":"next", "turnId":"old-turn"})));
+        if mode == "responses" {
+            history.push(json!({"type":"reasoning", "id":"reasoning-item", "encrypted_content":"opaque", "turnId":"old-turn"}));
+        }
+        let record = crate::agent::bridge::persistence::native_agent_turn_start_record(
+            &request.input,
+            "long-thread",
+            "long-turn",
+        );
+        let mut items: Vec<_> = history
+            .into_iter()
+            .map(|item| ResponseItem::from_value(item).unwrap())
+            .collect();
+        items.extend(request.user_messages.clone());
+        store
+            .start_agent_turn(record, Some(request.context.clone()), items)
+            .unwrap();
+        crate::agent::bridge::history::hydrate_native_agent_history_for_runtime(
+            &mut request.input,
+            &store,
+        )
+        .unwrap();
+        let messages = request.input.messages.to_legacy_messages().unwrap();
+        assert_eq!(messages.len(), 503);
+        assert_eq!(messages[1]["tool_calls"][0]["id"], "old-call");
+        assert_eq!(messages[2]["tool_call_id"], "old-call");
+        if let Some(native) = &request.input.responses_input_items {
+            assert_eq!(native.len(), 504);
+            assert!(native
+                .iter()
+                .any(|item| item["encrypted_content"] == "opaque"));
+            for message in &messages {
+                assert!(native
+                    .iter()
+                    .any(|item| item["rolloutOrdinal"] == message["rolloutOrdinal"]));
+            }
+        }
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(HistoryProvider),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(store.clone());
+        let result = tauri::async_runtime::block_on(run_agent_from_wire_with_services(services, json!({
+            "sessionId":"long-thread", "threadId":"long-thread", "turnId":"long-turn", "apiMode":mode,
+            "messages":[{"role":"user", "content":"continue"}], "metadata":{"mcpEnabled":false}
+        }), workspace.root.clone(), json!({}), None)).unwrap();
+        assert_eq!(result.final_content, "done");
+        store.flush().unwrap();
+    }
+}
+
+#[test]
+fn thread_flow_admits_every_user_message_in_request_order() {
+    struct BatchProvider;
+    impl BlockingTestProvider for BatchProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let users: Vec<_> = context
+                .messages
+                .to_legacy_messages()?
+                .into_iter()
+                .filter(|message| message["role"] == "user")
+                .map(|message| message["content"].clone())
+                .collect();
+            assert_eq!(users, vec![serde_json::json!("A"), serde_json::json!("B")]);
+            Ok(NativeAgentProviderResponse {
+                final_content: "done".into(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+                response_items: Vec::new(),
+            })
+        }
+    }
+    tauri::async_runtime::block_on(async {
+        let workspace = TestWorkspace::new();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let thread = store
+            .create_agent_thread("batch-thread".into(), &serde_json::json!({}))
+            .unwrap();
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(BatchProvider),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(store.clone());
+        crate::agent::bridge::thread_flow::execute_thread_turn_with_services(services, crate::agent::bridge::thread_flow::SubmitThreadTurnInput {
+            thread_id: Some(thread.thread_id.clone()),
+            input: serde_json::json!([{"role":"user", "content":"A"}, {"role":"user", "content":"B"}]),
+            spec: serde_json::json!({"turnId":"batch-turn", "metadata":{"mcpEnabled":false}}),
+        }, workspace.root.clone(), serde_json::json!({}), None).await.unwrap();
+        let history = store.agent_history(&thread.thread_id).unwrap().unwrap();
+        let users: Vec<_> = history
+            .messages
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .map(|message| message["content"].clone())
+            .collect();
+        assert_eq!(users, vec![serde_json::json!("A"), serde_json::json!("B")]);
+        store.flush().unwrap();
+    });
 }
 
 #[test]

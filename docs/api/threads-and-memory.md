@@ -17,7 +17,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b62c3392fa915d2c20131334162b9aaad20c8ee78320feefb7639da6d94353e9 -->
+<!-- tinybot-doc-fingerprint: sha256:191358ab048062e4a582194ef1ccdc09bc4f5297bd9190ea7469a131f61611d7 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 
@@ -377,7 +377,9 @@ the explicit repair RPC. Consistency status values are `clean`, `missing_index`,
 `unreadable`.
 
 `thread.history` returns the persisted message projection and `thread.context` returns the model
-context projection. When a thread has token usage, the
+context projection. Model content retains structured parts; transcript content remains display
+text. Runtime hydration uses complete history independently of count-limited query views, with
+token budgeting and tool-pair selection applied later. When a thread has token usage, the
 backend derives the message `usage` field from the latest persisted `token_count` event. A malformed
 thread log line, malformed `token_count` event, or malformed compaction payload is treated as a
 backend error instead of being silently ignored.

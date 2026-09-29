@@ -3,6 +3,122 @@ use crate::threads::rollout::format::SessionApiMode;
 use crate::threads::rollout::store::{ThreadLogItem, ThreadLogLine, ThreadMeta};
 use serde_json::json;
 
+#[test]
+fn fork_replay_preserves_original_location_in_both_representations() {
+    let timestamp = "2026-09-29T00:00:00Z";
+    let item =
+        response_item(json!({"role":"user", "content":"inherited", "id":"u-1", "turnId":"t-1"}))
+            .with_history_origin("original-thread", Some(42));
+    let replay = reconstruct_rollout(&[
+        meta_line("fork-thread", None, timestamp),
+        ThreadLogLine {
+            timestamp: timestamp.into(),
+            ordinal: Some(1),
+            item: ThreadLogItem::ResponseItem(item),
+        },
+    ])
+    .unwrap();
+    for message in [&replay.messages[0], &replay.response_items[0]] {
+        assert_eq!(message["threadId"], "original-thread");
+        assert_eq!(message["rolloutOrdinal"], 42);
+        assert_eq!(message["turnId"], "t-1");
+    }
+}
+
+#[test]
+fn checkpoint_overlap_uses_identity_and_keeps_native_coverage_consistent() {
+    let timestamp = "2026-09-29T00:00:00Z";
+    let previous =
+        json!({"role":"assistant", "content":"same", "id":"local-answer", "turnId":"t-1"});
+    let replay = reconstruct_rollout(&[
+        meta_line("thread-1", None, timestamp),
+        ThreadLogLine {
+            timestamp: timestamp.into(),
+            ordinal: Some(5),
+            item: ThreadLogItem::Compacted(compacted_item(
+                json!({"replacementHistory":[previous]}),
+            )),
+        },
+        response_line(
+            timestamp,
+            json!({"role":"assistant", "content":[{"type":"output_text","text":"same"}],
+            "id":"provider-answer", "messageId":"local-answer", "turnId":"t-1"}),
+        ),
+        response_line(
+            timestamp,
+            json!({"role":"user", "content":"same", "id":"new-input", "turnId":"t-2"}),
+        ),
+    ])
+    .unwrap();
+    assert_eq!(replay.messages.len(), 2);
+    assert_eq!(replay.response_items.len(), 2);
+    assert_eq!(replay.messages[1]["id"], "new-input");
+}
+
+#[test]
+fn model_replay_retains_parts_and_native_origins_while_transcript_projects_text() {
+    let timestamp = "2026-09-29T00:00:00Z";
+    let parts = json!([{"type":"input_text","text":"inspect"},
+        {"type":"input_image","image_url":"data:image/png;base64,AA=="}]);
+    let mut lines = vec![
+        meta_line("source-thread", None, timestamp),
+        response_line(
+            timestamp,
+            json!({"role":"user", "id":"u-1", "messageId":"u-1",
+            "turnId":"turn-1", "clientEventId":"client-1", "content":parts}),
+        ),
+        response_line(
+            timestamp,
+            json!({"type":"function_call", "id":"native-call-1",
+            "call_id":"call-1", "name":"read_file", "arguments":"{}", "turnId":"turn-1"}),
+        ),
+        response_line(
+            timestamp,
+            json!({"type":"function_call_output", "id":"native-result-1",
+            "call_id":"call-1", "tool_name":"read_file", "output":"denied", "status":"error", "turnId":"turn-1"}),
+        ),
+    ];
+    for (index, line) in lines.iter_mut().enumerate() {
+        line.ordinal = Some(index as u64);
+    }
+    let model = reconstruct_rollout(&lines).unwrap();
+    assert_eq!(model.messages[0]["content"], parts);
+    assert_eq!(model.messages[0]["clientEventId"], "client-1");
+    for (index, message) in model.messages.iter().enumerate() {
+        assert_eq!(message["threadId"], "source-thread");
+        assert_eq!(message["turnId"], "turn-1");
+        assert_eq!(message["rolloutOrdinal"], index + 1);
+        assert_eq!(
+            message["rolloutOrdinal"],
+            model.response_items[index]["rolloutOrdinal"]
+        );
+    }
+    assert_eq!(model.messages[1]["id"], "native-call-1");
+    assert_eq!(model.messages[2]["id"], "native-result-1");
+    assert_eq!(model.messages[2]["is_error"], true);
+    assert_eq!(model.messages[2]["name"], "read_file");
+    let display = reconstruct_transcript(&lines).unwrap();
+    assert_eq!(display.messages[0]["content"], "inspect");
+}
+
+#[test]
+fn equal_text_does_not_merge_distinct_message_or_turn_ids() {
+    let timestamp = "2026-09-29T00:00:00Z";
+    let replay = reconstruct_rollout(&[
+        event_line(
+            timestamp,
+            "user_message",
+            json!({"id":"u-1", "turnId":"t-1", "message":"same"}),
+        ),
+        response_line(
+            timestamp,
+            json!({"role":"user", "id":"u-2", "turnId":"t-2", "content":"same"}),
+        ),
+    ])
+    .unwrap();
+    assert_eq!(replay.messages.len(), 2);
+}
+
 fn cancelled_form_lines(mode: SessionApiMode) -> Vec<ThreadLogLine> {
     let timestamp = "2026-09-27T12:10:22Z";
     let mut meta = meta_line("thread-form", None, timestamp);
@@ -84,7 +200,9 @@ fn cancelled_form_replay_preserves_real_results_before_or_after_resolution() {
                 .collect();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0]["content"], "recorded cancellation");
-            assert_eq!(replay.response_items[1], output);
+            let mut expected = output;
+            expected["threadId"] = "thread-form".into();
+            assert_eq!(replay.response_items[1], expected);
         }
     }
 }
@@ -189,9 +307,19 @@ fn replay_keeps_native_response_items_separate_from_message_projection() {
     .unwrap();
 
     assert_eq!(replay.api_mode, SessionApiMode::Responses);
-    assert_eq!(replay.response_items, vec![reasoning, message]);
+    let mut expected_reasoning = reasoning;
+    expected_reasoning["threadId"] = "thread-responses".into();
+    let mut expected_message = message;
+    expected_message["threadId"] = "thread-responses".into();
+    assert_eq!(
+        replay.response_items,
+        vec![expected_reasoning, expected_message]
+    );
     assert_eq!(replay.messages.len(), 1);
-    assert_eq!(replay.messages[0]["content"], "done");
+    assert_eq!(
+        replay.messages[0]["content"],
+        json!([{"type":"output_text", "text":"done"}])
+    );
 }
 
 #[test]
@@ -293,7 +421,10 @@ fn replay_preserves_existing_frontend_fields() {
 
     let message = &replay.messages[0];
     assert_eq!(replay.session_id, "thread-fields");
-    assert_eq!(message["content"], "structured");
+    assert_eq!(
+        message["content"],
+        json!([{"type":"output_text", "text":"structured"}])
+    );
     assert_eq!(message["id"], "response-id");
     assert_eq!(message["messageId"], "message-camel");
     assert_eq!(message["message_id"], "message-snake");

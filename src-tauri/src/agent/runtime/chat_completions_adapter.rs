@@ -77,6 +77,7 @@ impl ChatCompletionsAdapter {
             history.items.insert(
                 0,
                 AgentItem::Instruction(AgentInstructionMessage {
+                    origin: Default::default(),
                     id: None,
                     role: AgentInstructionRole::System,
                     content: AgentMessageContent::text(system_prompt),
@@ -116,6 +117,7 @@ impl ChatCompletionsAdapter {
             .cloned();
         Ok(DecodedProviderTurn {
             assistant: AgentAssistantMessage {
+                origin: Default::default(),
                 id: message
                     .get("id")
                     .and_then(Value::as_str)

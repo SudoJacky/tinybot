@@ -608,7 +608,17 @@ pub(crate) fn result_summary(method: &str, result: &Value) -> String {
     }
 }
 
-pub(crate) fn project_web_result_history(model_content: &mut String, retain_targets: bool) -> bool {
+/// History policy shared by typed Chat messages and provider-native Responses items.
+pub(crate) fn project_web_history<'a>(results: impl DoubleEndedIterator<Item = &'a mut String>) {
+    let mut retained_targets = false;
+    for content in results.rev() {
+        if project_web_result_history(content, !retained_targets) {
+            retained_targets = true;
+        }
+    }
+}
+
+fn project_web_result_history(model_content: &mut String, retain_targets: bool) -> bool {
     let Ok(mut result) = serde_json::from_str::<Value>(model_content) else {
         return false;
     };

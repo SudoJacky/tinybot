@@ -154,38 +154,68 @@ impl WorkerThreadLogRpc {
             items.push(ThreadLogItem::TurnContext(context));
         }
         let existing_lines = read_thread_lines(&path)?;
+        let mut admitted = Vec::new();
+        let mut repeated = 0usize;
         for message in messages {
             let content_hash = message
                 .get("contentHash")
                 .or_else(|| message.get("content_hash"))
                 .and_then(Value::as_str);
             let message_id = message
-                .get("id")
-                .or_else(|| message.get("messageId"))
+                .get("messageId")
+                .or_else(|| message.get("message_id"))
+                .or_else(|| message.get("id"))
                 .and_then(Value::as_str);
-            let already_persisted = existing_lines.iter().any(|line| match &line.item {
-                ThreadLogItem::ResponseItem(existing) => {
-                    existing.role() == message.role()
-                        && (content_hash.is_some_and(|content_hash| {
+            let existing = existing_lines
+                .iter()
+                .map(|line| &line.item)
+                .chain(admitted.iter())
+                .find_map(|item| match item {
+                    ThreadLogItem::ResponseItem(existing) => ((existing.role() == message.role()
+                        && content_hash.is_some_and(|content_hash| {
                             existing
                                 .get("contentHash")
                                 .or_else(|| existing.get("content_hash"))
                                 .and_then(Value::as_str)
                                 == Some(content_hash)
-                        }) || message_id.is_some_and(|message_id| {
+                        }))
+                        || message_id.is_some_and(|message_id| {
                             existing
-                                .get("id")
-                                .or_else(|| existing.get("messageId"))
+                                .get("messageId")
+                                .or_else(|| existing.get("message_id"))
+                                .or_else(|| existing.get("id"))
                                 .and_then(Value::as_str)
                                 == Some(message_id)
                         }))
+                    .then_some(existing),
+                    _ => None,
+                });
+            if let Some(existing) = existing {
+                if existing != &message {
+                    return Err(WorkerProtocolError::new(
+                        WorkerProtocolErrorCode::InvalidProtocol,
+                        "input identity was already admitted with different content or origin",
+                        serde_json::json!({
+                            "method": "agent.input.admit", "threadId": state.id,
+                            "turnId": record.turn_id, "messageId": message_id,
+                        }),
+                        false,
+                        WorkerProtocolErrorSource::RustCore,
+                    ));
                 }
-                _ => false,
-            });
-            if !already_persisted {
-                items.push(ThreadLogItem::ResponseItem(message));
+                repeated += 1;
+            } else {
+                admitted.push(ThreadLogItem::ResponseItem(message));
             }
         }
+        eprintln!(
+            "agent_input_admitted thread_id={} turn_id={} appended={} repeated={}",
+            state.id,
+            record.turn_id,
+            admitted.len(),
+            repeated
+        );
+        items.extend(admitted);
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;

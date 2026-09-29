@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:9648ccab360b8e7a0dd742a774d2639f4c9a4bfcc56daae4494983e921f691aa -->
+<!-- tinybot-module-fingerprint: sha256:f4111bcb5fcd4eb5554dd97a5e2ab9c44d3813cb2c95c80563ef200e7f12c248 -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -48,11 +48,17 @@ Form definitions and correlation are decoded once at the storage boundary.
 Pending calls, completed tool results, continuation, terminal records, and cancellation
 cleanup use typed contracts. Tool envelopes retain dynamic extension payloads.
 Input, execution context, in-memory checkpoints, and result messages share
-`AgentItemHistory`. History merges operate on `AgentItem`; protocol messages are
-encoded at provider, event, and storage adapters. User message IDs, client event IDs,
-and references survive entry normalization. Context compaction checkpoints carry
+`AgentItemHistory`. Internal history serialization preserves local Thread/Turn/message
+identity, original Rollout ordinal, provider item IDs, content parts, references,
+client event IDs, and tool errors. Provider adapters strip local bookkeeping at
+the request boundary. Explicit native Responses history is authoritative; wire
+decoding never infers an extra current user from a second history array.
+Both representations share the Web snapshot target-retention policy.
+Context compaction checkpoints carry
 typed history, window lineage, and installed/finalized stages. The committer calls
 the persistence service directly and retains structured commit failures.
+Generated summaries link to their context checkpoint; retained messages keep
+their original identities and Rollout locations.
 Configuration, extension metadata, and provider-native items remain dynamic.
 `patch_result.rs` removes patch diff bodies from model-visible receipts while
 retaining paths, operations, hunk counts, and added/removed line counts. Raw tool
@@ -65,8 +71,10 @@ trace buffering, and bridge persistence. Multiple failures retain their individu
 causes. String conversion is reserved for legacy response boundaries and diagnostics.
 
 The module is independent of the Tauri command surface. Desktop integration,
-history selection, attachment lifetime, and durable turn orchestration belong
+canonical history loading, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
+Token budgeting and selection of complete tool-call/result units belong to the
+runtime after that history has been loaded.
 
 A successful `team.complete_task` ends the Turn locally. Its completion event
 includes the summary as a typed assistant response item so both Chat Completions

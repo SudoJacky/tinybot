@@ -3,8 +3,7 @@ mod browser;
 mod registry;
 
 pub(crate) use agent::{
-    dispatch_web_act, dispatch_web_open, dispatch_web_read, project_web_result_history,
-    result_summary,
+    dispatch_web_act, dispatch_web_open, dispatch_web_read, project_web_history, result_summary,
 };
 #[cfg(test)]
 pub(crate) use browser::{dispatch_browser_interact, dispatch_browser_observe};

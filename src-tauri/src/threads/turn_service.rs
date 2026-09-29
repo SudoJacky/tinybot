@@ -116,9 +116,8 @@ impl WorkspaceThreadStore {
     pub(crate) fn agent_history(
         &self,
         thread_id: &str,
-        limit: usize,
     ) -> Result<Option<super::rollout::store::ThreadHistoryProjection>, WorkerProtocolError> {
-        self.turn_operation(|operation| operation.thread_log().get_thread_context(thread_id, limit))
+        self.turn_operation(|operation| operation.thread_log().get_agent_context(thread_id))
     }
     pub(crate) fn turn_operation<T>(
         &self,

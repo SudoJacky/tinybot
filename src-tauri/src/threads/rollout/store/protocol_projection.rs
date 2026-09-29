@@ -180,6 +180,13 @@ fn enrich_response_items(
             if contains_assistant_message && is_assistant_message {
                 insert_if_missing(object, "modelCallId", model_call_id.as_ref());
                 insert_if_missing(object, "phase", message_phase.as_ref());
+                insert_if_missing(
+                    object,
+                    "messageId",
+                    event
+                        .get("payload")
+                        .and_then(|payload| payload.get("messageId")),
+                );
             }
             if contains_assistant_message && is_reasoning {
                 insert_if_missing(object, "modelCallId", model_call_id.as_ref());

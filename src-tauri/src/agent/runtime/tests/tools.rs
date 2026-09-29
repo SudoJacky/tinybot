@@ -2732,7 +2732,9 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert_eq!(wait_event["payload"]["sourceToolCallId"], "call-wait");
     assert_eq!(
         result["messages"],
-        json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])
+        json!([{ "role": "assistant", "content": "Subagent lifecycle handled.",
+            "id":"turn-subagent-tools:assistant:6", "messageId":"turn-subagent-tools:assistant:6",
+            "turnId":"turn-subagent-tools" }])
     );
 }
 

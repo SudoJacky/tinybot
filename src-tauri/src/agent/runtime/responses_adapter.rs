@@ -83,6 +83,7 @@ impl ResponsesAdapter {
             history.items.insert(
                 0,
                 AgentItem::Instruction(AgentInstructionMessage {
+                    origin: Default::default(),
                     id: None,
                     role: AgentInstructionRole::System,
                     content: AgentMessageContent::text(system_prompt),
@@ -236,6 +237,7 @@ impl ResponsesAdapter {
             .cloned();
         Ok(DecodedProviderTurn {
             assistant: AgentAssistantMessage {
+                origin: Default::default(),
                 id: assistant_id,
                 content: (!assistant_text.is_empty())
                     .then(|| AgentMessageContent::text(assistant_text)),
@@ -303,27 +305,21 @@ fn project_superseded_web_response_targets(response_items: &[Value]) -> Vec<Valu
                 .map(str::to_string)
         })
         .collect::<HashSet<_>>();
-    let mut retained_targets = false;
-    for item in response_items.iter_mut().rev() {
+    let results = response_items.iter_mut().filter_map(|item| {
         if item.get("type").and_then(Value::as_str) != Some("function_call_output")
             || !item
                 .get("call_id")
                 .and_then(Value::as_str)
                 .is_some_and(|call_id| web_call_ids.contains(call_id))
         {
-            continue;
+            return None;
         }
-        let Some(output) = item.get_mut("output") else {
-            continue;
+        let Some(Value::String(content)) = item.get_mut("output") else {
+            return None;
         };
-        let Some(mut content) = output.as_str().map(str::to_string) else {
-            continue;
-        };
-        if crate::tools::web::project_web_result_history(&mut content, !retained_targets) {
-            retained_targets = true;
-            *output = Value::String(content);
-        }
-    }
+        Some(content)
+    });
+    crate::tools::web::project_web_history(results);
     response_items
 }
 
@@ -349,6 +345,15 @@ fn sanitize_replayed_item(item: &Value, index: usize) -> Result<Value, String> {
     }
     for field in [
         "turnId",
+        "threadId",
+        "rolloutOrdinal",
+        "contextId",
+        "thread_id",
+        "clientEventId",
+        "client_event_id",
+        "selectedSkills",
+        "is_error",
+        "isError",
         "turn_id",
         "messageId",
         "message_id",

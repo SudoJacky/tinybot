@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:827988eba83bac3ebce316b041c12abac8caf90fe32a052c434856489a186ceb -->
+<!-- tinybot-module-fingerprint: sha256:2abce1477b06c06a444caaed7f7685d8165482bc44073c0aa0c45505bab03dbd -->
 
 Ordinary and form-resumed Turns establish a trusted usage scope after persistence.
 The scope resolves canonical Thread identity and Team ancestry from the store,
@@ -58,6 +58,16 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 
 `run_agent_from_wire_with_services` decodes protocol input into `AgentTurnRequest`.
 `run_agent_with_services` consumes the typed request and returns `AgentTurnResult`.
+Attached turns accept new user messages and current instructions. They reject
+client-supplied assistant/tool history and native `responseItems`; standalone
+runtime execution and checkpoint resume supply history explicitly.
+`AgentTurnRequest` assigns stable user IDs once. Turn-start persistence admits
+the complete batch in order and rejects conflicting reuse of an identity.
+Thread lifecycle startup does not write another copy of this input. Hydration
+then reads the complete canonical context, which already includes the input;
+it never merges by text or truncates to a message-count limit. Token budgeting
+and tool-unit selection remain runtime responsibilities. Admission and loading
+diagnostics report Thread/Turn IDs and counts without logging user content.
 Instruction composition receives `TurnInstructionInput`; history hydration updates
 typed execution fields. Start records and Turn Context are constructed as Rust
 types, and terminal persistence receives a typed trace context. Invalid wire input

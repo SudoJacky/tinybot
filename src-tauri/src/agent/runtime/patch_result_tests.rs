@@ -215,10 +215,7 @@ fn patch_execution_sends_compact_next_request_and_reopens_full_review_diff() {
     assert!(output.len() < 500);
     store.flush().unwrap();
     let reopened = open();
-    let history = reopened
-        .agent_history("patch-thread", 100)
-        .unwrap()
-        .unwrap();
+    let history = reopened.agent_history("patch-thread").unwrap().unwrap();
     let replay = ChatCompletionsAdapter::encode_history(&history.messages, None).unwrap();
     assert_eq!(
         replay

@@ -63,69 +63,62 @@ pub(crate) fn hydrate_native_agent_memory_snapshot_for_runtime(
     Ok(())
 }
 
+/// Rollout already includes the admitted input. Hydration never merges client history.
 pub(crate) fn hydrate_native_agent_history_for_runtime(
     input: &mut crate::agent::runtime::AgentTurnInput,
     thread_store: &WorkspaceThreadStore,
 ) -> Result<(), crate::agent::runtime::AgentError> {
+    use crate::agent::runtime::{AgentError, AgentItem, AgentItemHistory};
     use crate::threads::rollout::format::SessionApiMode;
+    let thread_id = input
+        .trace_context
+        .thread_id
+        .as_deref()
+        .unwrap_or(&input.session_id);
     let history = thread_store
-        .agent_history(&input.session_id, 500)
-        .map_err(|error| {
-            crate::agent::runtime::AgentError::persistence("native agent context hydration", error)
+        .agent_history(thread_id)
+        .map_err(|error| AgentError::persistence("native agent context hydration", error))?
+        .ok_or_else(|| {
+            AgentError::invalid_input(format!(
+                "admitted thread history is missing: thread={thread_id} turn={}",
+                input.trace_context.turn_id
+            ))
         })?;
-    let (api_mode, messages, mut response_items, checkpoint) = match history {
-        Some(history) => (
-            history.api_mode,
-            history.messages,
-            history.response_items,
-            history.context_checkpoint,
-        ),
-        None => (
-            SessionApiMode::ChatCompletions,
-            Vec::new(),
-            Vec::new(),
-            None,
-        ),
-    };
-    if input.controls.manual_compaction && !messages.is_empty() {
-        input.messages = crate::agent::runtime::AgentItemHistory::from_legacy_messages(&messages)?;
-    } else if !input.messages.is_empty() && !messages.is_empty() {
-        input.messages = native_agent_merge_history_messages(
-            &crate::agent::runtime::AgentItemHistory::from_legacy_messages(&messages)?,
-            &input.messages,
-        );
-    }
+    let checkpoint = history.context_checkpoint;
+    let mut instructions = input.messages.clone();
+    instructions
+        .items
+        .retain(|item| matches!(item, AgentItem::Instruction(_)));
+    let mut messages = instructions.clone();
+    messages
+        .items
+        .extend(AgentItemHistory::from_legacy_messages(&history.messages)?.items);
+    let mut response_items = instructions.to_legacy_messages()?;
+    response_items.extend(history.response_items);
+    eprintln!(
+        "agent_history_loaded thread_id={} turn_id={} messages={} response_items={} checkpoint={}",
+        thread_id,
+        input.trace_context.turn_id,
+        messages.items.len(),
+        response_items.len(),
+        checkpoint
+            .as_ref()
+            .and_then(|value| value.get("contextId"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("none")
+    );
+    input.messages = messages;
     input.api_mode = Some(
-        match api_mode {
+        match history.api_mode {
             SessionApiMode::ChatCompletions => "chat_completions",
             SessionApiMode::Responses => "responses",
         }
         .into(),
     );
-    input.responses_input_items =
-        match api_mode {
-            SessionApiMode::ChatCompletions => None,
-            SessionApiMode::Responses => {
-                let has_current_user = response_items.iter().any(|item| {
-                    item.get("role").and_then(serde_json::Value::as_str) == Some("user")
-                        && item
-                            .get("turnId")
-                            .or_else(|| item.get("turn_id"))
-                            .and_then(serde_json::Value::as_str)
-                            == Some(&input.trace_context.turn_id)
-                });
-                if !has_current_user {
-                    if let Some(item) = input.messages.items.iter().rev().find(|item| {
-                        matches!(item, crate::agent::runtime::AgentItem::UserMessage(_))
-                    }) {
-                        let mut user = item.to_legacy_message()?;
-                        user["turnId"] = input.trace_context.turn_id.clone().into();
-                        response_items.push(user);
-                    }
-                }
-                Some(response_items)
-            }
-        };
+    input.responses_input_items = match history.api_mode {
+        SessionApiMode::ChatCompletions => None,
+        SessionApiMode::Responses => Some(response_items),
+    };
     if let Some(source) = checkpoint
         .as_ref()
         .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata)
@@ -134,66 +127,4 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
         input.metadata["contextSourceCheckpoint"] = source;
     }
     Ok(())
-}
-
-fn native_agent_merge_history_messages(
-    history: &crate::agent::runtime::AgentItemHistory,
-    requested: &crate::agent::runtime::AgentItemHistory,
-) -> crate::agent::runtime::AgentItemHistory {
-    use crate::agent::runtime::{AgentItem, AgentItemHistory};
-    let is_instruction = |item: &&AgentItem| matches!(item, AgentItem::Instruction(_));
-    let mut items: Vec<_> = requested
-        .items
-        .iter()
-        .filter(is_instruction)
-        .cloned()
-        .collect();
-    let requested: Vec<_> = requested
-        .items
-        .iter()
-        .filter(|item| !is_instruction(item))
-        .cloned()
-        .collect();
-    let history: Vec<_> = history
-        .items
-        .iter()
-        .filter(|item| !is_instruction(item))
-        .cloned()
-        .collect();
-    if !history.is_empty() && requested.starts_with(&history) {
-        items.extend(requested);
-    } else if !requested.is_empty()
-        && history.len() >= requested.len()
-        && history[history.len() - requested.len()..]
-            .iter()
-            .zip(&requested)
-            .all(|(left, right)| logical_message_equal(left, right))
-    {
-        items.extend(history);
-    } else {
-        items.extend(history);
-        items.extend(requested);
-    }
-    AgentItemHistory { items }
-}
-
-fn logical_message_equal(
-    left: &crate::agent::runtime::AgentItem,
-    right: &crate::agent::runtime::AgentItem,
-) -> bool {
-    use crate::agent::runtime::{AgentItem, AgentMessageContent};
-    let text = AgentMessageContent::plain_text;
-    match (left, right) {
-        (AgentItem::UserMessage(a), AgentItem::UserMessage(b)) => {
-            text(&a.content) == text(&b.content)
-        }
-        (AgentItem::AssistantMessage(a), AgentItem::AssistantMessage(b)) => {
-            a.content.as_ref().map(text).unwrap_or_default()
-                == b.content.as_ref().map(text).unwrap_or_default()
-        }
-        (AgentItem::ToolResult(a), AgentItem::ToolResult(b)) => {
-            text(&a.content) == text(&b.content)
-        }
-        _ => left == right,
-    }
 }
