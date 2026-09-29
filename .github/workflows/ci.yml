@@ -4,6 +4,12 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      commit:
+        description: Exact commit to validate before release
+        required: true
+        type: string
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -11,46 +17,54 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      frontend: ${{ steps.scope.outputs.frontend }}
+      windows: ${{ steps.scope.outputs.windows }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify application versions
+        run: node .github/scripts/check-release-version.mjs
+      - name: Test CI, release, documentation, and ripgrep tooling
+        run: node --test .github/scripts/*.test.mjs tools/ripgrep/prepare.test.mjs
+      - name: Check module README freshness
+        run: node .github/scripts/readme-freshness.mjs check
+      - name: Check engineering documentation freshness
+        run: node .github/scripts/docs-freshness.mjs check
+      - name: Determine required checks
+        id: scope
+        env:
+          CI_FULL: ${{ inputs.commit != '' || github.event_name == 'workflow_dispatch' }}
+        run: node .github/scripts/ci-scope.mjs detect
+
   frontend:
+    needs: checks
+    if: needs.checks.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: package-lock.json
-
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Test release tooling
-        run: node --test .github/scripts/windows-release.test.mjs .github/scripts/customize-updater-manifest.test.mjs .github/scripts/resolve-release-build.test.mjs
-
-      - name: Test ripgrep preparation
-        run: node --test tools/ripgrep/prepare.test.mjs
-
-      - name: Test README freshness tooling
-        run: node --test .github/scripts/readme-freshness.test.mjs
-
-      - name: Check module README freshness
-        run: npm run readme:check
-
-      - name: Test engineering documentation freshness tooling
-        run: node --test .github/scripts/docs-freshness.test.mjs
-
-      - name: Check engineering documentation freshness
-        run: npm run docs:check
-
       - name: Run frontend analysis gate
         run: npm run analyze:frontend:ci
 
@@ -64,6 +78,8 @@ jobs:
           retention-days: 7
 
   windows:
+    needs: checks
+    if: needs.checks.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -72,56 +88,36 @@ jobs:
       CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
       - uses: ./.github/actions/setup-rust
         with:
           target: x86_64-pc-windows-msvc
-      - name: Install frontend dependencies
-        run: npm ci
       - name: Check Rust formatting
         working-directory: src-tauri
         run: cargo fmt --check
       - name: Prepare bundled ripgrep
-        run: npm run prepare:ripgrep -- x86_64-pc-windows-msvc
+        run: node tools/ripgrep/prepare.mjs x86_64-pc-windows-msvc
       - name: Run Rust tests
         working-directory: src-tauri
         run: cargo test --locked --lib -- --test-threads=4
-      - name: Verify build version
-        if: github.ref == 'refs/heads/master'
-        shell: pwsh
-        run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          node .github/scripts/check-release-version.mjs "v$version"
-      - name: Build signed Windows installer
-        if: github.ref == 'refs/heads/master'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri -- build --ci --bundles nsis --target x86_64-pc-windows-msvc -- --locked
-      - name: Save signed installer for this commit
-        if: github.ref == 'refs/heads/master'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-x64-${{ github.sha }}-${{ github.run_attempt }}
-          path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
 
   # Preserve the existing required check name for branch protection.
   desktop:
     if: always()
-    needs: [frontend, windows]
+    needs: [checks, frontend, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Require all checks to pass
         env:
-          FRONTEND_RESULT: ${{ needs.frontend.result }}
-          WINDOWS_RESULT: ${{ needs.windows.result }}
-        run: test "$FRONTEND_RESULT" = success && test "$WINDOWS_RESULT" = success
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node .github/scripts/ci-scope.mjs check

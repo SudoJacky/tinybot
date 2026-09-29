@@ -8,13 +8,14 @@ export function analyzeBundle(options = {}) {
   const rootDir = path.resolve(options.rootDir ?? ROOT_DIR);
   const distDir = path.resolve(options.distDir ?? DIST_DIR);
   const config = options.config ?? analysisConfig.bundle;
+  const detailed = options.detailed ?? true;
   if (!fs.existsSync(distDir)) {
     throw new Error(`Bundle directory does not exist: ${distDir}`);
   }
 
   const files = walkFiles(distDir)
     .filter((file) => !file.endsWith(".map"))
-    .map((file) => measureFile(rootDir, distDir, file))
+    .map((file) => measureFile(rootDir, distDir, file, detailed))
     .sort((left, right) => right.gzipBytes - left.gzipBytes || left.path.localeCompare(right.path));
   const fileMap = new Map(files.map((file) => [file.distPath, file]));
   const initialPaths = findInitialAssets(distDir, fileMap);
@@ -27,6 +28,7 @@ export function analyzeBundle(options = {}) {
 
   return {
     schemaVersion: 1,
+    detailed,
     generatedAt: new Date().toISOString(),
     distDirectory: toRepoPath(rootDir, distDir),
     totals: measureTotals(files),
@@ -119,7 +121,7 @@ export function compareBaseline(sourceReport, bundleReport, eslintComparison, ba
   };
 }
 
-function measureFile(rootDir, distDir, file) {
+function measureFile(rootDir, distDir, file, detailed) {
   const contents = fs.readFileSync(file);
   const distPath = toRepoPath(distDir, file);
   return {
@@ -128,7 +130,7 @@ function measureFile(rootDir, distDir, file) {
     kind: fileKind(file),
     rawBytes: contents.byteLength,
     gzipBytes: zlib.gzipSync(contents, { level: 9 }).byteLength,
-    brotliBytes: zlib.brotliCompressSync(contents).byteLength,
+    brotliBytes: detailed ? zlib.brotliCompressSync(contents).byteLength : null,
   };
 }
 
@@ -147,7 +149,8 @@ function measureTotals(files) {
     files: files.length,
     rawBytes: files.reduce((total, file) => total + file.rawBytes, 0),
     gzipBytes: files.reduce((total, file) => total + file.gzipBytes, 0),
-    brotliBytes: files.reduce((total, file) => total + file.brotliBytes, 0),
+    brotliBytes: files.some((file) => file.brotliBytes === null)
+      ? null : files.reduce((total, file) => total + file.brotliBytes, 0),
   };
 }
 

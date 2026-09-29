@@ -393,7 +393,10 @@ async fn team_handoff_regression_wait_has_no_empty_timeout() {
         std::future::pending(),
     );
     tokio::pin!(wait);
+    // Exercise the old 30-second timeout boundary without waiting in wall-clock time.
+    tokio::time::pause();
     let premature = tokio::time::timeout(Duration::from_secs(31), &mut wait).await;
+    tokio::time::resume();
     // Always drain the scheduler before assertions/fixture cleanup, including the red case.
     success(done, "committed result");
     handle.await.unwrap().unwrap();

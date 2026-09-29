@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:bfcd7f07da011ba0a37723c5490f929669fec141cdf5c8108ed9c64c3f2316ab -->
+<!-- tinybot-module-fingerprint: sha256:2d098556d04029c0d44c17cef91b6bfd2f73c6f1e318446829c63202e0b41d4e -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -210,6 +210,7 @@ roles:
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
 | `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
 | `~/.tinybot/state/token-usage.sqlite` | `token_usage` | Invocation ledger with purpose and Team/Thread/Turn attribution, legacy baseline, and atomic daily provider/model totals |
+| `~/.tinybot/state/token-usage.sqlite.init.lock` | `token_usage` | Serializes WAL and schema initialization across concurrent ledger connections |
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
 
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a

@@ -63,6 +63,37 @@ fn invocation(id: &str) -> UsageInvocation {
 }
 
 #[test]
+fn concurrent_first_invocations_initialize_one_ledger() {
+    for round in 0..12 {
+        let f = Fixture::new();
+        let barrier = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            let handles = (0..8)
+                .map(|index| {
+                    let root = &f.root;
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        // Independent stores model concurrent title, compaction and turn calls.
+                        let store = DailyTokenUsageStore::from_data_root(root);
+                        barrier.wait();
+                        store.begin_invocation(&invocation(&format!("call-{index}")))
+                    })
+                })
+                .collect::<Vec<_>>();
+            let results = handles
+                .into_iter()
+                .map(|handle| handle.join().unwrap())
+                .collect::<Vec<_>>();
+            assert!(
+                results.iter().all(Result::is_ok),
+                "round {round}: {results:?}"
+            );
+        });
+        assert_eq!(f.store.details(None, None).unwrap().invocations.len(), 8);
+    }
+}
+
+#[test]
 fn concurrent_duplicate_completion_is_atomic_and_conflicting_delivery_fails() {
     let f = Fixture::new();
     f.store.begin_invocation(&invocation("same-call")).unwrap();

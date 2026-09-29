@@ -1,5 +1,5 @@
 # Team orchestration
-<!-- tinybot-module-fingerprint: sha256:bc8f84129112e6bede16140f60f41abf8a501743e0758e4fe797c4b5ec95f54e -->
+<!-- tinybot-module-fingerprint: sha256:4ef68fba9ea3c16c6974b7100ad71c0f206038abf55ce31d8b65926426e16f76 -->
 
 The command allocates the run ID before invoking the planner and passes it to
 `prepare_with_id`; planner usage therefore shares the eventual board identity.
@@ -187,3 +187,7 @@ Bridge integration tests exercise Chat Completions and Responses through a form
 pause, changed application defaults, recruitment, native worker execution,
 committed handoff and parent integration. They verify file writes stay in the
 selected workspace and worker histories stay outside the ordinary Thread list.
+
+The wait regression test advances Tokio's virtual clock past the former
+30-second timeout, then verifies delivery of a committed handoff. It preserves
+the timeout regression coverage without a wall-clock delay in every CI run.

@@ -236,6 +236,28 @@ impl DailyTokenUsageStore {
                 parent.display()
             )
         })?;
+        // Switching a fresh database to WAL can return SQLITE_BUSY immediately,
+        // even with a busy timeout. Serialize bootstrap across independent stores
+        // and processes; SQLite still owns locking for the returned connection.
+        let lock_path = self.database_path.with_extension("sqlite.init.lock");
+        let initialization_lock = fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|error| {
+                format!(
+                    "failed to open token usage initialization lock `{}`: {error}",
+                    lock_path.display()
+                )
+            })?;
+        initialization_lock.lock().map_err(|error| {
+            format!(
+                "failed to lock token usage initialization `{}`: {error}",
+                lock_path.display()
+            )
+        })?;
         let connection = Connection::open(&self.database_path).map_err(|error| {
             format!(
                 "failed to open token usage database `{}`: {error}",
@@ -246,10 +268,14 @@ impl DailyTokenUsageStore {
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|error| token_usage_db_error("configure busy timeout", error))?;
         connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(|error| token_usage_db_error("enable WAL journal mode", error))?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|error| token_usage_db_error("enable foreign keys", error))?;
+        connection
             .execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 PRAGMA foreign_keys = ON;
-                 CREATE TABLE IF NOT EXISTS daily_token_usage (
+                "CREATE TABLE IF NOT EXISTS daily_token_usage (
                      usage_date             TEXT PRIMARY KEY CHECK (length(usage_date) = 10),
                      input_tokens           INTEGER NOT NULL CHECK (input_tokens >= 0),
                      cached_input_tokens    INTEGER NOT NULL CHECK (cached_input_tokens >= 0),

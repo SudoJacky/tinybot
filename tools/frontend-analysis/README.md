@@ -27,6 +27,11 @@ npm run analyze:frontend:baseline
 
 The baseline command reruns every gate and refuses to write `baseline.json` when type checking, ESLint execution, tests, build, source analysis, or bundle analysis fails. It intentionally snapshots currently reviewed ESLint debt. Do not update the baseline merely to make a new lint, cycle, or size regression pass; explain intentional changes first.
 
+`analyze:frontend:ci` stops after a failed stage or static baseline gate and
+still writes the completed logs and reports. It computes the same gzip budgets
+without Brotli compression or the interactive treemap. Local full and baseline
+analysis retain the complete diagnostics and detailed size reports.
+
 ## Reports
 
 Generated files live under `tools/frontend-analysis/reports/latest/`:
@@ -35,8 +40,9 @@ Generated files live under `tools/frontend-analysis/reports/latest/`:
 - `summary.json`: machine-readable overall result.
 - `source.json`: source graph, cycles, unreachable candidates, branch/file hotspots, and heavy imports.
 - `eslint.json`: every current lint finding with a stable debt fingerprint.
-- `bundle.json`: raw, gzip, and Brotli sizes, including initial assets.
-- `bundle-treemap.html`: interactive module treemap generated only during analysis builds.
+- `bundle.json`: raw and gzip sizes, including initial assets; Brotli sizes are
+  `null` in CI and measured in detailed local analysis.
+- `bundle-treemap.html`: interactive module treemap generated during detailed local analysis builds.
 - `baseline-comparison.json`: regression budget results.
 - `logs/`: complete output for each quality gate.
 

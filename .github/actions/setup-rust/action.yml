@@ -4,6 +4,9 @@ inputs:
   target:
     description: Rust target triple
     required: true
+  cache-key:
+    description: Separate test and release dependency caches
+    default: test
 runs:
   using: composite
   steps:
@@ -15,5 +18,5 @@ runs:
     - uses: Swatinem/rust-cache@v2
       with:
         workspaces: src-tauri -> target
-        shared-key: ${{ runner.os }}-${{ inputs.target }}
+        shared-key: ${{ runner.os }}-${{ inputs.target }}-${{ inputs.cache-key }}
         cache-on-failure: true

@@ -266,7 +266,9 @@ function renderBundle(bundle) {
     formatBytes(file.brotliBytes),
   ]);
   return `<h2>Bundle</h2>
-    <p><a href="bundle-treemap.html">Open interactive bundle treemap</a></p>
+    ${bundle.detailed === false
+      ? '<p class="muted">CI computes gzip budgets only. Run the full analysis for Brotli sizes and the interactive treemap.</p>'
+      : '<p><a href="bundle-treemap.html">Open interactive bundle treemap</a></p>'}
     ${table(["Largest files", "Kind", "Raw", "Gzip", "Brotli"], rows)}`;
 }
 
