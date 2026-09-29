@@ -8,7 +8,7 @@ The composer controls only the optional `mcpEnabled` boolean. False removes
 generic and concrete MCP calls while retaining built-in defaults; true exposes
 the available generic entry when no concrete MCP tools are present. Explicit
 backend selections and capability restrictions still bound this preference.
-<!-- tinybot-module-fingerprint: sha256:cec12c37dcbff5f66c4621b3cda48d3e3ffda343fbfc7cdb1a23a6a72fe6773a -->
+<!-- tinybot-module-fingerprint: sha256:9648ccab360b8e7a0dd742a774d2639f4c9a4bfcc56daae4494983e921f691aa -->
 
 Owned provider and tool tasks explicitly carry the current token-usage scope
 across task boundaries. Context compaction changes purpose while preserving its
@@ -512,7 +512,9 @@ Legacy form checkpoints without execution context fail instead of adopting defau
 the real tool observation and resumes the same provider chain. A correlated
 `agent.command.acknowledged` event is committed before that resumed provider
 request starts, keeping submission acceptance separate from model latency;
-cancellation clears the checkpoint and returns `form_cancelled`.
+cancellation persists an error observation for the pending tool call before
+consuming the checkpoint and returns `form_cancelled`. Later Turns therefore
+replay a complete call/result pair even after restarting the application.
 
 For frontend-visible shapes and event names, see the
 [Agent runtime API](../../../../docs/api/agent-runtime.md) and

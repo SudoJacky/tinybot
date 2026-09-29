@@ -4,6 +4,7 @@ use super::{
 };
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 const DEFAULT_TITLE: &str = "New session";
 const USER_MESSAGE_EVENT_MARKER: &str = "_tinybotUserMessageEvent";
@@ -63,6 +64,24 @@ fn reconstruct_rollout_with_mode(
     apply_context_checkpoints: bool,
 ) -> Result<RolloutReconstruction, WorkerProtocolError> {
     let effective_line_indexes = effective_rollout_line_indexes(lines);
+    let recorded_tool_results: HashSet<&str> = effective_line_indexes
+        .iter()
+        .filter_map(|index| match &lines[*index].item {
+            RolloutItem::ResponseItem(item) => match item.kind() {
+                super::ResponseItemKind::FunctionCallOutput
+                | super::ResponseItemKind::CustomToolCallOutput => {
+                    item.get("call_id").and_then(Value::as_str)
+                }
+                super::ResponseItemKind::Message
+                    if item.get("role").and_then(Value::as_str) == Some("tool") =>
+                {
+                    item.get("tool_call_id").and_then(Value::as_str)
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
     let mut replay = RolloutReconstruction {
         effective_line_indexes: effective_line_indexes.clone(),
         ..Default::default()
@@ -74,7 +93,15 @@ fn reconstruct_rollout_with_mode(
             RolloutItem::ResponseItem(item) => {
                 apply_response_item(&mut replay, item, &line.timestamp)
             }
-            RolloutItem::EventMsg(event) => apply_event(&mut replay, event, &line.timestamp)?,
+            RolloutItem::EventMsg(event) => {
+                apply_event(&mut replay, event, &line.timestamp)?;
+                restore_cancelled_form_result(
+                    &mut replay,
+                    event,
+                    &line.timestamp,
+                    &recorded_tool_results,
+                );
+            }
             RolloutItem::Compacted(compacted) => {
                 apply_compaction_metadata(&mut replay, compacted);
                 if apply_context_checkpoints {
@@ -93,6 +120,76 @@ fn reconstruct_rollout_with_mode(
     }
     attach_token_usage_to_history(&mut replay);
     Ok(replay)
+}
+
+fn restore_cancelled_form_result(
+    replay: &mut RolloutReconstruction,
+    event: &EventMsg,
+    timestamp: &str,
+    recorded_tool_results: &HashSet<&str>,
+) {
+    if !matches!(event.kind(), EventKind::ThreadItem) {
+        return;
+    }
+    let item = &event.payload()["item"];
+    let semantic = &item["kind"]["payload"];
+    if item["kind"]["type"] != "event"
+        || semantic["eventName"] != "agent.form.resolution"
+        || semantic["payload"]["action"] != "cancel"
+    {
+        return;
+    }
+    let Some(turn_id) = item["turnId"].as_str() else {
+        return;
+    };
+    let Some(call_id) = semantic["payload"]["formId"]
+        .as_str()
+        .and_then(|form_id| form_id.strip_prefix("user-input:"))
+    else {
+        return;
+    };
+    if recorded_tool_results.contains(call_id)
+        || replay
+            .messages
+            .iter()
+            .any(|message| message["role"] == "tool" && message["tool_call_id"] == call_id)
+    {
+        return;
+    }
+    // Older cancellations persisted the resolution but omitted the observation.
+    // Recover only a matching request in this Turn; unrelated missing results
+    // must still fail the runtime's strict tool-pair validation.
+    let matching_call = replay.response_items.iter().any(|item| {
+        if item["turnId"] != turn_id {
+            return false;
+        }
+        if item["type"] == "function_call" || item["type"] == "custom_tool_call" {
+            return item["call_id"] == call_id && item["name"] == "request_user_input";
+        }
+        item["role"] == "assistant"
+            && item["tool_calls"].as_array().is_some_and(|calls| {
+                calls.iter().any(|call| {
+                    call["id"] == call_id && call["function"]["name"] == "request_user_input"
+                })
+            })
+    });
+    if !matching_call {
+        return;
+    }
+    let message = "User input request was cancelled.";
+    let output = match replay.api_mode {
+        super::SessionApiMode::Responses => json!({
+            "type": "function_call_output", "call_id": call_id,
+            "output": message, "status": "error", "turnId": turn_id,
+        }),
+        super::SessionApiMode::ChatCompletions => json!({
+            "type": "custom_tool_call_output", "call_id": call_id,
+            "id": format!("tool-output:{call_id}"),
+            "output": message, "status": "error", "turnId": turn_id,
+        }),
+    };
+    let output = ResponseItem::from_value(output).expect("cancelled form output must serialize");
+    apply_response_item(replay, &output, timestamp);
 }
 
 #[derive(Default)]

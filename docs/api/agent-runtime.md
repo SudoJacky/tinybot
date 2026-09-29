@@ -225,7 +225,11 @@ after its active Turn stops, continue the conversation through the normal compos
 `formId`. The runtime emits a correlated `agent.command.acknowledged` event after accepting the
 resolution and before any resumed provider request, so transport callers do not wait for the
 provider response to confirm submission. Submitting resumes the same provider chain, while
-cancellation returns `stopReason: "form_cancelled"`.
+cancellation records an error tool observation before consuming the checkpoint
+and returns `stopReason: "form_cancelled"`. A later Turn can continue from the
+cancelled form's complete call/result pair. Older Rollouts with a matching form
+cancellation but no result recover that observation during replay; original log
+records remain unchanged.
 
 Accepted form resolutions are persisted as `agent.form.resolution` before their
 completed timeline Item is published. Replay consumes the matching waiting

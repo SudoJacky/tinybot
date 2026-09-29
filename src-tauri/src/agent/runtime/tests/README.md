@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:70e28dfac9ce6d1b7355671334cb27867b754e3037328961fc4294efc5e8b43b -->
+<!-- tinybot-module-fingerprint: sha256:afea0f2700962c2399a891aa2f98fdf571f21992646bee22ece8bdb8e360f2af -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -50,7 +50,9 @@ context on the same Turn, and verifies that form submission acknowledgement
 precedes the resumed provider request.
 MCP form regressions exercise submit and cancel with tools preactivated by the
 MCP preference or explicit backend selection. Submission resumes once with one
-MCP definition; cancellation clears the checkpoint without another provider call.
+MCP definition; cancellation records its tool result before clearing the
+checkpoint, without another provider call. Bridge tests reopen canonical storage
+and start a new Turn after cancellation in both provider protocols.
 
 Tool coverage verifies provider call/result pairing, multi-call batches, and
 native tool errors that remain model-visible so the next provider iteration can

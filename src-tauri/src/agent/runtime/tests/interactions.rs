@@ -450,6 +450,28 @@ fn assert_form_continuation_with_active_mcp(action: &str, explicitly_selected: b
         }
     );
     assert_eq!(calls.load(Ordering::SeqCst), if cancelled { 1 } else { 2 });
+    if cancelled {
+        let results = resolved["completedToolResults"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["toolCallId"], "choose-skill");
+        assert_eq!(results[0]["status"], "error");
+        let events = resolved["runtimeEvents"].as_array().unwrap();
+        let observation = events
+            .iter()
+            .position(|event| {
+                event["eventName"] == "agent.tool.result"
+                    && event["payload"]["toolCallId"] == "choose-skill"
+            })
+            .expect("cancellation must persist a model-visible tool observation");
+        let resolution = events
+            .iter()
+            .position(|event| event["eventName"] == "agent.form.resolution")
+            .unwrap();
+        assert!(
+            observation < resolution,
+            "close the tool call before consuming the checkpoint"
+        );
+    }
     assert!(
         services.restore_turn_checkpoint("session-form-active-mcp", "turn-form-active-mcp")
             ["checkpoint"]

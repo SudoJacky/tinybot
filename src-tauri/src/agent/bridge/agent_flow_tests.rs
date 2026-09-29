@@ -68,6 +68,167 @@ impl BlockingTestProvider for DataViewProvider {
 
 struct FailWhenToolStartsLiveSink;
 
+#[test]
+fn cancelled_form_can_start_a_new_turn_after_reopening_storage() {
+    struct FormProvider {
+        calls: AtomicUsize,
+    }
+    impl BlockingTestProvider for FormProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let first = self.calls.fetch_add(1, Ordering::SeqCst) == 0;
+            if !first {
+                let messages = context.messages.to_legacy_messages()?;
+                let results: Vec<_> = messages
+                    .iter()
+                    .filter(|message| {
+                        message["role"] == "tool" && message["tool_call_id"] == "cancel-form-call"
+                    })
+                    .collect();
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0]["content"], "User input request was cancelled.");
+            }
+            let arguments = serde_json::json!({
+                "title": "Choose a target",
+                "fields": [{"name": "target", "type": "text", "label": "Target"}]
+            })
+            .to_string();
+            Ok(NativeAgentProviderResponse {
+                final_content: if first { "" } else { "conversation recovered" }.into(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: if context.api_mode.as_deref() != Some("responses") {
+                    Vec::new()
+                } else if first {
+                    vec![serde_json::json!({
+                        "type": "function_call", "call_id": "cancel-form-call",
+                        "name": "request_user_input", "arguments": arguments,
+                    })]
+                } else {
+                    vec![serde_json::json!({
+                        "type": "message", "id": "after-cancel-answer", "role": "assistant",
+                        "status": "completed", "phase": "final_answer",
+                        "content": [{"type": "output_text", "text": "conversation recovered"}],
+                    })]
+                },
+                tool_calls: if first {
+                    vec![NativeAgentToolCall {
+                        id: "cancel-form-call".into(),
+                        name: "request_user_input".into(),
+                        arguments_json: arguments,
+                        result: serde_json::Value::Null,
+                    }]
+                } else {
+                    Vec::new()
+                },
+            })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        for mode in ["chat_completions", "responses"] {
+            let workspace = TestWorkspace::new();
+            let open = || {
+                WorkspaceThreadStore::new_with_data_root(
+                    workspace.root.clone(),
+                    workspace.root.join("thread-data"),
+                    default_desktop_capability_policy(),
+                )
+            };
+            let provider = Arc::new(FormProvider {
+                calls: AtomicUsize::new(0),
+            });
+            let make_services = |store: WorkspaceThreadStore| {
+                NativeAgentRuntimeServices::new(
+                    provider.clone(),
+                    Arc::new(FakeNativeAgentToolDispatcher),
+                    Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                    Arc::new(InMemoryNativeAgentCancellation::default()),
+                )
+                .with_thread_store(store)
+            };
+            let store = open();
+            let services = make_services(store.clone());
+            let mut spec = serde_json::json!({
+                "sessionId": "thread-cancel-form", "threadId": "thread-cancel-form",
+                "turnId": "turn-form", "model": "fixture-model", "apiMode": mode,
+                "messages": [{"role": "user", "content": "choose a target"}],
+                "metadata": {"mcpEnabled": false},
+            });
+            let waiting = run_agent_from_wire_with_services(
+                services.clone(),
+                spec.clone(),
+                workspace.root.clone(),
+                serde_json::json!({}),
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(waiting.stop_reason, AgentStopReason::AwaitingForm);
+            spec.as_object_mut().unwrap().remove("messages");
+            spec["metadata"]["agentContinuation"] = serde_json::json!({
+                "kind": "form", "formId": "user-input:cancel-form-call", "action": "cancel",
+            });
+            let cancelled = run_agent_from_wire_with_services(
+                services.clone(),
+                spec,
+                workspace.root.clone(),
+                serde_json::json!({}),
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(cancelled.stop_reason, AgentStopReason::FormCancelled);
+            assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(cancelled.completed_tool_results.as_ref().unwrap().len(), 1);
+            let persisted = store
+                .agent_turn("thread-cancel-form", "turn-form")
+                .unwrap()
+                .unwrap();
+            assert_eq!(persisted.completed_tool_results.len(), 1,
+                "the new cancellation result must actually be persisted, not supplied by legacy recovery");
+            store.flush().unwrap();
+            drop(services);
+            drop(store);
+
+            let store = open();
+            let history = store
+                .agent_history("thread-cancel-form", 500)
+                .unwrap()
+                .unwrap();
+            assert_eq!(serde_json::to_value(history.api_mode).unwrap(), mode);
+            let results: Vec<_> = history
+                .messages
+                .iter()
+                .filter(|message| {
+                    message["role"] == "tool" && message["tool_call_id"] == "cancel-form-call"
+                })
+                .collect();
+            assert_eq!(results.len(), 1);
+            let resumed = run_agent_from_wire_with_services(
+                make_services(store),
+                serde_json::json!({
+                    "sessionId": "thread-cancel-form", "threadId": "thread-cancel-form",
+                    "turnId": "turn-after-cancel", "model": "fixture-model",
+                    "apiMode": mode,
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "metadata": {"mcpEnabled": false},
+                }),
+                workspace.root.clone(),
+                serde_json::json!({}),
+                None,
+            )
+            .await
+            .unwrap();
+            assert_eq!(resumed.stop_reason, AgentStopReason::FinalResponse);
+            assert_eq!(resumed.final_content, "conversation recovered");
+            assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+        }
+    });
+}
+
 impl NativeAgentTraceSink for FailWhenToolStartsLiveSink {
     fn append_trace_event(
         &self,
