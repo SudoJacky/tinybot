@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { AddWorkspaceButton } from "../lib/AddWorkspaceButton";
 import { readEditorDraft, writeEditorDraft } from "../lib/editorDraft";
 import { FileSearch, History, ListTodo, NotebookPen, Plus, Search, X } from "lucide-react";
@@ -113,7 +114,8 @@ export default function AutomationsRoute({ services, onOpenThread }: {
       </div>
     </header>
     {error && !draft && <div role="alert" className="automation-error">{error}<button type="button" disabled={busy} onClick={() => { setError(null); setRefreshEpoch((value) => value + 1); }}>{t("automations.refresh")}</button></div>}
-    {!loaded && !error && <p role="status">{t("automations.loading")}</p>}
+
+    {!loaded && !error && <LoadingState label={t("automations.loading")} />}
 
     {!showHistory ? <>
       <div className="automation-search">

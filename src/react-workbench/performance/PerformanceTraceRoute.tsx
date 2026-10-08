@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { Archive, CircleStop, Download, Play, RefreshCw } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -213,9 +214,7 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
         </p>
       ) : null}
       {state.status === "loading" ? (
-        <p aria-live="polite" className="react-performance-trace-status" role="status">
-          {t("performanceTrace.loading")}
-        </p>
+        <LoadingState label={t("performanceTrace.loading")} />
       ) : null}
       {state.status === "failed" ? (
         <div className="react-performance-trace-error" role="alert">

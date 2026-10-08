@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TokenUsageCounts, UsageDetails, UsageDetailsLoader, UsageGroup } from "../../app-core/settings/tokenUsage";
@@ -98,7 +99,7 @@ export function UsageHistory({ load, teamRunId, tasks }: {
   const error = failure?.key === key ? failure.message : undefined;
   return <section className="usage-breakdown react-form-controls" aria-label={t("usage.history")}>
     <header><h3>{t("usage.history")}</h3><button type="button" onClick={() => { setBefore(undefined); setAttempt(a => a + 1); }}>{t("usage.refresh")}</button></header>
-    {error ? <p role="alert">{error}</p> : !data ? <p role="status">{t("profile.loading")}</p> : <>
+    {error ? <p role="alert">{error}</p> : !data ? <LoadingState label={t("profile.loading")} /> : <>
       {teamRunId && <UsageBreakdown groups={data.groups} tasks={tasks} />}
       <p>{t("usage.historyNote")}</p>
       <div className="usage-breakdown__scroll"><table aria-label={t("usage.history")}>

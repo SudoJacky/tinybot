@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { useEffect, useState } from "react";
 import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import { useTranslation } from "react-i18next";
@@ -64,7 +65,7 @@ export function LabsSettingsPage({ settingsStore }: { settingsStore: SettingsSto
           <button type="button" onClick={() => setAttempt((value) => value + 1)}>{t("labs.reload")}</button>
         </div>
       ) : !loaded ? (
-        <p className="react-empty-state" role="status">{t("labs.loading")}</p>
+        <LoadingState label={t("labs.loading")} />
       ) : (
         <div className="react-config-settings__form" aria-busy={save.state === "saving"}>
           <div className="react-config-settings__fields">

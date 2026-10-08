@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { Check, Loader2, RotateCcw } from "lucide-react";
 import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import type { TFunction } from "i18next";
@@ -142,7 +143,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
   if (!data || !draft) {
-    return <p className="react-empty-state">{t("config.loading", { section: copy.title })}</p>;
+    return <LoadingState label={t("config.loading", { section: copy.title })} />;
   }
 
   return (

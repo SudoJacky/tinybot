@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { UsageBreakdown, UsageHistory } from "./UsageBreakdown";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -71,9 +72,7 @@ export function ProfileSettingsPage({ settingsStore }: { settingsStore: Settings
       </header>
 
       {state.status === "loading" ? (
-        <p aria-live="polite" className="react-profile-settings__status" role="status">
-          {t("profile.loading")}
-        </p>
+        <LoadingState label={t("profile.loading")} />
       ) : state.status === "failed" ? (
         <div className="react-profile-settings__status react-profile-settings__status--failed" role="alert">
           <p>{t("profile.loadFailed", { message: state.error.message })}</p>

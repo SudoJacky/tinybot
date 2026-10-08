@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { PersonalizationInstructionsData, SettingsStore } from "../services";
@@ -89,7 +90,7 @@ export function PersonalizationSettingsPage({ settingsStore }: { settingsStore: 
           </button>
         </div>
       ) : !data ? (
-        <p className="react-empty-state">{t("personalization.loading")}</p>
+        <LoadingState label={t("personalization.loading")} />
       ) : (
         <>
           <SettingsSaveStatus message={saveMessage} state={saveState} />
