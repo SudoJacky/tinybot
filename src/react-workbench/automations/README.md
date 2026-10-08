@@ -1,5 +1,5 @@
 # Automations
-<!-- tinybot-module-fingerprint: sha256:a317c30b209c8e109076c5003334feea5556cf776718fd2922e1832b79cdf372 -->
+<!-- tinybot-module-fingerprint: sha256:a3594d21ceca896513285d1102deb4e216156294d60108a3b405d3ffafdeadaf -->
 
 The lazy Automations route owns definition forms, run selection, and report
 presentation. Native storage and execution belong to

@@ -1,5 +1,5 @@
 # Performance Trace Route
-<!-- tinybot-module-fingerprint: sha256:c2810eb6e8c31c7ae6e2d5fb6d3901310f57118a428cb3d38d366f70b5eb8af9 -->
+<!-- tinybot-module-fingerprint: sha256:a0637d8f7b688d93efb747db781807e4dfc1d1a579e20d7bbfd72ccedd0a40cc -->
 
 `performance` owns the System > Performance Trace surface. It loads one
 versioned, process-local snapshot through `AppServices.performanceStore` and
