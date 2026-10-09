@@ -1,0 +1,29 @@
+.react-loading-state {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 240px;
+  inline-size: 100%;
+}
+
+.react-loading-state--fill {
+  block-size: 100%;
+  min-block-size: 80px;
+}
+
+.react-loading-state > img {
+  display: block;
+  inline-size: 80px;
+  block-size: 80px;
+}
+
+.react-loading-state__label {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

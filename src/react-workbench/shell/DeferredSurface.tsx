@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -46,7 +47,7 @@ export function DeferredSurface<Props extends object>({
   }, [attempt, load]);
 
   if (state.status === "loading") {
-    return <p aria-live="polite" className="react-empty-state" role="status">{t("deferredSurface.loading", { name })}</p>;
+    return <LoadingState fill label={t("deferredSurface.loading", { name })} />;
   }
   if (state.status === "failed") {
     return (

@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:a35f11056925db0a53316f2c3bd8e7024b1a3f8bc8fede4e86509842c10149d4 -->
+<!-- tinybot-module-fingerprint: sha256:be23d5913285285dcb7718bb83df93800c489093de94c0f65ced43caed398564 -->
 
 Provider configuration shows a Get API Key link below the credential field for
 built-in cloud providers. The native opener launches the official console in

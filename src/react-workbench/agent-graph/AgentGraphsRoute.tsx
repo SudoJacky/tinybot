@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { AddWorkspaceButton } from "../lib/AddWorkspaceButton";
 import { readEditorDraft, writeEditorDraft } from "../lib/editorDraft";
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
@@ -513,7 +514,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
 
       {!draft ? (
         graphListLoading ? (
-          <p className="react-agent-graph-library__status" role="status">{t("graphs.loading")}</p>
+          <LoadingState label={t("graphs.loading")} />
         ) : storedGraphs.length ? (
           <section className="react-agent-graph-library" aria-labelledby="agent-graph-library-title">
             <header>

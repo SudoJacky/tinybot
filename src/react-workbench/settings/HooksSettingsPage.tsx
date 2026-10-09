@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   useEffect,
@@ -642,7 +643,7 @@ export function HooksSettingsPage({
         </div>
       ) : null}
       {!snapshot ? (
-        <p className="react-empty-state">{t("hooks.loading")}</p>
+        <LoadingState label={t("hooks.loading")} />
       ) : (
         <>
           {snapshot.diagnostics.length ? (

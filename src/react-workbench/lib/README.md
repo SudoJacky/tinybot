@@ -1,5 +1,5 @@
 # Renderer Library
-<!-- tinybot-module-fingerprint: sha256:624fc104c80d253dedfdc07aad3e677bf7618ddcc9ec1c6087cbbefc5dbfdc05 -->
+<!-- tinybot-module-fingerprint: sha256:f4a111d77de76d6c40def37322bdefe858b87dc9239c8bf5de565f15e1bf5713 -->
 
 `lib` contains small, renderer-only presentation helpers shared by frontend
 modules. Formatting helpers are pure; presentation hooks do not own route state.

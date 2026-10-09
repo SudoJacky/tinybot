@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { Check, Loader2 } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -100,7 +101,7 @@ export function AgentDefaultsSettingsPage({ settingsStore }: AgentDefaultsSettin
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
   if (!data || !values) {
-    return <p className="react-empty-state">{t("agent.loading")}</p>;
+    return <LoadingState label={t("agent.loading")} />;
   }
 
   return (

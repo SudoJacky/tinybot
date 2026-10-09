@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowLeft,
@@ -284,7 +285,7 @@ function SkillsCatalogView({
                     <X aria-hidden="true" size={15} />
                   </button>
                 </header>
-                {detailState.status === "loading" ? <p role="status">{t("tools.loadingSkillDetails")}</p> : null}
+                {detailState.status === "loading" ? <LoadingState label={t("tools.loadingSkillDetails")} /> : null}
                 {detailState.status === "failed" ? (
                   <div className="react-skill-detail__error" role="alert">
                     <p>{t("tools.skillDetailsFailed", { message: detailState.error.message })}</p>
@@ -1288,7 +1289,7 @@ function PluginsSection({
         </div>
       </div>
       {error ? <p className="react-plugin-section__error" role="alert">{error}</p> : null}
-      {loading ? <p className="react-plugin-section__loading" role="status">{t("plugins.loading")}</p> : null}
+      {loading ? <LoadingState label={t("plugins.loading")} /> : null}
       {!loading && !plugins.length ? (
         <div className="react-plugin-empty">
           <span aria-hidden="true"><PackagePlus size={22} /></span>

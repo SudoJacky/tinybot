@@ -126,8 +126,7 @@
   line-height: 1.3;
 }
 
-.react-resource-panel__heading small,
-.react-plugin-section__loading {
+.react-resource-panel__heading small {
   margin: 0;
   color: var(--color-muted);
   font-size: 12px;
@@ -221,9 +220,6 @@
   font-weight: 650;
 }
 
-.react-plugin-section__loading {
-  padding: 22px 2px;
-}
 
 .react-plugin-empty {
   display: grid;

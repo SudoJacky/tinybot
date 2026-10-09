@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import {
   Brain,
   Folder,
@@ -251,7 +252,7 @@ export function MemoryPage({
           {notice}
         </p>
       ) : null}
-      {loading && !snapshot ? <p role="status">{t("loading")}</p> : null}
+      {loading && !snapshot ? <LoadingState label={t("loading")} /> : null}
       {snapshot ? (
         <>
           <div className="react-memory-filters">

@@ -1,5 +1,5 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:7b1e96eb8a09b94d5d6e7a4e5090fee8fefdb29025145562c59c7c32af52e0ca -->
+<!-- tinybot-module-fingerprint: sha256:775ae67861f246b6d0bf8a49771037cb47d6cced951423455d8aa6612556230a -->
 
 MCP form inputs use the panel background token, with existing border, focus, and validation feedback.
 

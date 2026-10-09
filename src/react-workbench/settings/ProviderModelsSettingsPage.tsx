@@ -1,3 +1,4 @@
+import { LoadingState } from "../lib/LoadingState";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { LiquidToggle } from "../../components/ui/LiquidToggle";
 import { Check, ChevronRight, ExternalLink, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
@@ -100,7 +101,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
   if (!data) {
-    return <p className="react-empty-state">{t("provider.loading")}</p>;
+    return <LoadingState label={t("provider.loading")} />;
   }
 
   return (
