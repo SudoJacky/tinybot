@@ -14,7 +14,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/SudoJacky/tinybot?include_prereleases&logo=github)](https://github.com/SudoJacky/tinybot/releases)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SudoJacky/tinybot)
 
-> **版本状态：** Tinybot v1.0.0 是基于 Rust 后端的首个正式版本。核心对话、原生工具、插件和工作区功能已基本稳定，可用于日常使用。
+> **版本状态：** 由于个人精力有限，该项目逐渐处于停滞状态。如有兴趣，可以关注 [tinybot-harmony](https://github.com/SudoJacky/tinybot-harmony) 一个鸿蒙系统的原生AI Agent
 
 [English](README.md) · [帮助中心](https://sudojacky.github.io/tinybot/) · [快速开始](https://sudojacky.github.io/tinybot/guide/getting-started.html) · [下载](https://github.com/SudoJacky/tinybot/releases)
 
