@@ -14,7 +14,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/SudoJacky/tinybot?include_prereleases&logo=github)](https://github.com/SudoJacky/tinybot/releases)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SudoJacky/tinybot)
 
-> **Release status:** Tinybot v1.0.0 is the first stable release of the Rust-based desktop app, with core conversation, native tool, plugin, and workspace capabilities ready for everyday use.
+> **Release status:** Due to insufficient resources, the project has gradually stalled. If interested, you can follow: [tinybot-harmony](https://github.com/SudoJacky/tinybot-harmony) an native ai agent on HarmonyOS 
 
 [中文](README_ZH.md) · [Help Center (Chinese)](https://sudojacky.github.io/tinybot/) · [Quick Start (Chinese)](https://sudojacky.github.io/tinybot/guide/getting-started.html) · [Download](https://github.com/SudoJacky/tinybot/releases)
 
